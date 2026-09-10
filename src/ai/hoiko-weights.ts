@@ -2,219 +2,117 @@
  * Hoiko (Puyo Puyo Tetris bot) evaluation weights.
  *
  * The target bot stores its parameters as plaintext CSV-ish files
- * (`we`/`wo`/`wd`/`wr` VS play styles, plus `ultra2`/`sprint`). Each line is
- * either a scalar (`key,value`) or a small vector (`key,v1,v2,...`). The
- * complete reverse-engineered set lives at evidence/hoiko/weights/*.txt; the
- * copies embedded below are byte-for-byte transcriptions of those files so the
- * fighter is self-contained (src must not read outside its own tree).
+ * (`we`/`wo`/`wd`/`wr` VS play styles, plus `ultra2`/`sprint`). The native
+ * reader (EvaluateAI::EvalWeight::ReadWeight) parses the file POSITIONALLY:
+ * line index i (0-based) fills `weight[i]` with the 2nd CSV token, except
+ * line 13 (Column) fills `column[0..9]`, line 44 (ComboAtk) fills
+ * `comboTable[0..4]`, and line 46 (Nexus) sets `nexus = clamp(weight[46],0,100)*0.01`.
+ * The file must contain exactly 47 lines (0..46) or the whole struct is zeroed.
  *
- * Unknown scalar keys are preserved in `extra` (forward compatible); aliases
- * are normalised (`wellHole` -> `wellHint`, both spellings appear in the game
- * parameter files for the same well-shape weight).
+ * The embedded transcriptions below are byte-for-byte copies of
+ * evidence/hoiko/weights/*.txt so the fighter is self-contained (src must not
+ * read outside its own tree). The named keys are labels only; the parser
+ * ignores them and reads by line index, exactly like the native reader.
  */
 
 export type HoikoPreset = "we" | "wo" | "wd" | "wr" | "ultra2" | "sprint";
 
+/** Positional weight struct mirroring EvaluateAI::EvalWeight. */
 export interface HoikoWeights {
-  readonly maxHeight: number;
-  readonly over10: number;
-  readonly over15: number;
-  readonly updown2: number;
-  readonly donateCover: number;
-  readonly cover: number;
-  readonly roof: number;
-  readonly badRoof: number;
-  readonly pierce: number;
-  readonly anabara: number;
-  readonly wellHint: number;
-  readonly wellDepth: number;
-  readonly wellPeak: number;
-  readonly pcStack: number;
-  readonly pcChance: number;
-  readonly resource: number;
-  readonly resourceMax: number;
-  readonly tsdHole: number;
-  readonly tsdSpinable: number;
-  readonly tsdClearable: number;
-  readonly tsdOffensive: number;
-  readonly tstHole: number;
-  readonly tstSpinable: number;
-  readonly tstClearable: number;
-  readonly tstHint: number;
-  readonly tstOffensive: number;
-  readonly tdHole: number;
-  readonly tdHint: number;
-  readonly moveDelay: number;
-  readonly holdI: number;
-  readonly holdT: number;
-  readonly wasteI: number;
-  readonly wasteT: number;
-  readonly single: number;
-  readonly double: number;
-  readonly triple: number;
-  readonly quad: number;
-  readonly tss: number;
-  readonly tsd: number;
-  readonly tst: number;
-  readonly btb: number;
-  readonly pc: number;
-  readonly comboBtb: number;
-  readonly comboDebt: number;
-  readonly nexus: number;
-  /** `column` is per-column (10) occupancy/height weight. */
+  /** weight[50] — one scalar per W enum index (line index). */
+  readonly weight: readonly number[];
+  /** column[10] — per-column weight (line 13). */
   readonly column: readonly number[];
-  /** `comboAtk` is the attack reward for combo depth 1..5. */
-  readonly comboAtk: readonly number[];
-  /** Scalar keys that were present in the source but not modelled above. */
-  readonly extra: Readonly<Record<string, number>>;
+  /** comboTable[5] — combo attack reward by rank (line 44). */
+  readonly comboTable: readonly number[];
+  /** nexus — board-score blend factor, 0..1 (line 46). */
+  readonly nexus: number;
 }
 
-const SCALAR_KEYS = [
-  "maxHeight",
-  "over10",
-  "over15",
-  "updown2",
-  "donateCover",
-  "cover",
-  "roof",
-  "badRoof",
-  "pierce",
-  "anabara",
-  "wellHint",
-  "wellDepth",
-  "wellPeak",
-  "pcStack",
-  "pcChance",
-  "resource",
-  "resourceMax",
-  "tsdHole",
-  "tsdSpinable",
-  "tsdClearable",
-  "tsdOffensive",
-  "tstHole",
-  "tstSpinable",
-  "tstClearable",
-  "tstHint",
-  "tstOffensive",
-  "tdHole",
-  "tdHint",
-  "moveDelay",
-  "holdI",
-  "holdT",
-  "wasteI",
-  "wasteT",
-  "single",
-  "double",
-  "triple",
-  "quad",
-  "tss",
-  "tsd",
-  "tst",
-  "btb",
-  "pc",
-  "comboBtb",
-  "comboDebt",
-  "nexus",
-] as const;
+const W_COLUMN = 13;
+const W_COMBATK = 44;
+const W_NEXUS = 46;
 
-const SCALAR_SET: ReadonlySet<string> = new Set(SCALAR_KEYS);
-
-function padVector(values: readonly number[] | undefined, length: number): readonly number[] {
-  const out: number[] = new Array<number>(length).fill(0);
-  if (values === undefined) return out;
-  for (let i = 0; i < length && i < values.length; i += 1) out[i] = values[i] ?? 0;
-  return out;
+function toInt(token: string | undefined): number {
+  const value = Number(token?.trim());
+  return Number.isFinite(value) ? value : 0;
 }
 
 /**
- * Parse a Hoiko weight file. Lines are `key,value` (scalar) or
- * `key,v1,v2,...` (vector). Blank lines and `#` comments are ignored.
- * `column` is padded/truncated to 10, `comboAtk` to 5.
+ * Parse a Hoiko weight file positionally, mirroring the native ReadWeight.
+ * Returns a zeroed struct when the file does not have exactly 47 lines.
  */
 export function parseHoikoWeights(text: string): HoikoWeights {
-  const scalars = new Map<string, number>();
-  const vectors = new Map<string, number[]>();
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line.length === 0 || line.startsWith("#")) continue;
-    const parts = line.split(",");
-    const key = (parts[0] ?? "").trim();
-    if (key.length === 0) continue;
-    const values: number[] = [];
-    for (let i = 1; i < parts.length; i += 1) {
-      const value = Number((parts[i] ?? "").trim());
-      if (Number.isFinite(value)) values.push(value);
+  const weight = new Array<number>(50).fill(0);
+  const column = new Array<number>(10).fill(0);
+  const comboTable = new Array<number>(5).fill(0);
+  let nexus = 0;
+  const lines = text.split(/\r?\n/);
+  let i = 0;
+  let correct = -1;
+  for (; i < lines.length; i += 1) {
+    const tokens = (lines[i] ?? "").split(",");
+    if (i === W_COLUMN) {
+      for (let c = 1; c <= tokens.length; c += 1) {
+        if (c === 1) continue;
+        column[c - 2] = toInt(tokens[c - 1]);
+        if (c >= 11) {
+          correct += 1;
+          break;
+        }
+      }
+      continue;
     }
-    if (values.length === 0) continue;
-    if (values.length === 1) scalars.set(key, values[0] ?? 0);
-    else vectors.set(key, values);
+    if (i === W_COMBATK) {
+      let correctTable = 0;
+      for (let c = 1; c <= tokens.length; c += 1) {
+        if (c === 1) continue;
+        if ((tokens[c - 1] ?? "") === "") break;
+        comboTable[c - 2] = toInt(tokens[c - 1]);
+        correctTable += 1;
+        if (c >= 6) break;
+      }
+      if (correctTable > 0) {
+        correct += 1;
+        if (correctTable < 5) {
+          const base = comboTable[0] ?? 0;
+          comboTable[1] = base * 2;
+          comboTable[2] = base * 3;
+          comboTable[3] = base * 4;
+          comboTable[4] = base * 5;
+        }
+      }
+      continue;
+    }
+    for (let c = 1; c <= tokens.length; c += 1) {
+      if (c === 1) continue;
+      weight[i] = toInt(tokens[c - 1]);
+      if (c >= 2) {
+        correct += 1;
+        break;
+      }
+    }
+    if (i === W_NEXUS) {
+      nexus = Math.min(100, Math.max(0, weight[W_NEXUS] ?? 0));
+      nexus *= 0.01;
+      break;
+    }
   }
-  // Alias: some parameter files spell the well-shape weight `wellHole`.
-  if (!scalars.has("wellHint") && scalars.has("wellHole")) {
-    scalars.set("wellHint", scalars.get("wellHole") ?? 0);
+  if (i !== correct) {
+    return {
+      weight: new Array<number>(50).fill(0),
+      column: new Array<number>(10).fill(0),
+      comboTable: new Array<number>(5).fill(0),
+      nexus: 0,
+    };
   }
-  const extra: Record<string, number> = {};
-  for (const [key, value] of scalars) {
-    if (!SCALAR_SET.has(key) && key !== "wellHole") extra[key] = value;
-  }
-  const num = (key: string): number => scalars.get(key) ?? 0;
-  return {
-    maxHeight: num("maxHeight"),
-    over10: num("over10"),
-    over15: num("over15"),
-    updown2: num("updown2"),
-    donateCover: num("donateCover"),
-    cover: num("cover"),
-    roof: num("roof"),
-    badRoof: num("badRoof"),
-    pierce: num("pierce"),
-    anabara: num("anabara"),
-    wellHint: num("wellHint"),
-    wellDepth: num("wellDepth"),
-    wellPeak: num("wellPeak"),
-    pcStack: num("pcStack"),
-    pcChance: num("pcChance"),
-    resource: num("resource"),
-    resourceMax: num("resourceMax"),
-    tsdHole: num("tsdHole"),
-    tsdSpinable: num("tsdSpinable"),
-    tsdClearable: num("tsdClearable"),
-    tsdOffensive: num("tsdOffensive"),
-    tstHole: num("tstHole"),
-    tstSpinable: num("tstSpinable"),
-    tstClearable: num("tstClearable"),
-    tstHint: num("tstHint"),
-    tstOffensive: num("tstOffensive"),
-    tdHole: num("tdHole"),
-    tdHint: num("tdHint"),
-    moveDelay: num("moveDelay"),
-    holdI: num("holdI"),
-    holdT: num("holdT"),
-    wasteI: num("wasteI"),
-    wasteT: num("wasteT"),
-    single: num("single"),
-    double: num("double"),
-    triple: num("triple"),
-    quad: num("quad"),
-    tss: num("tss"),
-    tsd: num("tsd"),
-    tst: num("tst"),
-    btb: num("btb"),
-    pc: num("pc"),
-    comboBtb: num("comboBtb"),
-    comboDebt: num("comboDebt"),
-    nexus: num("nexus"),
-    column: padVector(vectors.get("column"), 10),
-    comboAtk: padVector(vectors.get("comboAtk"), 5),
-    extra,
-  };
+  return { weight, column, comboTable, nexus };
 }
 
 /**
  * Embedded transcriptions of evidence/hoiko/weights/*.txt. `we` is the
  * default VS preset (config `playStyle=0`); `wo`/`wd`/`wr` are the other VS
- * styles; `ultra2`/`sprint` are the single-player presets used here as
- * additional sparring temperaments.
+ * styles; `ultra2`/`sprint` are the single-player presets.
  */
 const PRESET_TEXT: Readonly<Record<HoikoPreset, string>> = {
   we: `maxHeight,-15
@@ -516,6 +414,34 @@ export function hoikoPresetWeights(preset: HoikoPreset): HoikoWeights {
   const parsed = parseHoikoWeights(PRESET_TEXT[preset]);
   PRESET_CACHE.set(preset, parsed);
   return parsed;
+}
+
+/**
+ * Build the native `weightList[4]` for a preset's play style.
+ *
+ * VS presets (we/wo/wd/wr) load all four VS weight files into weightList[0..3]
+ * and switch between them via TransitionWeight. Solo presets (ultra2/sprint)
+ * load a single file into weightList[0] and copy it to weightList[1]
+ * (transitSolo switches between two identical entries).
+ */
+export function hoikoWeightList(preset: HoikoPreset): readonly HoikoWeights[] {
+  switch (preset) {
+    case "we":
+    case "wo":
+    case "wd":
+    case "wr":
+      return [
+        hoikoPresetWeights("we"),
+        hoikoPresetWeights("wo"),
+        hoikoPresetWeights("wd"),
+        hoikoPresetWeights("wr"),
+      ];
+    case "ultra2":
+    case "sprint": {
+      const solo = hoikoPresetWeights(preset);
+      return [solo, solo];
+    }
+  }
 }
 
 /** Default VS config weights (`playStyle=0`). */

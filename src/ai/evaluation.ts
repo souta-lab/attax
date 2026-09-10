@@ -17,6 +17,10 @@ export interface PlyContext {
   readonly weights: Weights;
   readonly fire: BeamFireWeights;
   readonly piece?: PieceKind | undefined;
+  /** Hold piece after this placement (Hoiko EvalContBonus / EvalPrePcBoard). */
+  readonly hold?: PieceKind | null | undefined;
+  /** Piece that will be placed next (Hoiko EvalPrePcBoard fallingMino). */
+  readonly nextPiece?: PieceKind | undefined;
 }
 
 export type PlyScorer = (after: Board, lines: number, tspin: boolean, ctx: PlyContext) => number;

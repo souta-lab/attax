@@ -393,9 +393,21 @@ function expandWithHold(
     useKick,
     ply,
     placementGenerator,
+    nextPiece,
   );
   for (const s of scored) {
-    const child = applyPlacement(node, piece, s, false, isFirst, ply, weights, fire, evaluation);
+    const child = applyPlacement(
+      node,
+      piece,
+      s,
+      false,
+      isFirst,
+      ply,
+      weights,
+      fire,
+      evaluation,
+      nextPiece,
+    );
     if (child !== null) out.push(child);
   }
   if (useHold && node.canHold) {
@@ -412,9 +424,21 @@ function expandWithHold(
         useKick,
         ply,
         placementGenerator,
+        nextPiece,
       );
       for (const s of scoredHold) {
-        const child = applyPlacement(node, held, s, true, isFirst, ply, weights, fire, evaluation);
+        const child = applyPlacement(
+          node,
+          held,
+          s,
+          true,
+          isFirst,
+          ply,
+          weights,
+          fire,
+          evaluation,
+          nextPiece,
+        );
         if (child !== null) out.push(child);
       }
     } else {
@@ -430,6 +454,7 @@ function expandWithHold(
           useKick,
           ply,
           placementGenerator,
+          nextPiece,
         );
         for (const s of scoredNext) {
           const child = applyPlacement(
@@ -442,6 +467,7 @@ function expandWithHold(
             weights,
             fire,
             evaluation,
+            nextPiece,
           );
           if (child !== null) out.push({ ...child, queueIndex: child.queueIndex + 1 });
         }
@@ -462,6 +488,7 @@ function rankWithEvaluation(
   useKick?: boolean,
   rankPly?: number,
   placementGenerator?: PlacementGenerator,
+  nextPiece?: PieceKind,
 ): ScoredPlacement[] {
   void heldPiece;
   const kickHere = useKick === true && (rankPly ?? 0) === 0;
@@ -481,6 +508,8 @@ function rankWithEvaluation(
     weights,
     fire,
     piece,
+    hold: heldPiece !== undefined ? piece : node.hold,
+    nextPiece,
   };
   const rescored = list.map((s) => {
     const tspin =
@@ -511,6 +540,7 @@ function applyPlacement(
   weights: Weights,
   fire: BeamFireWeights,
   evaluation: BeamEvaluation,
+  nextPiece?: PieceKind,
 ): BeamNode | null {
   const cells = bottomCellsOf(piece, s.rotation);
   const isExecutable = s.execution !== undefined;
@@ -531,6 +561,7 @@ function applyPlacement(
   const beforeRows = countFilledRows(node.board);
   const tspin = piece === "T" && isTspinShape(test, cells, s.x, y);
   const pendingAfter = Math.max(0, node.pending - transition.linesCleared);
+  const nextHold: PieceKind | null = usedHold ? piece : node.hold;
   const ctx: PlyContext = {
     ply,
     combo: node.combo,
@@ -540,6 +571,8 @@ function applyPlacement(
     weights,
     fire,
     piece,
+    hold: nextHold,
+    nextPiece,
   };
   const evaluationInput = { after: test, lines: transition.linesCleared, tspin, context: ctx };
   if (evaluation.veto(evaluationInput)) return null;
@@ -567,7 +600,6 @@ function applyPlacement(
     setupCredit(test, transition.linesCleared, tspin, ply, fire) +
     sustainCredit(test, transition.linesCleared, tspin, ply) +
     evaluation.score(evaluationInput);
-  const nextHold: PieceKind | null = usedHold ? piece : node.hold;
   const nextB2b =
     transition.linesCleared === 4 || (tspin && transition.linesCleared > 0)
       ? true

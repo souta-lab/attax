@@ -1,308 +1,757 @@
-// Hoiko exact evaluator (geometry + action), ported from decompiled EvaluateAI.
-// Weight slot == file line index: column->50..59, comboAtk->60..64, nexus->scale (byte264 double /100).
+/**
+ * Hoiko exact evaluator, ported line-for-line from TetrizAI_Evaluate.cpp.
+ *
+ * The native evaluator operates on a Board whose row bitmask uses
+ * `column x = bit (9 - x)` (bit 9 = column 0, bit 0 = column 9). Our beam
+ * Board uses `column x = bit x`. Every entry point converts the afterstate to
+ * the native orientation (`toSourceBoard`) so the bit constants below are
+ * transcribed verbatim from the C++ source.
+ *
+ * Stubbed native searches (EvalGround, EvalTsd, EvalTst, EvalDTCannon,
+ * EvalPcBoard) all return 0 in the real source and are ported as 0.
+ */
+
 import type { Board } from "../core/board.js";
-import { COLS } from "../core/board.js";
 import type { PieceKind } from "../core/pieces.js";
+import type { HoikoWeights } from "./hoiko-weights.js";
 
-export interface HoikoWeights {
-  readonly w: readonly number[];
-  readonly scale: number;
+/** W enum indices (EvaluateAI::W). */
+export const W = {
+  MaxHeight: 0,
+  Over10: 1,
+  Over15: 2,
+  UpDown2: 3,
+  DonateCover: 4,
+  Cover: 5,
+  Roof: 6,
+  BadRoof: 7,
+  Pierce: 8,
+  Anabara: 9,
+  WellHint: 10,
+  WellDepth: 11,
+  WellPeak: 12,
+  Column: 13,
+  PcStack: 14,
+  PcChance: 15,
+  Resource: 16,
+  ResourceMax: 17,
+  TsdHole: 18,
+  TsdSpinable: 19,
+  TsdClearable: 20,
+  TsdOffensive: 21,
+  TstHole: 22,
+  TstSpinable: 23,
+  TstClearable: 24,
+  TstHint: 25,
+  TstOffensive: 26,
+  TDHole: 27,
+  TDHint: 28,
+  MoveDelay: 29,
+  HoldI: 30,
+  HoldT: 31,
+  WasteI: 32,
+  WasteT: 33,
+  Single: 34,
+  Double: 35,
+  Triple: 36,
+  Quad: 37,
+  Tss: 38,
+  Tsd: 39,
+  Tst: 40,
+  Btb: 41,
+  Pc: 42,
+  ComboBtb: 43,
+  ComboAtk: 44,
+  ComboDebt: 45,
+  Nexus: 46,
+} as const;
+
+/** Clear action (ClearAct::CAType). */
+export type ClearAct =
+  | "None"
+  | "Single"
+  | "Double"
+  | "Triple"
+  | "Quad"
+  | "Tss"
+  | "Tsd"
+  | "Tst"
+  | "Tsm"
+  | "Pc";
+
+/** Native-orientation board: row y = bitmask with column x = bit (9-x). */
+export interface SourceBoard {
+  readonly line: readonly number[];
+  readonly stackHeight: number;
 }
 
-export interface HoikoCtx {
-  readonly combo: number;
-  readonly b2b: boolean;
-  readonly piece: PieceKind;
-  readonly pending: number;
-  readonly ply: number;
-  readonly clear: number;
-  readonly tspin: boolean;
-  readonly hold: PieceKind | null;
-  readonly canHold: boolean;
+const FULL = 0x3ff;
+
+function w(ew: HoikoWeights, index: number): number {
+  return ew.weight[index] ?? 0;
 }
 
-function at(a: readonly number[], i: number): number {
-  return a[i] ?? 0;
+function col(ew: HoikoWeights, x: number): number {
+  return ew.column[x] ?? 0;
 }
 
-function popcount(v: number): number {
+function comboTable(ew: HoikoWeights, rank: number): number {
+  return ew.comboTable[rank] ?? 0;
+}
+
+/** Bit::PopCount (10-bit). */
+export function popcount(v: number): number {
   let n = v & 0x3ff;
   n -= (n >> 1) & 0x555;
   n = (n & 0x333) + ((n >> 2) & 0x333);
   return ((((n + (n >> 4)) & 0xf0f) * 0x101) >> 8) & 0x3ff;
 }
 
-function log2(v: number): number {
-  let r = 0;
-  let x = v & -v;
-  while ((x & 1) === 0) {
-    x >>= 1;
-    r += 1;
-  }
-  return r;
+/** Bit::Log2 — column index of the single set bit (source orientation). */
+export function log2(bit: number): number {
+  return 9 - popcount(bit - 1);
 }
 
-export function columnHeights(board: Board): number[] {
-  const h: number[] = new Array<number>(COLS).fill(0);
-  for (let x = 0; x < COLS; x += 1) {
-    for (let y = board.length - 1; y >= 0; y -= 1) {
-      if (((board[y] ?? 0) & (1 << x)) !== 0) {
-        h[x] = y + 1;
-        break;
-      }
+/** Convert our Board (column x = bit x) to native orientation. */
+export function toSourceBoard(board: Board): SourceBoard {
+  const line: number[] = new Array<number>(board.length).fill(0);
+  let stackHeight = -1;
+  for (let y = 0; y < board.length; y += 1) {
+    const row = board[y] ?? 0;
+    let src = 0;
+    for (let x = 0; x < 10; x += 1) {
+      if ((row & (1 << x)) !== 0) src |= 1 << (9 - x);
+    }
+    line[y] = src;
+    if (src !== 0) stackHeight = y;
+  }
+  return { line, stackHeight };
+}
+
+/**
+ * Board::GetColumnHeight — fills columnHeight[x] = height[x] - 1 and returns
+ * garbageHeight (y of the highest full row, or -1 when none).
+ */
+export function getColumnHeight(src: SourceBoard, columnHeight: number[]): number {
+  let bit = 0;
+  let min = 0;
+  for (let y = src.stackHeight; y >= 0; y -= 1) {
+    bit |= src.line[y] ?? 0;
+    if (bit === FULL) {
+      min = y + 1;
+      break;
+    }
+    for (let x = 0; x < 10; x += 1) {
+      columnHeight[x] = (columnHeight[x] ?? 0) + ((bit & (0x200 >> x)) !== 0 ? 1 : 0);
     }
   }
-  return h;
-}
-
-function maxOf(v: readonly number[]): number {
-  let m = 0;
-  for (const x of v) if (x > m) m = x;
-  return m;
-}
-
-function minOf(v: readonly number[]): number {
-  let m = 99;
-  for (const x of v) if (x < m) m = x;
-  return m;
-}
-
-function rowAt(board: Board, y: number): number {
-  return (board[y] ?? 0) & 0x3ff;
-}
-
-/** GetHeight (exact): (maxHeight+1)*w0 + over10/over15 on center cols 3..6. */
-export function getHeight(board: Board, w: readonly number[]): number {
-  const h = columnHeights(board);
-  const mh = maxOf(h);
-  let s = (mh + 1) * at(w, 0);
-  if (mh > 9) {
-    const c = Math.min(10, Math.max(at(h, 3), at(h, 4), at(h, 5), at(h, 6)));
-    s += at(w, 1) * (c - 9);
-    if (c > 14) s += at(w, 2) * (c - 14);
+  if (min > 0) {
+    for (let x = 0; x < 10; x += 1) columnHeight[x] = (columnHeight[x] ?? 0) + min;
   }
-  return s;
+  return min - 1;
 }
 
-/** GetWellColumn (exact). */
-export function getWellColumn(board: Board, minH: number, w: readonly number[]): number {
-  const row = rowAt(board, minH + 1);
-  if (popcount(row) !== 9) return 0;
-  const wc = popcount(row + 1) - 1;
-  if (wc < 0) return 0;
+/** Board::IsEvenPop. */
+export function isEvenPop(src: SourceBoard): boolean {
+  let total = 0;
+  for (let y = src.stackHeight; y >= 0; y -= 1) total += popcount(src.line[y] ?? 0);
+  return (total & 1) === 0;
+}
+
+/** EvalHeight. */
+export function evalHeight(
+  src: SourceBoard,
+  columnHeight: readonly number[],
+  ew: HoikoWeights,
+): number {
+  let score = (src.stackHeight + 1) * w(ew, W.MaxHeight);
+  if (src.stackHeight > 9) {
+    let center4Height = Math.max(columnHeight[3] ?? 0, columnHeight[4] ?? 0);
+    center4Height = Math.max(columnHeight[5] ?? 0, center4Height);
+    center4Height = Math.max(columnHeight[6] ?? 0, center4Height);
+    center4Height = Math.max(10, center4Height);
+    score += (center4Height + 1 - 10) * w(ew, W.Over10);
+    if (center4Height > 14) {
+      score += (center4Height + 1 - 15) * w(ew, W.Over15);
+    }
+  }
+  return score;
+}
+
+/** EvalWellColumn. */
+export function evalWellColumn(
+  src: SourceBoard,
+  _columnHeight: readonly number[],
+  garbageHeight: number,
+  ew: HoikoWeights,
+): { readonly score: number; readonly wellColumn: number; readonly wellDepth: number } {
+  const well = (line: number): number => {
+    if (popcount(line) !== 9) return -1;
+    line += 1;
+    return popcount(line) - 1;
+  };
+  let line = src.line[garbageHeight + 1] ?? 0;
+  const column = well(line);
+  if (column === -1) return { score: 0, wellColumn: -1, wellDepth: 0 };
   let depth = 1;
-  for (let y = minH + 2; y < board.length; y += 1) {
-    if (rowAt(board, y) === row) depth += 1;
-    else break;
+  for (let y = garbageHeight + 2; y < src.line.length; y += 1) {
+    if ((src.line[y] ?? 0) !== line) break;
+    depth += 1;
   }
-  const mask = (1280 >> wc) & 0x3ff;
-  let width = 1;
-  for (let y = minH + 2; y < board.length; y += 1) {
-    if ((mask & rowAt(board, y)) === mask) width += 1;
-    else break;
+  let hint = 1;
+  line = (1280 >> column) & FULL;
+  for (let y = garbageHeight + 2; y < src.line.length; y += 1) {
+    if (((src.line[y] ?? 0) & line) !== line) break;
+    hint += 1;
   }
-  const peak = at(w, 12);
-  const depthC = depth === 2 ? 1 : Math.min(depth, peak);
-  const widthC = width === 2 ? 1 : Math.min(width, peak);
-  return at(w, 50 + wc) + at(w, 11) * depthC + at(w, 10) * widthC;
+  const wellPeak = (dep: number): number => {
+    if (dep === 2) return 1;
+    return Math.min(dep, w(ew, W.WellPeak));
+  };
+  const score =
+    wellPeak(hint) * w(ew, W.WellHint) + wellPeak(depth) * w(ew, W.WellDepth) + col(ew, column);
+  return { score, wellColumn: column, wellDepth: depth };
 }
 
-/** GetUpDown (exact). */
-export function getUpDown(
-  h: readonly number[],
-  wellCol: number,
+/** EvalUpDown. */
+export function evalUpDown(
+  columnHeight: readonly number[],
+  wellColumn: number,
   wellDepth: number,
-  w: readonly number[],
+  ew: HoikoWeights,
 ): number {
-  const c = h.slice();
-  if (wellCol >= 0) c[wellCol] = at(c, wellCol) + Math.min(wellDepth, at(w, 12));
-  let d = at(c, 0) - at(c, 1);
-  let s = (d >= 0 ? 1 : 2) * d * d;
-  for (let x = 1; x < 8; x += 1) {
-    d = at(c, x) - at(c, x + 1);
-    s += d * d;
+  const c = columnHeight.slice();
+  const wellPeak = (dep: number): number => Math.min(dep, w(ew, W.WellPeak));
+  if (wellColumn >= 0) {
+    c[wellColumn] = (c[wellColumn] ?? 0) + wellPeak(wellDepth);
   }
-  d = at(c, 8) - at(c, 9);
-  s += (d <= 0 ? 1 : 2) * d * d;
-  return at(w, 3) * s;
+  let updown2 = 0;
+  let diff = (c[0] ?? 0) - (c[1] ?? 0);
+  updown2 += diff * diff * (diff < 0 ? 2 : 1);
+  for (let x = 1; x < 8; x += 1) {
+    diff = (c[x] ?? 0) - (c[x + 1] ?? 0);
+    updown2 += diff * diff;
+  }
+  diff = (c[8] ?? 0) - (c[9] ?? 0);
+  updown2 += diff * diff * (diff > 0 ? 2 : 1);
+  if (wellColumn >= 0) {
+    c[wellColumn] = (c[wellColumn] ?? 0) - wellPeak(wellDepth);
+  }
+  return updown2 * w(ew, W.UpDown2);
 }
 
-/** GetUnderground (exact). */
-export function getUnderground(
-  board: Board,
-  h: readonly number[],
-  minH: number,
-  w: readonly number[],
+/** EvalUnderground. */
+export function evalUnderground(
+  src: SourceBoard,
+  columnHeight: readonly number[],
+  garbageHeight: number,
+  ew: HoikoWeights,
 ): number {
-  if (minH === -1) return 0;
+  if (garbageHeight === -1) return 0;
   let cover = 0;
-  let donate = 0;
-  let prevEmpty = rowAt(board, minH) ^ 0x3ff;
-  let bits = prevEmpty;
-  while (bits !== 0) {
-    const low = bits & -bits;
-    cover += Math.min(5, at(h, log2(low)) - minH);
-    bits &= ~low;
+  let donateCover = 0;
+  let prevBit = FULL;
+  let bit = 0;
+  bit = (src.line[garbageHeight] ?? 0) ^ FULL;
+  prevBit = bit;
+  for (let x = 0; bit !== 0; ) {
+    x = bit & -bit;
+    const depth = (columnHeight[log2(x)] ?? 0) - garbageHeight;
+    donateCover += Math.min(depth, 5);
+    bit &= ~x;
   }
-  for (let row = minH - 1; row >= 0; row -= 1) {
-    const empty = rowAt(board, row) ^ 0x3ff;
-    if ((~prevEmpty & empty) !== 0) {
-      const low = empty & -empty;
-      if ((~low & empty) === 0) {
-        donate += Math.min(5, at(h, log2(low)) - row);
+  for (let y = garbageHeight - 1; y >= 0; y -= 1) {
+    bit = (src.line[y] ?? 0) ^ FULL;
+    if ((bit & ~prevBit) !== 0) {
+      let x = bit & -bit;
+      if ((bit & ~x) === 0) {
+        const depth = (columnHeight[log2(x)] ?? 0) - y;
+        cover += Math.min(depth, 5);
       } else {
-        let b = empty;
-        while (b !== 0) {
-          const l = b & -b;
-          cover += at(h, log2(l)) - row;
-          b &= ~l;
+        for (;;) {
+          const depth = (columnHeight[log2(x)] ?? 0) - y;
+          donateCover += depth;
+          bit &= ~x;
+          if (bit === 0) break;
+          x = bit & -bit;
         }
       }
     }
-    prevEmpty = empty;
+    prevBit = (src.line[y] ?? 0) ^ FULL;
   }
-  return at(w, 4) * cover + at(w, 5) * donate;
+  return donateCover * w(ew, W.DonateCover) + cover * w(ew, W.Cover);
 }
 
-/** GetGround (exact). */
-export function getGround(
-  board: Board,
-  h: readonly number[],
-  y0: number,
-  w: readonly number[],
+/** EvalResource (includes the S4W bonus when enabled). */
+export function evalResource(
+  src: SourceBoard,
+  _columnHeight: readonly number[],
+  garbageHeight: number,
+  ew: HoikoWeights,
+  useS4W: boolean,
+  opponentIsPowerful: boolean,
+  combo: number,
 ): number {
-  let pierce = 0;
-  let badRoof = 0;
-  let roof = 0;
-  let isolated = 0;
-  let roofCount = 0;
-  const surf = maxOf(h);
-  let covered = 0;
-  for (let row = surf - 1; row >= y0; row -= 1) {
-    const r = rowAt(board, row);
-    let bits = (r ^ 0x3ff) & covered;
-    while (bits !== 0) {
-      const low = bits & -bits;
-      const col = log2(low);
-      const depth = at(h, col) - (surf - 1);
-      const hr = col < 8 ? at(h, col + 1) < surf - 1 : false;
-      const hrr = col < 7 ? at(h, col + 2) < surf - 1 : false;
-      const hl = col > 1 ? at(h, col - 1) < surf - 1 : false;
-      const hll = col > 2 ? at(h, col - 2) < surf - 1 : false;
-      if ((col < 8 && hr && hrr) || (col > 1 && hl && hll)) {
-        roof += depth;
-        roofCount += 1;
-      } else if ((col < 8 && hr) || (col > 1 && hl)) {
-        badRoof += depth;
-      } else {
-        isolated = Math.max(isolated, depth);
-      }
-      bits &= ~low;
-    }
-    pierce += isolated;
-    covered |= r;
-  }
-  if (roofCount === 1) roof = 1;
-  return at(w, 8) * pierce + at(w, 7) * badRoof + at(w, 6) * roof;
-}
-
-/** GetResource (exact). */
-export function getResource(board: Board, minH: number, w: readonly number[]): number {
+  const well = (line: number): number => {
+    if (popcount(line) !== 9) return -1;
+    line += 1;
+    return popcount(line) - 1;
+  };
   let anabara = 0;
-  let prev = rowAt(board, minH);
-  for (let y = minH - 1; y >= 0; y -= 1) {
-    const r = rowAt(board, y);
-    if ((r | prev) !== prev) anabara += 1;
-    prev = r;
+  let resource = 0;
+  let line = src.line[0] ?? 0;
+  for (let y = 1; y <= garbageHeight; y += 1) {
+    if ((line | (src.line[y] ?? 0)) !== line) anabara += 1;
+    line = src.line[y] ?? 0;
   }
-  let num2 = 0;
-  for (let y = minH + 1; y < board.length; y += 1) {
-    const pc = popcount(rowAt(board, y));
-    if (num2 + pc >= at(w, 17)) {
-      num2 = at(w, 17);
+  for (let y = garbageHeight + 1; y <= src.stackHeight; y += 1) {
+    resource += popcount(src.line[y] ?? 0);
+    if (resource >= w(ew, W.ResourceMax)) {
+      resource = w(ew, W.ResourceMax);
       break;
     }
-    num2 += pc;
   }
-  let num7 = 0;
-  const row = rowAt(board, minH);
-  if (popcount(row) === 9) {
-    const wc = popcount(row + 1) - 1;
-    if (wc >= 0) num7 = at(w, 50 + wc) * 0.5;
-  }
-  return at(w, 16) * num2 + at(w, 9) * anabara + num7;
-}
-
-/** Action/clear weights (exact from GetFinalAction/GetContBonus). */
-export function actionScore(ctx: HoikoCtx, w: readonly number[]): number {
-  const clear = ctx.clear;
-  let s = 0;
-  s += ctx.combo * at(w, 29);
-  if (ctx.tspin) {
-    if (clear === 1) s += at(w, 38);
-    else if (clear === 2) s += at(w, 39);
-    else if (clear === 3) s += at(w, 40);
-  } else if (clear === 1) s += at(w, 34);
-  else if (clear === 2) s += at(w, 35);
-  else if (clear === 3) s += at(w, 36);
-  else if (clear === 4) s += at(w, 37);
-  if (clear > 0) {
-    s += at(w, 45);
-    s += at(w, 60 + Math.min(4, Math.max(0, ctx.combo - 1)));
-    if (ctx.b2b) s += at(w, 41);
-    if (ctx.b2b && ctx.combo >= 1) s += at(w, 43);
-  }
-  if (ctx.piece === "T" && !(ctx.tspin && clear > 0)) s += at(w, 33);
-  if (ctx.piece === "I" && clear !== 4) s += at(w, 32);
-  if (ctx.piece === "T") s += at(w, 31);
-  if (ctx.piece === "I") s += at(w, 30);
-  return s;
-}
-
-/** Geometry + resource + action (searches added separately). */
-export function scoreHoikoCore(after: Board, ctx: HoikoCtx, w: HoikoWeights): number {
-  const h = columnHeights(after);
-  const minH = minOf(h);
-  const row = rowAt(after, minH + 1);
-  const wc = popcount(row) === 9 ? popcount(row + 1) - 1 : -1;
-  let wellDepth = 0;
-  if (wc >= 0) {
-    wellDepth = 1;
-    for (let y = minH + 2; y < after.length; y += 1) {
-      if (rowAt(after, y) === row) wellDepth += 1;
-      else break;
+  line = 0;
+  if (garbageHeight >= 0) {
+    const x = well(src.line[garbageHeight] ?? 0);
+    if (x >= 0) {
+      line = Math.trunc(col(ew, x) * 0.5);
     }
   }
-  let s = 0;
-  s += getHeight(after, w.w);
-  s += getWellColumn(after, minH, w.w);
-  s += getUpDown(h, wc, wellDepth, w.w);
-  s += getUnderground(after, h, minH, w.w);
-  s += getGround(after, h, wellDepth + minH, w.w);
-  s += getResource(after, minH, w.w);
-  s += actionScore(ctx, w.w);
-  return s;
+  if (useS4W) {
+    line += s4w(src, garbageHeight, ew, opponentIsPowerful, combo);
+  }
+  return line + anabara * w(ew, W.Anabara) + resource * w(ew, W.Resource);
 }
 
-/** parse weights positionally (index = line); column->50..59, comboAtk->60..64, nexus->scale. */
-export function parseHoikoWeights(text: string): HoikoWeights {
-  const w: number[] = new Array<number>(68).fill(0);
-  const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
-  lines.forEach((line, idx) => {
-    const parts = line.split(",").map((s) => Number(s.trim()));
-    if (idx === 13) {
-      for (let i = 0; i < 10; i += 1) w[50 + i] = parts[i + 1] ?? 0;
-    } else if (idx === 44) {
-      const vals = parts.slice(1).filter((v) => Number.isFinite(v));
-      const base = vals[0] ?? 0;
-      w[60] = base;
-      for (let i = 1; i < 5; i += 1) w[60 + i] = vals[i] ?? base * (i + 1);
-    } else {
-      const v = parts[1];
-      if (Number.isFinite(v)) w[idx] = v ?? 0;
+/** S4W bonus (native lambda inside EvalResource). */
+function s4w(
+  src: SourceBoard,
+  garbageHeight: number,
+  ew: HoikoWeights,
+  opponentIsPowerful: boolean,
+  combo: number,
+): number {
+  let h = 0;
+  let wide = 0;
+  for (let y = src.stackHeight, fill = 0; y > garbageHeight; y -= 1) {
+    const r = src.line[y] ?? 0;
+    fill |= r;
+    if (r === 0x3f0) {
+      if ((fill & 0x00f) !== 0) return 0;
+      wide = 0x3f0;
+      h = y;
+      break;
     }
-  });
-  const nexus = w[46] ?? 0;
-  const scale = Math.min(100, Math.max(0, nexus)) * 0.01;
-  return { w, scale };
+    if (r === 0x01f) {
+      if ((fill & 0x3e0) !== 0) return 0;
+      wide = 0x01f;
+      h = y;
+      break;
+    }
+    if (r === 0x387) {
+      if ((fill & 0x038) !== 0) return 0;
+      wide = 0x387;
+      h = y;
+      break;
+    }
+  }
+  if (h === 0) return 0;
+  const goal = wide !== 0x387 ? 13 : 19;
+  if (src.stackHeight + 1 > goal) return 0;
+  {
+    let y = h - 1;
+    h = 1;
+    for (; y > garbageHeight; y -= 1) {
+      if ((src.line[y] ?? 0) !== wide) break;
+      h += 1;
+    }
+    let seed = 0;
+    for (let bit = ~wide; y > garbageHeight; y -= 1) {
+      seed += popcount(bit & (src.line[y] ?? 0));
+    }
+    if (seed < 2) return 0;
+    if (seed === 5) h -= 1;
+    if (h >= 4) {
+      if (combo > 2) h += combo;
+    }
+  }
+  let score = 0;
+  if (wide === 0x387) {
+    score += h * h * w(ew, W.UpDown2);
+    if (garbageHeight < 2) {
+      h += 4 - (garbageHeight + 1);
+    }
+    if (garbageHeight <= h) {
+      score *= 2;
+      if (h >= 4) {
+        if (garbageHeight < 4) h -= 1;
+        if (h >= 6) {
+          if (garbageHeight < 4) h -= 1;
+          if (h >= 8) {
+            if (h >= 11) {
+              if (h >= 12) {
+                score += comboTable(ew, 4);
+              }
+              score += comboTable(ew, 3);
+            }
+            score += comboTable(ew, 2);
+          } else if (opponentIsPowerful) return 0;
+          score += comboTable(ew, 1);
+        } else if (opponentIsPowerful) return 0;
+        score += comboTable(ew, 0);
+      }
+    }
+  } else {
+    if (garbageHeight <= h) {
+      if (h >= 4) {
+        if (h >= 6) {
+          if (h >= 8) {
+            if (h >= 11) {
+              if (h >= 12) {
+                score += comboTable(ew, 4);
+              }
+              score += comboTable(ew, 3);
+            } else if (opponentIsPowerful) return 0;
+            score += comboTable(ew, 2);
+          } else if (opponentIsPowerful) return 0;
+          score += comboTable(ew, 1);
+        } else if (opponentIsPowerful) return 0;
+        score += comboTable(ew, 0);
+      }
+    }
+  }
+  return score;
+}
+
+/** EvalContBonus. */
+export function evalContBonus(hold: PieceKind | null, btb: number, ew: HoikoWeights): number {
+  let score = 0;
+  if (hold === "I") score += w(ew, W.HoldI);
+  else if (hold === "T") score += w(ew, W.HoldT);
+  if (btb > 0) score += w(ew, W.Btb);
+  return score;
+}
+
+/** EvalFinalAction. */
+export function evalFinalAction(
+  act: ClearAct,
+  lockedMino: PieceKind,
+  combo: number,
+  btb: number,
+  moveDelay: number,
+  ew: HoikoWeights,
+  weightIndex: number,
+): number {
+  let score = 0;
+  score += (moveDelay >> 4) * w(ew, W.MoveDelay);
+  switch (act) {
+    case "None":
+      if (lockedMino === "T") score += w(ew, W.WasteT);
+      else if (lockedMino === "I") score += w(ew, W.WasteI);
+      score += combo * w(ew, W.ComboDebt);
+      return score;
+    case "Single":
+      score += w(ew, W.Single);
+      break;
+    case "Double":
+      score += w(ew, W.Double);
+      break;
+    case "Triple":
+      score += w(ew, W.Triple);
+      break;
+    case "Quad":
+      score += w(ew, W.Quad);
+      break;
+    case "Tss":
+      score += w(ew, W.Tss);
+      break;
+    case "Tsd":
+      score += w(ew, W.Tsd);
+      break;
+    case "Tst":
+      score += w(ew, W.Tst);
+      break;
+    case "Tsm":
+      score += w(ew, W.Single) + w(ew, W.WasteT);
+      score += -w(ew, W.Btb);
+      break;
+    case "Pc":
+      score += w(ew, W.Pc);
+      score += (moveDelay >> 5) * -w(ew, W.MoveDelay);
+      break;
+  }
+  if (btb === 0) {
+    if (lockedMino === "T") score += w(ew, W.WasteT);
+    else if (lockedMino === "I") score += w(ew, W.WasteI);
+  } else if (btb > 1) {
+    score += w(ew, W.ComboBtb);
+    if (combo > 1) score += w(ew, W.ComboBtb);
+  }
+  score += w(ew, W.ComboDebt);
+  if (act !== "Pc") {
+    const cmb = combo;
+    switch (cmb) {
+      case 0:
+      case 1:
+      case 2:
+        break;
+      case 3:
+      case 4:
+        score += comboTable(ew, 0);
+        break;
+      case 5:
+      case 6:
+        score += comboTable(ew, 1);
+        break;
+      case 7:
+      case 8:
+        score += comboTable(ew, 2);
+        break;
+      case 9:
+      case 10:
+      case 11:
+        score += comboTable(ew, 3);
+        break;
+      default:
+        score += comboTable(ew, 4);
+        break;
+    }
+  }
+  if (weightIndex >= 2) {
+    let atk = 0;
+    switch (act) {
+      case "Double":
+        atk = 1;
+        break;
+      case "Triple":
+      case "Tss":
+        atk = 2;
+        break;
+      case "Tsd":
+      case "Quad":
+        atk = 4;
+        break;
+      case "Tst":
+        atk = 6;
+        break;
+    }
+    if (btb > 1) atk += 1;
+    if (atk > 0) {
+      atk = Math.min(atk, 5);
+      score += comboTable(ew, atk - 1);
+    }
+  }
+  return score;
+}
+
+/** EvalPrePcBoard — PC reachable by the falling/hold piece. */
+export function evalPrePcBoard(
+  src: SourceBoard,
+  garbageHeight: number,
+  fallingMino: PieceKind,
+  hold: PieceKind | null,
+  ew: HoikoWeights,
+  isEvenBoard: boolean,
+): number {
+  if (!isEvenBoard) return 0;
+  const searchPc = (m: PieceKind): boolean => {
+    if (m === "I") {
+      if (src.stackHeight === 0) {
+        for (let x = 0; x < 7; x += 1) {
+          if (((src.line[0] ?? 0) ^ (0x3c0 >> x)) === FULL) return true;
+        }
+      } else if (src.stackHeight === 3) {
+        for (let x = 0; x < 10; x += 1) {
+          if (((src.line[3] ?? 0) ^ (0x200 >> x)) === FULL) {
+            const target = src.line[3] ?? 0;
+            if ((src.line[2] ?? 0) !== target) break;
+            if ((src.line[1] ?? 0) !== target) break;
+            if ((src.line[0] ?? 0) !== target) break;
+            return true;
+          }
+        }
+      }
+    } else if (m === "J") {
+      if (src.stackHeight === 1) {
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[1] ?? 0) ^ (0x380 >> x)) === FULL) {
+            if (((src.line[0] ?? 0) ^ (0x080 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[0] ?? 0) ^ (0x380 >> x)) === FULL) {
+            if (((src.line[1] ?? 0) ^ (0x200 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      } else if (src.stackHeight === 2) {
+        for (let x = 0; x < 9; x += 1) {
+          if (((src.line[2] ?? 0) ^ (0x300 >> x)) === FULL) {
+            if (((src.line[1] ?? 0) ^ (0x200 >> x)) !== FULL) break;
+            if (((src.line[0] ?? 0) ^ (0x200 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      }
+    } else if (m === "L") {
+      if (src.stackHeight === 1) {
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[1] ?? 0) ^ (0x380 >> x)) === FULL) {
+            if (((src.line[0] ?? 0) ^ (0x200 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[0] ?? 0) ^ (0x380 >> x)) === FULL) {
+            if (((src.line[1] ?? 0) ^ (0x080 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      } else if (src.stackHeight === 2) {
+        for (let x = 0; x < 9; x += 1) {
+          if (((src.line[2] ?? 0) ^ (0x300 >> x)) === FULL) {
+            if (((src.line[1] ?? 0) ^ (0x100 >> x)) !== FULL) break;
+            if (((src.line[0] ?? 0) ^ (0x100 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      }
+    } else if (m === "O") {
+      if (src.stackHeight === 1) {
+        for (let x = 0; x < 9; x += 1) {
+          if (((src.line[1] ?? 0) ^ (0x300 >> x)) === FULL) {
+            if (((src.line[0] ?? 0) ^ (0x300 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      }
+    } else if (m === "T") {
+      if (src.stackHeight === 1) {
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[1] ?? 0) ^ (0x380 >> x)) === FULL) {
+            if (((src.line[0] ?? 0) ^ (0x100 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      }
+    } else if (m === "S") {
+      if (src.stackHeight === 1) {
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[1] ?? 0) ^ (0x180 >> x)) === FULL) {
+            if (((src.line[0] ?? 0) ^ (0x300 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      }
+    } else if (m === "Z") {
+      if (src.stackHeight === 1) {
+        for (let x = 0; x < 8; x += 1) {
+          if (((src.line[1] ?? 0) ^ (0x300 >> x)) === FULL) {
+            if (((src.line[0] ?? 0) ^ (0x180 >> x)) !== FULL) break;
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+  if (garbageHeight === -1) {
+    if (searchPc(fallingMino)) return w(ew, W.PcChance);
+    if (fallingMino !== hold && hold !== null) {
+      if (searchPc(hold)) return w(ew, W.PcChance);
+    }
+  }
+  return 0;
+}
+
+/**
+ * TransitionWeight (VS mode, multiEvaluation=false — the gate runs a single
+ * player vs DeepSeek, so the opponent-combo branches never fire). Returns the
+ * weightList index to use. `weightIndex` is the current index (starts at 0).
+ */
+export function transitionWeight(
+  src: SourceBoard,
+  weightIndex: number,
+  isEvenBoard: boolean,
+): number {
+  let transitionHeight = 15;
+  if (weightIndex >= 2) transitionHeight = 13;
+  const column = new Array<number>(10).fill(-1);
+  const garbageHeight = getColumnHeight(src, column);
+  let center4Height = Math.max(column[3] ?? 0, column[4] ?? 0);
+  center4Height = Math.max(column[5] ?? 0, center4Height);
+  center4Height = Math.max(column[6] ?? 0, center4Height);
+  if (center4Height + 1 <= transitionHeight) {
+    if (src.stackHeight + 1 >= 11) return 0;
+    if (!isEvenBoard) {
+      if (weightIndex === 1) return 1;
+      if (garbageHeight === -1 && src.stackHeight + 1 <= 5) return 1;
+    }
+    return 0;
+  }
+  return 2;
+}
+
+/** EvaluateAI::Evaluate — per-node familyScore contribution. */
+export function evaluateNode(
+  src: SourceBoard,
+  ctx: {
+    readonly act: ClearAct;
+    readonly combo: number;
+    readonly btb: number;
+    readonly lockedMino: PieceKind;
+    readonly hold: PieceKind | null;
+    readonly fallingMino: PieceKind;
+    readonly moveDelay: number;
+  },
+  ew: HoikoWeights,
+  weightIndex: number,
+  isEvenBoard: boolean,
+  useS4W: boolean,
+  opponentIsPowerful: boolean,
+  trustRate: number,
+): number {
+  const columnHeight = new Array<number>(10).fill(-1);
+  const garbageHeight = getColumnHeight(src, columnHeight);
+  let boardScore = 0;
+  boardScore += evalHeight(src, columnHeight, ew);
+  const well = evalWellColumn(src, columnHeight, garbageHeight, ew);
+  boardScore += well.score;
+  boardScore += evalUpDown(columnHeight, well.wellColumn, well.wellDepth, ew);
+  boardScore += evalUnderground(src, columnHeight, garbageHeight, ew);
+  // EvalGround = 0 (stubbed)
+  boardScore += evalResource(
+    src,
+    columnHeight,
+    garbageHeight,
+    ew,
+    useS4W,
+    opponentIsPowerful,
+    ctx.combo,
+  );
+  // EvalTsd = 0, EvalTst = 0, EvalPcBoard = 0 (stubbed)
+  boardScore += evalContBonus(ctx.hold, ctx.btb, ew);
+  let actionScore = evalFinalAction(
+    ctx.act,
+    ctx.lockedMino,
+    ctx.combo,
+    ctx.btb,
+    ctx.moveDelay,
+    ew,
+    weightIndex,
+  );
+  // parent pcScore subtraction is approximated to 0 (see hoiko.ts mapping notes).
+  const nodePcScore = evalPrePcBoard(
+    src,
+    garbageHeight,
+    ctx.fallingMino,
+    ctx.hold,
+    ew,
+    isEvenBoard,
+  );
+  actionScore += nodePcScore;
+  const fs = actionScore + Math.trunc(boardScore * ew.nexus);
+  return Math.trunc(fs * trustRate);
 }
