@@ -169,6 +169,7 @@ export function dsVeto(after: Board, lines: number, pending: number, tspin = fal
     if (holes >= 12 && global >= 15) return true;
   }
   if (lines > 0) return false;
+  if (pending > 0) return false;
   const well = dsWell(after, h, 6);
   const ceil = pending > 0 ? 16 : 18;
   if (well.globalMax < ceil) return false;
