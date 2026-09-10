@@ -108,7 +108,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   function spawn(): void {
     const kind = queue.shift();
     if (kind === undefined) return;
-    if (queue.length < 7) queue.push(...shuffledBag(rand));
+    if (queue.length < 11) queue.push(...shuffledBag(rand));
     const s: SpawnState = { kind, rotation: 0, x: 3, y: spawnY(kind) };
     if (collides(s.kind, s.rotation, s.x, s.y)) {
       gameOver = true;
@@ -372,7 +372,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         ghostY,
         hold,
         canHold,
-        next: [...queue].slice(0, 7),
+        next: [...queue].slice(0, 10),
         score,
         lines,
         level,
