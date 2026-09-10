@@ -155,7 +155,7 @@ export function dsHigh(after: Board): number {
 
 export function dsEmergency(pending: number, maxH: number): DsEmerg {
   if (pending >= 9 || maxH >= 16) return 2;
-  if (pending >= 5 || maxH >= 11) return 1;
+  if (pending >= 4 || maxH >= 11) return 1;
   return 0;
 }
 
