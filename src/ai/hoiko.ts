@@ -41,6 +41,11 @@ import {
   transitionWeight,
 } from "./hoiko-eval.js";
 import {
+  computeOffsetData,
+  offsetBonus,
+  type OffsetData,
+} from "./hoiko-offset.js";
+import {
   HOIKO_DEFAULT_PRESET,
   type HoikoPreset,
   type HoikoWeights,
@@ -204,6 +209,16 @@ export function createHoiko(options: HoikoOptions = {}): VersusFighter {
       const weightIndex = transitionWeight(rootSrc, 0, isEvenBoard);
       const ew = weightList[weightIndex] ?? weightList[0];
       if (ew === undefined) return null;
+      // OffsetAI::DecisionOffset — compute ofsData for the current board.
+      const ofs: OffsetData = computeOffsetData(
+        board,
+        s.active.kind,
+        s.next,
+        s.hold,
+        s.b2b ? 1 : 0,
+      );
+      if (s.pendingGarbage > 0) console.log(`DBG-FBM pending=${s.pendingGarbage} lines=${s.lines}`);
+      else console.log(`DBG-FBM0 pending=0 lines=${s.lines}`);
       const scorer: PlyScorer = (after, lines, tspin, ctx) => {
         const src = toSourceBoard(after);
         const others = sourceOthers(ctx, lines, tspin, after);
@@ -226,7 +241,23 @@ export function createHoiko(options: HoikoOptions = {}): VersusFighter {
           false,
           trustRate,
         );
-        return score - sustainCredit(after, lines, tspin, ctx.ply);
+        // OffsetAI: reward clearing lines that cancel pending garbage (相殺).
+        // opponentsCombo is approximated to 0 (the fighter only sees its own
+        // snapshot; the combo>=9 / <=8 branches are rare edge cases).
+        const offset = offsetBonus(
+          ofs,
+          ctx.pending,
+          lines,
+          tspin,
+          ctx.combo,
+          ctx.b2b,
+          0,
+          isEvenBoard,
+        );
+        if (ctx.pending > 0 && lines > 0) {
+          console.log(`DBG pending=${ctx.pending} lines=${lines} tspin=${tspin} offset=${offset} ofsCanWait=${ofs.canWaitGarbage} ofsAtk=${ofs.atk}`);
+        }
+        return score - sustainCredit(after, lines, tspin, ctx.ply) + offset;
       };
       const move = beamBestMove(
         board,
