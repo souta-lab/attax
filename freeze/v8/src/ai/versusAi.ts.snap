@@ -1,0 +1,119 @@
+import type { Board } from "../core/board.js";
+import type { PieceKind } from "../core/pieces.js";
+import type { AiDebug, AiMove, GameSnapshot } from "../ui/types.js";
+import { ROWS } from "./types.js";
+import { versusBestMove } from "./versus.js";
+
+export interface VersusAiResult extends AiMove {
+  readonly score: number;
+  readonly fireScore: number;
+  readonly linesCleared: number;
+  readonly isTspin: boolean;
+  readonly opener: string | null;
+  readonly thinkMs: number;
+}
+
+export function versusMoveDetailed(
+  board: Board,
+  cur: PieceKind,
+  queue: readonly PieceKind[],
+  hold: PieceKind | null,
+  canHold: boolean,
+  combo: number,
+  b2b: boolean,
+): VersusAiResult | null {
+  const t0 = performance.now();
+  const mv = versusBestMove(board, cur, queue, hold, canHold, combo, b2b, {});
+  const thinkMs = performance.now() - t0;
+  if (mv === null) return null;
+  return {
+    targetX: mv.x,
+    targetRotation: mv.rotation,
+    useHold: mv.useHold,
+    score: mv.score,
+    fireScore: mv.fireScore,
+    linesCleared: mv.linesCleared,
+    isTspin: mv.isTspin,
+    opener: mv.opener,
+    thinkMs,
+  };
+}
+
+export function createVersusAi(): {
+  readonly name: string;
+  findBestMove(snapshot: GameSnapshot): AiMove | null;
+  getDebug(): AiDebug | null;
+} {
+  let last: VersusAiResult | null = null;
+  let holes = 0;
+  let maxHeight = 0;
+  return {
+    name: "versus-tspin",
+    findBestMove: (s) => {
+      const rows = s.board.rows;
+      const board: Board = new Uint16Array(ROWS);
+      for (let y = 0; y < rows && y < ROWS; y += 1) {
+        const srcRow = s.board.grid[rows - 1 - y];
+        if (srcRow === undefined) continue;
+        let bits = 0;
+        for (let x = 0; x < 10; x += 1) {
+          if ((srcRow[x] ?? 0) !== 0) bits |= 1 << x;
+        }
+        board[y] = bits;
+      }
+      if (s.active === null) return null;
+      const r = versusMoveDetailed(
+        board,
+        s.active.kind,
+        s.next.slice(0, 5),
+        s.hold,
+        s.canHold,
+        -1,
+        false,
+      );
+      last = r;
+      if (r !== null) {
+        holes = countHoles(board);
+        maxHeight = countMaxHeight(board);
+      }
+      return r;
+    },
+    getDebug: () =>
+      last === null
+        ? null
+        : {
+            score: last.score,
+            fireScore: last.fireScore,
+            linesCleared: last.linesCleared,
+            isTspin: last.isTspin,
+            opener: last.opener,
+            topHoles: holes,
+            topMaxHeight: maxHeight,
+            thinkMs: last.thinkMs,
+          },
+  };
+}
+
+function countHoles(board: Board): number {
+  let holes = 0;
+  for (let x = 0; x < 10; x += 1) {
+    let top = 0;
+    for (let y = board.length - 1; y >= 0; y -= 1) {
+      if (((board[y] ?? 0) & (1 << x)) !== 0) {
+        top = y + 1;
+        break;
+      }
+    }
+    for (let y = 0; y < top; y += 1) {
+      if (((board[y] ?? 0) & (1 << x)) === 0) holes += 1;
+    }
+  }
+  return holes;
+}
+
+function countMaxHeight(board: Board): number {
+  for (let y = board.length - 1; y >= 0; y -= 1) {
+    if ((board[y] ?? 0) !== 0) return y + 1;
+  }
+  return 0;
+}

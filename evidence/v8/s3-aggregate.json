@@ -1,0 +1,61 @@
+{
+  "shards": 6,
+  "seeds": 32,
+  "control": {
+    "matches": 32,
+    "leftWins": 8,
+    "rightWins": 19,
+    "caps": 5,
+    "sourceMismatches": 0,
+    "expectedBoardFailures": 0
+  },
+  "candidate": {
+    "matches": 32,
+    "leftWins": 6,
+    "rightWins": 21,
+    "caps": 5,
+    "sourceMismatches": 0,
+    "expectedBoardFailures": 0
+  },
+  "fingerprints": [
+    {
+      "shard": 0,
+      "control": "a3ff3e62",
+      "candidate": "af241d35"
+    },
+    {
+      "shard": 1,
+      "control": "0b1f489d",
+      "candidate": "b0e68845"
+    },
+    {
+      "shard": 2,
+      "control": "7a1c44b1",
+      "candidate": "5a67b1cb"
+    },
+    {
+      "shard": 3,
+      "control": "7356b7fb",
+      "candidate": "a89069c8"
+    },
+    {
+      "shard": 4,
+      "control": "25a63b43",
+      "candidate": "caa2171d"
+    },
+    {
+      "shard": 5,
+      "control": "f1eade3d",
+      "candidate": "5c9b9107"
+    }
+  ],
+  "decisions": [
+    "PASS: zero candidate expected-board failures",
+    "PASS: zero candidate expected-board failures",
+    "PASS: zero candidate expected-board failures",
+    "PASS: zero candidate expected-board failures",
+    "PASS: zero candidate expected-board failures",
+    "PASS: zero candidate expected-board failures"
+  ],
+  "s1Status": "BLOCKED"
+}

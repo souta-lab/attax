@@ -1,0 +1,13 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# logs / scratch
+*.log
+
+# Hoiko third-party artifacts — kept locally for reference, not redistributed
+evidence/hoiko/weights/
+evidence/hoiko/README.txt
+evidence/hoiko/お読みください.txt

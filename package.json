@@ -1,0 +1,21 @@
+{
+  "name": "deepseek-tetris",
+  "private": true,
+  "version": "1.0.0",
+  "description": "DeepSeek Tetris — versus Tetris AI (target: beat Hoiko)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "bun test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@biomejs/biome": "2.0.6",
+    "typescript": "^5.9.2",
+    "vite": "^6.3.5"
+  }
+}

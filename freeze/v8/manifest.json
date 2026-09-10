@@ -1,0 +1,121 @@
+{
+  "name": "v8",
+  "createdAt": "2026-09-10T12:50:44.334Z",
+  "source": "src",
+  "snapshotSha256": "b1134c6b195f54f452f5a3bffb3f5a9a7d1cc75b996491f23059ecd21f45dd17",
+  "files": [
+    {
+      "path": "ai/beam.ts",
+      "sha256": "74dab6d6dddd939c566c47ae055da7dbdb889681f3c97e9c833bc49e80d88327"
+    },
+    {
+      "path": "ai/blueV8-score.ts",
+      "sha256": "9805a389138c593950136709656eeed079b7fc5fb507a34750d47f14cfa657ec"
+    },
+    {
+      "path": "ai/config.ts",
+      "sha256": "4dc21f6c6a3f1c936fb52382ec33643a7a22ad82694968cc06ed6483ada8d09f"
+    },
+    {
+      "path": "ai/evaluation.ts",
+      "sha256": "af5d875fe9475cb86a1d375ae4107b245b31dc61deaca66cd7d4b66c8038b596"
+    },
+    {
+      "path": "ai/evolve.ts",
+      "sha256": "8239c4b87a26eed5c293b64f77a0a2f3053297d5541c206cb31e0ebc744ee6ae"
+    },
+    {
+      "path": "ai/features.ts",
+      "sha256": "1240e736e645876d32e4680f8604a66dec84ab154f9c4e9a6117a6b70f59f675"
+    },
+    {
+      "path": "ai/fighterA.ts",
+      "sha256": "dcb8d9a74829d9098a3c5c92f0369d07aebf4d22671ef2a8b41a595d3a295bd2"
+    },
+    {
+      "path": "ai/fighterB.ts",
+      "sha256": "04ba10ea85b6bdd1626c7dc012645c09bd0d3b1c92bd51b44e44f00295006922"
+    },
+    {
+      "path": "ai/fitness.ts",
+      "sha256": "f3631190338a3ecb34fcec60d30322e84a7d53eca3c0d80541739af9c6d0d892"
+    },
+    {
+      "path": "ai/redV7-score.ts",
+      "sha256": "51ba10351042292c5f11a3573e621826db4513fcec9818131f708601aa3bf271"
+    },
+    {
+      "path": "ai/redV8-score.ts",
+      "sha256": "b8fbd03e3848cb8297f19d22fdb26d1f4b1d1c7d892eef9a3c68b06a2a210af6"
+    },
+    {
+      "path": "ai/search.ts",
+      "sha256": "b030a02d9ca6c37c5a3844809c46a31d8110c9d9558234ad306865074378daed"
+    },
+    {
+      "path": "ai/types.ts",
+      "sha256": "142052b16806fb189b8a625155bdf4c2242d4a554cd1e6e104a884b0b7fd08ed"
+    },
+    {
+      "path": "ai/versus.ts",
+      "sha256": "4e92345077dfc78f459cf05327893551b34c4d4b4e818c8733e0f4e63583b412"
+    },
+    {
+      "path": "ai/versusAi.ts",
+      "sha256": "614ad5812fec81d446b9d74b6905564e9a51775e72f6757fb9908c8e1a951bb9"
+    },
+    {
+      "path": "ai/weights.ts",
+      "sha256": "763ae951336d9d90a0f8532fb93dab9452139fab3dd859c5a09112c0a8a7cdcb"
+    },
+    {
+      "path": "core/board.ts",
+      "sha256": "cce0781c126bdef42e4e8487ca1c0d5b83243e46e2778db03eef56435ee90212"
+    },
+    {
+      "path": "core/engine.ts",
+      "sha256": "c8969e405d5fbe1be64d69e388f73d6a1446034baaf0a7234d99d2f0526a0487"
+    },
+    {
+      "path": "core/garbage.ts",
+      "sha256": "dd080f3b8e0a173299cc30544bcadb270fe55a996a63d22d0da9cc7f2dbb87aa"
+    },
+    {
+      "path": "core/pieces.ts",
+      "sha256": "18cf1ff2a13aff36fa40894282b4f48747f84465ef7befe8afb9d2cbbb90ca9e"
+    },
+    {
+      "path": "core/srs.ts",
+      "sha256": "94f41b2a05769905a23e19caed33a55790e38335353c109a596eb8631dd89058"
+    },
+    {
+      "path": "main.ts",
+      "sha256": "346220f7f5d6dd6fced89655bb5e30376840f1f54b194606888502a171beceaa"
+    },
+    {
+      "path": "ui/app.ts",
+      "sha256": "b5c91abafe8cd82c1775167fa18f326981198df4b3ab864f96ac6e4ab61e9140"
+    },
+    {
+      "path": "ui/input.ts",
+      "sha256": "bf3d1d2260c4a428deb131f2edb1c0878d39044afafea58e1e7ba3ddea4f1820"
+    },
+    {
+      "path": "ui/renderer.ts",
+      "sha256": "08a3e3933e0bff09bf85a27721fc96aa4b222a0d582de8f72fe49f40d8afbd4e"
+    },
+    {
+      "path": "ui/types.ts",
+      "sha256": "3ac59013042797a028056a5626a36d993e8237cde343a7387583bed6f47ff1ed"
+    },
+    {
+      "path": "versus/controller.ts",
+      "sha256": "53d8ee7e5c35550b0221a93ac3657416d2ec43dfd74e26042f4768ce93ee2120"
+    },
+    {
+      "path": "vite-env.d.ts",
+      "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+    }
+  ],
+  "notes": "V8 seal of browser-tetris src (2026-09-10). Production: BLUE=createFighterA({useKick:false}), RED=createFighterB(). Verified green: 53 tests / tsc / build. Supersedes historical v8-v13 round labels; kick candidate stays shadow-only."
+}
