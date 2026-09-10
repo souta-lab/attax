@@ -694,8 +694,26 @@ export function transitionWeight(
   return 2;
 }
 
-/** EvaluateAI::Evaluate — per-node familyScore contribution. */
-export function evaluateNode(
+/** Per-node evaluation breakdown (EvaluateAI::Evaluate internals). */
+export interface NodeEvaluation {
+  readonly boardScore: number;
+  readonly actionScore: number;
+  /** familyScore contribution = trunc((actionScore + trunc(boardScore*nexus)) * trustRate). */
+  readonly familyScore: number;
+  /** score contribution = trunc((actionScore + boardScore) * trustRate). */
+  readonly score: number;
+  /** pcScore = EvalPrePcBoard (subtracted from the child's actionScore). */
+  readonly pcScore: number;
+}
+
+/**
+ * EvaluateAI::Evaluate — full per-node breakdown. `parentPcScore` is the
+ * parent node's pcScore, subtracted from this node's actionScore (the native
+ * `actionScore -= node->parentNode->pcScore`). The search accumulates
+ * `familyScore`/`score` across the path; `evaluateNode` (below) returns only
+ * the familyScore contribution for callers that do not track pcScore.
+ */
+export function evaluateNodeFull(
   src: SourceBoard,
   ctx: {
     readonly act: ClearAct;
@@ -712,7 +730,8 @@ export function evaluateNode(
   useS4W: boolean,
   opponentIsPowerful: boolean,
   trustRate: number,
-): number {
+  parentPcScore: number,
+): NodeEvaluation {
   const columnHeight = new Array<number>(10).fill(-1);
   const garbageHeight = getColumnHeight(src, columnHeight);
   let boardScore = 0;
@@ -742,7 +761,7 @@ export function evaluateNode(
     ew,
     weightIndex,
   );
-  // parent pcScore subtraction is approximated to 0 (see hoiko.ts mapping notes).
+  actionScore -= parentPcScore;
   const nodePcScore = evalPrePcBoard(
     src,
     garbageHeight,
@@ -753,5 +772,39 @@ export function evaluateNode(
   );
   actionScore += nodePcScore;
   const fs = actionScore + Math.trunc(boardScore * ew.nexus);
-  return Math.trunc(fs * trustRate);
+  const familyScore = Math.trunc(fs * trustRate);
+  const score = Math.trunc((actionScore + boardScore) * trustRate);
+  return { boardScore, actionScore, familyScore, score, pcScore: nodePcScore };
+}
+
+/** EvaluateAI::Evaluate — per-node familyScore contribution. */
+export function evaluateNode(
+  src: SourceBoard,
+  ctx: {
+    readonly act: ClearAct;
+    readonly combo: number;
+    readonly btb: number;
+    readonly lockedMino: PieceKind;
+    readonly hold: PieceKind | null;
+    readonly fallingMino: PieceKind;
+    readonly moveDelay: number;
+  },
+  ew: HoikoWeights,
+  weightIndex: number,
+  isEvenBoard: boolean,
+  useS4W: boolean,
+  opponentIsPowerful: boolean,
+  trustRate: number,
+): number {
+  return evaluateNodeFull(
+    src,
+    ctx,
+    ew,
+    weightIndex,
+    isEvenBoard,
+    useS4W,
+    opponentIsPowerful,
+    trustRate,
+    0,
+  ).familyScore;
 }
