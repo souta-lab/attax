@@ -113,7 +113,6 @@ export function createHoiko(options: HoikoOptions = {}): VersusFighter {
   const weightList = options.weights === undefined ? hoikoWeightList(preset) : [options.weights];
   const width = options.width ?? HOIKO_WIDTH;
   const depth = options.depth ?? HOIKO_DEPTH;
-  const useHold = options.useHold ?? true;
   let last: HoikoDebugState | null = null;
   return {
     name: "HOIKO",
