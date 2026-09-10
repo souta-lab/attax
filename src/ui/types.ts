@@ -50,8 +50,6 @@ export interface LockTransition {
   readonly garbageRowsApplied: number;
 }
 
-export type PlayMode = "human" | "ai" | "spectate" | "versus";
-
 export type AiExecutionStep =
   | { readonly kind: "hold" }
   | { readonly kind: "rotateCW" }
