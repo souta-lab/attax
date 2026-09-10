@@ -372,7 +372,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         ghostY,
         hold,
         canHold,
-        next: [...queue].slice(0, 5),
+        next: [...queue].slice(0, 7),
         score,
         lines,
         level,
