@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createFighterA } from "../src/ai/fighterA.js";
-import { createFighterB } from "../src/ai/fighterB.js";
+import { createDeepSeekTetris } from "../src/ai/deepseek.js";
 import { type FitnessScenarioInput, runFitnessScenario } from "../src/ai/fitness.js";
+import { createHoiko } from "../src/ai/hoiko.js";
 
 describe("fitness scenario API", () => {
   test("runs the typed S3 scenario in input seed order", () => {
@@ -11,11 +11,11 @@ describe("fitness scenario API", () => {
       factories: {
         leftFactory: () => {
           leftFactoryCalls += 1;
-          return createFighterA();
+          return createDeepSeekTetris();
         },
         rightFactory: () => {
           rightFactoryCalls += 1;
-          return createFighterB();
+          return createHoiko();
         },
       },
       seeds: [7, 1],

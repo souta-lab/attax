@@ -1,19 +1,22 @@
 import type { Board } from "../core/board.js";
 import { COLS } from "../core/board.js";
 
-export type BlueEmerg = 0 | 1 | 2;
+export type DsEmerg = 0 | 1 | 2;
 
-export function blueV8Heights(after: Board): number[] {
+export function dsHeights(after: Board): number[] {
   const h: number[] = new Array<number>(COLS).fill(0);
   for (let x = 0; x < COLS; x += 1) {
     for (let y = after.length - 1; y >= 0; y -= 1) {
-      if (((after[y] ?? 0) & (1 << x)) !== 0) { h[x] = y + 1; break; }
+      if (((after[y] ?? 0) & (1 << x)) !== 0) {
+        h[x] = y + 1;
+        break;
+      }
     }
   }
   return h;
 }
 
-export interface BlueWell {
+export interface DsWell {
   readonly col: number;
   readonly depth: number;
   readonly maxExWell: number;
@@ -21,12 +24,15 @@ export interface BlueWell {
   readonly edge: boolean;
 }
 
-export function blueV8Well(after: Board, h: readonly number[], cap: number): BlueWell {
+export function dsWell(after: Board, h: readonly number[], cap: number): DsWell {
   let col = 0;
   let best = h[0] ?? 0;
   for (let x = 1; x < COLS; x += 1) {
     const v = h[x] ?? 0;
-    if (v < best || (v === best && (x === 0 || x === COLS - 1))) { best = v; col = x; }
+    if (v < best || (v === best && (x === 0 || x === COLS - 1))) {
+      best = v;
+      col = x;
+    }
   }
   let depth = 0;
   for (let y = 0; y < after.length && depth < cap; y += 1) {
@@ -34,7 +40,10 @@ export function blueV8Well(after: Board, h: readonly number[], cap: number): Blu
     let filled = true;
     for (let x = 0; x < COLS; x += 1) {
       if (x === col) continue;
-      if (((after[y] ?? 0) & (1 << x)) === 0) { filled = false; break; }
+      if (((after[y] ?? 0) & (1 << x)) === 0) {
+        filled = false;
+        break;
+      }
     }
     if (!filled) break;
     depth += 1;
@@ -56,16 +65,16 @@ export function blueV8Well(after: Board, h: readonly number[], cap: number): Blu
   };
 }
 
-export interface BlueFloatWell {
+export interface DsFloatWell {
   readonly col: number;
   readonly depth: number;
   readonly edge: boolean;
 }
 
-// W3: floating (sky-line-anchored) well. Unlike blueV8Well (floor-anchored,
+// W3: floating (sky-line-anchored) well. Unlike dsWell (floor-anchored,
 // counted from y=0, stays 0 on holed stacks), this measures the deepest drop
 // from the local skyline: min(neighbors) - h[col]. Fires on messy stacks.
-export function blueV8FloatWell(h: readonly number[], cap: number): BlueFloatWell {
+export function dsFloatWell(h: readonly number[], cap: number): DsFloatWell {
   let col = 0;
   let best = 0;
   for (let x = 0; x < COLS; x += 1) {
@@ -80,7 +89,7 @@ export function blueV8FloatWell(h: readonly number[], cap: number): BlueFloatWel
   return { col, depth: best, edge: col === 0 || col === COLS - 1 };
 }
 
-export function blueV8BumpExWell(h: readonly number[], well: number): number {
+export function dsBumpExWell(h: readonly number[], well: number): number {
   let bump = 0;
   let prev = -1;
   for (let x = 0; x < COLS; x += 1) {
@@ -92,7 +101,7 @@ export function blueV8BumpExWell(h: readonly number[], well: number): number {
   return bump;
 }
 
-export function blueV8CountTslots(after: Board, cap: number): number {
+export function dsCountTslots(after: Board, cap: number): number {
   let n = 0;
   const top = Math.min(after.length - 1, 14);
   for (let y = 1; y <= top; y += 1) {
@@ -111,7 +120,7 @@ export function blueV8CountTslots(after: Board, cap: number): number {
   return n;
 }
 
-export function blueV8CountHoles(after: Board, h: readonly number[]): number {
+export function dsCountHoles(after: Board, h: readonly number[]): number {
   let n = 0;
   for (let x = 0; x < COLS; x += 1) {
     const top = h[x] ?? 0;
@@ -120,7 +129,7 @@ export function blueV8CountHoles(after: Board, h: readonly number[]): number {
   return n;
 }
 
-export function blueV8Capped(after: Board, h: readonly number[]): number {
+export function dsCapped(after: Board, h: readonly number[]): number {
   let n = 0;
   for (let x = 0; x < COLS; x += 1) {
     const top = h[x] ?? 0;
@@ -132,45 +141,48 @@ export function blueV8Capped(after: Board, h: readonly number[]): number {
   return n;
 }
 
-export function blueV8High(after: Board): number {
+export function dsHigh(after: Board): number {
   let n = 0;
   for (let y = 14; y < after.length; y += 1) {
     let r = after[y] ?? 0;
-    while (r !== 0) { n += r & 1; r >>>= 1; }
+    while (r !== 0) {
+      n += r & 1;
+      r >>>= 1;
+    }
   }
   return n;
 }
 
-export function blueV8Emergency(pending: number, maxH: number): BlueEmerg {
+export function dsEmergency(pending: number, maxH: number): DsEmerg {
   if (pending >= 9 || maxH >= 16) return 2;
   if (pending >= 5 || maxH >= 11) return 1;
   return 0;
 }
 
-export function blueV8Veto(after: Board, lines: number, pending: number, tspin = false): boolean {
-  const h = blueV8Heights(after);
+export function dsVeto(after: Board, lines: number, pending: number, tspin = false): boolean {
+  const h = dsHeights(after);
   if (tspin && lines > 0) {
-    const holes = blueV8CountHoles(after, h);
+    const holes = dsCountHoles(after, h);
     let global = 0;
     for (const v of h) if (v > global) global = v;
     if (holes >= 10 && global >= 14 && pending > 0) return true;
     if (holes >= 12 && global >= 15) return true;
   }
   if (lines > 0) return false;
-  const well = blueV8Well(after, h, 6);
+  const well = dsWell(after, h, 6);
   const ceil = pending > 0 ? 16 : 18;
   if (well.globalMax < ceil) return false;
   if (well.edge && well.depth >= 4 && well.maxExWell <= 14) return false;
   return true;
 }
 
-export function blueV8HeightPressure(maxH: number): number {
+export function dsHeightPressure(maxH: number): number {
   if (maxH >= 16) return (maxH - 15) * 500;
   if (maxH >= 11) return (maxH - 10) * 150;
   return 0;
 }
 
-export function blueV8Gamma(ply: number): number {
+export function dsGamma(ply: number): number {
   if (ply <= 1) return 1;
   if (ply === 2) return 0.55;
   return 0.3;

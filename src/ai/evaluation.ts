@@ -16,15 +16,10 @@ export interface PlyContext {
   readonly pendingAfter: number;
   readonly weights: Weights;
   readonly fire: BeamFireWeights;
-  readonly redV7Piece?: PieceKind | undefined;
+  readonly piece?: PieceKind | undefined;
 }
 
-export type PlyScorer = (
-  after: Board,
-  lines: number,
-  tspin: boolean,
-  ctx: PlyContext,
-) => number;
+export type PlyScorer = (after: Board, lines: number, tspin: boolean, ctx: PlyContext) => number;
 
 export type HardVeto = (after: Board, lines: number, tspin: boolean) => boolean;
 

@@ -2,6 +2,17 @@ import type { Board } from "../core/board.js";
 import { cloneBoard, collides, computeLockAfterstate, dropY } from "../core/board.js";
 import type { PieceKind } from "../core/pieces.js";
 import { bottomCellsOf } from "../core/pieces.js";
+import type { AiExecutionPlan } from "../ui/types.js";
+import { DEFAULTS } from "./config.js";
+import {
+  type BeamEvaluation,
+  type BeamFireWeights,
+  createBeamEvaluation,
+  type HardVeto,
+  type PlyContext,
+  type PlyScorer,
+  type ScoreAdjust,
+} from "./evaluation.js";
 import { extractFeatures, extractFireFeatures, type FeatureVector } from "./features.js";
 import {
   enumerateKickPlacements,
@@ -9,34 +20,15 @@ import {
   type PlacementGenerator,
   type ScoredPlacement,
 } from "./search.js";
-import {
-  DU_WEIGHTS,
-  FIRE_WEIGHTS,
-  scoreFire,
-  scorePlacement,
-  type Weights,
-} from "./weights.js";
-import { DEFAULTS } from "./config.js";
-import type { AiExecutionPlan } from "../ui/types.js";
-import {
-  createBeamEvaluation,
-  type BeamEvaluation,
-  type BeamFireWeights,
-  type HardVeto,
-  type PlyContext,
-  type PlyScorer,
-  type ScoreAdjust,
-} from "./evaluation.js";
-
-export { createBeamEvaluation } from "./evaluation.js";
+import { DU_WEIGHTS, FIRE_WEIGHTS, scoreFire, scorePlacement, type Weights } from "./weights.js";
 
 export type {
   BeamAfterstateInput,
   BeamEvaluation,
   BeamEvaluationDefinition,
   BeamFireWeights,
-  BeamRankInput,
   BeamRanker,
+  BeamRankInput,
   BeamScorer,
   BeamVeto,
   HardVeto,
@@ -44,6 +36,7 @@ export type {
   PlyScorer,
   ScoreAdjust,
 } from "./evaluation.js";
+export { createBeamEvaluation } from "./evaluation.js";
 
 export interface BeamOptions {
   readonly weights?: Weights | undefined;
@@ -68,8 +61,10 @@ export interface BeamMove {
   readonly x: number;
   readonly useHold: boolean;
   readonly score: number;
-  readonly after: Board; readonly linesCleared: number;
-  readonly fireScore: number; readonly isTspin: boolean;
+  readonly after: Board;
+  readonly linesCleared: number;
+  readonly fireScore: number;
+  readonly isTspin: boolean;
   readonly execution?: AiExecutionPlan;
 }
 
@@ -85,8 +80,10 @@ interface BeamNode {
   readonly firstX: number;
   readonly firstHold: boolean;
   readonly firstExecution: AiExecutionPlan | null;
-  readonly after: Board; readonly linesCleared: number;
-  readonly fireScore: number; readonly isTspin: boolean;
+  readonly after: Board;
+  readonly linesCleared: number;
+  readonly fireScore: number;
+  readonly isTspin: boolean;
   readonly pending: number;
 }
 
@@ -114,7 +111,10 @@ function wellColOf(after: Board): number {
   let best = heights[0] ?? 0;
   for (let x = 1; x < 10; x += 1) {
     const v = heights[x] ?? 0;
-    if (v < best || (v === best && (x === 0 || x === 9))) { best = v; col = x; }
+    if (v < best || (v === best && (x === 0 || x === 9))) {
+      best = v;
+      col = x;
+    }
   }
   return col;
 }
@@ -129,7 +129,7 @@ export function sustainCredit(after: Board, lines: number, tspin: boolean, ply: 
   const col = wellColOf(after);
   if (col !== 0 && col !== 9) return 0;
   if (ply > 2) return 0;
-  return Math.pow(SETUP_GAMMA, ply) * Math.min(6, depth) * SUSTAIN_WELL_STEP;
+  return SETUP_GAMMA ** ply * Math.min(6, depth) * SUSTAIN_WELL_STEP;
 }
 
 export function setupCredit(
@@ -147,8 +147,8 @@ export function setupCredit(
   const depth = wellDepthOf(after);
   if (depth < 4) return 0;
   if (ply <= 1 && depth < 6) return 0;
-  const well = Math.pow(SETUP_GAMMA, ply) * Math.min(6, depth) * ws;
-  return well + Math.pow(SETUP_GAMMA, ply) * Math.min(2, countTslots(after)) * (fire.tslotStep ?? 0);
+  const well = SETUP_GAMMA ** ply * Math.min(6, depth) * ws;
+  return well + SETUP_GAMMA ** ply * Math.min(2, countTslots(after)) * (fire.tslotStep ?? 0);
 }
 
 const DEFAULT_WIDTH = DEFAULTS.width;
@@ -235,8 +235,10 @@ export function beamBestMove(
       firstX: 0,
       firstHold: false,
       firstExecution: null,
-      after: cloneBoard(board), linesCleared: 0,
-      fireScore: 0, isTspin: false,
+      after: cloneBoard(board),
+      linesCleared: 0,
+      fireScore: 0,
+      isTspin: false,
       pending: pendingRoot,
     },
   ];
@@ -273,8 +275,10 @@ export function beamBestMove(
             x: child.firstX,
             useHold: child.firstHold,
             score: child.totalScore,
-            after: child.after, linesCleared: child.linesCleared,
-            fireScore: child.fireScore, isTspin: child.isTspin,
+            after: child.after,
+            linesCleared: child.linesCleared,
+            fireScore: child.fireScore,
+            isTspin: child.isTspin,
             ...(child.firstExecution === null ? {} : { execution: child.firstExecution }),
           });
         }
@@ -300,17 +304,35 @@ export function beamBestMove(
       m.useHold === bestLeaf.firstHold,
   );
   if (match !== undefined) {
-    return attachExecutionPrecondition(match, board, current, hold, canHold, sourceRotation, sourceX);
+    return attachExecutionPrecondition(
+      match,
+      board,
+      current,
+      hold,
+      canHold,
+      sourceRotation,
+      sourceX,
+    );
   }
-  return attachExecutionPrecondition({
-    rotation: bestLeaf.firstRotation,
-    x: bestLeaf.firstX,
-    useHold: bestLeaf.firstHold,
-    score: bestLeaf.totalScore,
-    after: bestLeaf.after, linesCleared: bestLeaf.linesCleared,
-    fireScore: bestLeaf.fireScore, isTspin: bestLeaf.isTspin,
-    ...(bestLeaf.firstExecution === null ? {} : { execution: bestLeaf.firstExecution }),
-  }, board, current, hold, canHold, sourceRotation, sourceX);
+  return attachExecutionPrecondition(
+    {
+      rotation: bestLeaf.firstRotation,
+      x: bestLeaf.firstX,
+      useHold: bestLeaf.firstHold,
+      score: bestLeaf.totalScore,
+      after: bestLeaf.after,
+      linesCleared: bestLeaf.linesCleared,
+      fireScore: bestLeaf.fireScore,
+      isTspin: bestLeaf.isTspin,
+      ...(bestLeaf.firstExecution === null ? {} : { execution: bestLeaf.firstExecution }),
+    },
+    board,
+    current,
+    hold,
+    canHold,
+    sourceRotation,
+    sourceX,
+  );
 }
 
 function boardKey(board: Board, hold: PieceKind | null, canHold: boolean): string {
@@ -410,7 +432,17 @@ function expandWithHold(
           placementGenerator,
         );
         for (const s of scoredNext) {
-          const child = applyPlacement(node, nextPiece, s, true, isFirst, ply, weights, fire, evaluation);
+          const child = applyPlacement(
+            node,
+            nextPiece,
+            s,
+            true,
+            isFirst,
+            ply,
+            weights,
+            fire,
+            evaluation,
+          );
           if (child !== null) out.push({ ...child, queueIndex: child.queueIndex + 1 });
         }
       }
@@ -448,10 +480,11 @@ function rankWithEvaluation(
     pendingAfter: node.pending,
     weights,
     fire,
-    redV7Piece: piece,
+    piece,
   };
   const rescored = list.map((s) => {
-    const tspin = piece === "T" && isTspinShape(s.after, bottomCellsOf(piece, s.rotation), s.x, s.y);
+    const tspin =
+      piece === "T" && isTspinShape(s.after, bottomCellsOf(piece, s.rotation), s.x, s.y);
     const pendingAfter = Math.max(0, node.pending - s.linesCleared);
     const c: PlyContext = { ...ctx, pendingAfter };
     const input = { after: s.after, lines: s.linesCleared, tspin, context: c };
@@ -506,7 +539,7 @@ function applyPlacement(
     pendingAfter,
     weights,
     fire,
-    redV7Piece: piece,
+    piece,
   };
   const evaluationInput = { after: test, lines: transition.linesCleared, tspin, context: ctx };
   if (evaluation.veto(evaluationInput)) return null;
@@ -553,8 +586,10 @@ function applyPlacement(
     firstX: isFirst ? s.x : node.firstX,
     firstHold: isFirst ? usedHold : node.firstHold,
     firstExecution: isFirst ? (s.execution ?? null) : node.firstExecution,
-    after: test, linesCleared: transition.linesCleared,
-    fireScore, isTspin: tspin,
+    after: test,
+    linesCleared: transition.linesCleared,
+    fireScore,
+    isTspin: tspin,
     pending: pendingAfter,
   };
 }

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createFighterA } from "../src/ai/fighterA.js";
-import { createFighterB } from "../src/ai/fighterB.js";
+import { createDeepSeekTetris } from "../src/ai/deepseek.js";
 import {
   type FitnessFighterFactory,
   type FitnessInput,
@@ -9,9 +8,18 @@ import {
   serializeFitness,
 } from "../src/ai/fitness.js";
 
-const liveLeftFactory: FitnessFighterFactory = () => createFighterA();
-const frozenRightFactory: FitnessFighterFactory = () => createFighterB();
-const liveRightFactory: FitnessFighterFactory = () => createFighterB();
+const stubRightFactory: FitnessFighterFactory = () => ({
+  name: "stub-right",
+  findBestMove: (snapshot) => {
+    const active = snapshot.active;
+    if (active === null) return null;
+    return { targetX: active.posX, targetRotation: active.rotation, useHold: false };
+  },
+});
+
+const liveLeftFactory: FitnessFighterFactory = () => createDeepSeekTetris();
+const frozenRightFactory: FitnessFighterFactory = stubRightFactory;
+const liveRightFactory: FitnessFighterFactory = stubRightFactory;
 
 const fitnessInput: FitnessInput = {
   identity: {

@@ -86,7 +86,7 @@ export function extractHoikoFeatures(
   resources: HoikoResources,
 ): HoikoFeatures {
   const board = scanHoikoBoard(after);
-  const hasT = pieceAvailable(resources, ctx.redV7Piece, "T");
+  const hasT = pieceAvailable(resources, ctx.piece, "T");
   let resourceCount = 0;
   if (resources.hold === "I" || resources.hold === "T") resourceCount += 1;
   for (const kind of resources.queue) {
@@ -116,8 +116,8 @@ export function extractHoikoFeatures(
     moveDelay: ctx.ply,
     holdI: resources.hold === "I" ? 1 : 0,
     holdT: resources.hold === "T" ? 1 : 0,
-    wasteI: ctx.redV7Piece === "I" && lines !== 4 ? 1 : 0,
-    wasteT: ctx.redV7Piece === "T" && !(tspin && lines > 0) ? 1 : 0,
+    wasteI: ctx.piece === "I" && lines !== 4 ? 1 : 0,
+    wasteT: ctx.piece === "T" && !(tspin && lines > 0) ? 1 : 0,
     clearSingle: lines === 1 && !tspin ? 1 : 0,
     clearDouble: lines === 2 && !tspin ? 1 : 0,
     clearTriple: lines === 3 && !tspin ? 1 : 0,

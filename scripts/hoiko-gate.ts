@@ -7,13 +7,11 @@
 //
 // Env:
 //   HOIKO_PRESET        Hoiko weight preset (default "we")
-//   HOIKO_OURS          "blue" -> createFighterA({useKick:false}); "red" -> createFighterB()
 //   HOIKO_SEEDS         comma-separated seed override (runs exactly those, no sharding)
 //   HOIKO_SHARD_INDEX   shard index over the fixed corpus (default 0)
 //   HOIKO_SHARD_COUNT   shard count over the fixed corpus (default 1)
 //   HOIKO_MAX_TICKS     default 12000
-import { createFighterA } from "../src/ai/fighterA.js";
-import { createFighterB } from "../src/ai/fighterB.js";
+import { createDeepSeekTetris } from "../src/ai/deepseek.js";
 import { createHoiko, type HoikoPreset } from "../src/ai/hoiko.js";
 import type { GameSnapshot } from "../src/ui/types.js";
 import {
@@ -238,14 +236,13 @@ function fingerprint(rows: readonly Row[]): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function makeOurFighter(ours: string): VersusFighter {
-  if (ours === "red") return { ...createFighterB(), color: "#e05050" };
-  return { ...createFighterA({ useKick: false }), color: "#3aa0ff" };
+function makeOurFighter(): VersusFighter {
+  return { ...createDeepSeekTetris(), color: "#3aa0ff" };
 }
 
 function main(): void {
   const preset = readPreset(process.env.HOIKO_PRESET);
-  const ours = process.env.HOIKO_OURS ?? "blue";
+  const ours = "deepseek";
   const override = process.env.HOIKO_SEEDS;
   const shardIndex = readInteger("HOIKO_SHARD_INDEX", process.env.HOIKO_SHARD_INDEX, 0);
   const shardCount = readInteger("HOIKO_SHARD_COUNT", process.env.HOIKO_SHARD_COUNT, 1);
@@ -275,7 +272,7 @@ function main(): void {
 
   const rows: Row[] = [];
   for (const seed of seeds) {
-    const row = runMatch(seed, makeOurFighter(ours), createHoiko({ weightPreset: preset }));
+    const row = runMatch(seed, makeOurFighter(), createHoiko({ weightPreset: preset }));
     rows.push(row);
     console.log(JSON.stringify({ type: "HOIKO-match", preset, ours, ...row }));
   }

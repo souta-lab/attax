@@ -1,4 +1,5 @@
 // ASCII versus renderer for manual behavior review ("brain rendering").
+// Renders DeepSeek (left) vs the Hoiko replica (right).
 // Usage: bun scripts/render.ts [seed...]
 // Env: RENDER_BASE (source tree to import fighters from; default: live src)
 //      RENDER_INTERVAL (ticks between board dumps; default 500)
@@ -15,8 +16,8 @@ const seeds = process.argv
 if (seeds.length === 0) seeds.push(1, 7);
 
 const { createVersusController, VERSUS_DEFAULTS } = await import(`${BASE}/versus/controller.js`);
-const { createFighterA } = await import(`${BASE}/ai/fighterA.js`);
-const { createFighterB } = await import(`${BASE}/ai/fighterB.js`);
+const { createDeepSeekTetris } = await import(`${BASE}/ai/deepseek.js`);
+const { createHoiko } = await import(`${BASE}/ai/hoiko.js`);
 
 type Grid = readonly (readonly number[])[];
 
@@ -91,75 +92,79 @@ function sideLabel(label: string, snap: SideSnap, sent: number, debug: SideDebug
 
 for (const seed of seeds) {
   console.log(`\n===== SEED ${seed} =====`);
-  const blue = createFighterA();
-  const red = createFighterB();
+  const ds = createDeepSeekTetris();
+  const hoiko = createHoiko();
+  const dsDebug = () => ds.getDebug();
+  const hoikoDebug = () => hoiko.getDebug?.() ?? null;
   const ctrl = createVersusController(
     {
-      name: "BLUE",
+      name: "DEEPSEEK",
       color: "#38bdf8",
-      findBestMove: (s) => blue.findBestMove(s),
-      getDebug: () => blue.getDebug(),
+      findBestMove: (s) => ds.findBestMove(s),
+      getDebug: () => dsDebug(),
     },
     {
-      name: "RED",
-      color: "#f87171",
-      findBestMove: (s) => red.findBestMove(s),
-      getDebug: () => red.getDebug(),
+      name: "HOIKO",
+      color: hoiko.color,
+      findBestMove: (s) => hoiko.findBestMove(s),
+      getDebug: () => hoikoDebug(),
     },
     seed,
   );
   let ticks = 0;
   let sinceDump = 0;
-  let prevBlue = 0;
-  let prevRed = 0;
-  let blueTetris = 0;
-  let redTetris = 0;
-  let blueTspin = 0;
-  let redTspin = 0;
-  let blueMaxH = 0;
-  let redMaxH = 0;
-  let blueMaxPend = 0;
-  let redMaxPend = 0;
+  let prevDs = 0;
+  let prevHoiko = 0;
+  let dsTetris = 0;
+  let hoikoTetris = 0;
+  let dsTspin = 0;
+  let hoikoTspin = 0;
+  let dsMaxH = 0;
+  let hoikoMaxH = 0;
+  let dsMaxPend = 0;
+  let hoikoMaxPend = 0;
 
   while (ctrl.result === null && ticks < MAX_TICKS) {
     ctrl.tick(16, VERSUS_DEFAULTS);
     ticks += 1;
     sinceDump += 1;
-    const blueSnap = ctrl.left.core.getSnapshot();
-    const redSnap = ctrl.right.core.getSnapshot();
-    const blueDbg = blue.getDebug();
-    const redDbg = red.getDebug();
+    const dsSnap = ctrl.left.core.getSnapshot();
+    const hoikoSnap = ctrl.right.core.getSnapshot();
+    const dsDbg = dsDebug();
+    const hoikoDbg = hoikoDebug();
 
-    if (blueSnap.lines > prevBlue) {
-      const cleared = blueSnap.lines - prevBlue;
-      if (cleared === 4) blueTetris += 1;
-      if (blueDbg?.isTspin === true) blueTspin += 1;
+    if (dsSnap.lines > prevDs) {
+      const cleared = dsSnap.lines - prevDs;
+      if (cleared === 4) dsTetris += 1;
+      if (dsDbg?.isTspin === true) dsTspin += 1;
       console.log(
-        `[t=${ticks}] BLUE clear +${cleared}${blueDbg?.isTspin === true ? " (tspin)" : ""} total=${blueSnap.lines}`,
+        `[t=${ticks}] DEEPSEEK clear +${cleared}${dsDbg?.isTspin === true ? " (tspin)" : ""} total=${dsSnap.lines}`,
       );
-      prevBlue = blueSnap.lines;
+      prevDs = dsSnap.lines;
     }
-    if (redSnap.lines > prevRed) {
-      const cleared = redSnap.lines - prevRed;
-      if (cleared === 4) redTetris += 1;
-      if (redDbg?.isTspin === true) redTspin += 1;
+    if (hoikoSnap.lines > prevHoiko) {
+      const cleared = hoikoSnap.lines - prevHoiko;
+      if (cleared === 4) hoikoTetris += 1;
+      if (hoikoDbg?.isTspin === true) hoikoTspin += 1;
       console.log(
-        `[t=${ticks}] RED  clear +${cleared}${redDbg?.isTspin === true ? " (tspin)" : ""} total=${redSnap.lines}`,
+        `[t=${ticks}] HOIKO    clear +${cleared}${hoikoDbg?.isTspin === true ? " (tspin)" : ""} total=${hoikoSnap.lines}`,
       );
-      prevRed = redSnap.lines;
+      prevHoiko = hoikoSnap.lines;
     }
 
-    blueMaxH = Math.max(blueMaxH, Math.max(...heights(blueSnap.board.grid), 0));
-    redMaxH = Math.max(redMaxH, Math.max(...heights(redSnap.board.grid), 0));
-    blueMaxPend = Math.max(blueMaxPend, blueSnap.pendingGarbage);
-    redMaxPend = Math.max(redMaxPend, redSnap.pendingGarbage);
+    dsMaxH = Math.max(dsMaxH, Math.max(...heights(dsSnap.board.grid), 0));
+    hoikoMaxH = Math.max(hoikoMaxH, Math.max(...heights(hoikoSnap.board.grid), 0));
+    dsMaxPend = Math.max(dsMaxPend, dsSnap.pendingGarbage);
+    hoikoMaxPend = Math.max(hoikoMaxPend, hoikoSnap.pendingGarbage);
 
     if (sinceDump >= INTERVAL) {
       sinceDump = 0;
-      console.log(`[t=${ticks}] ${sideLabel("BLUE", blueSnap, ctrl.left.sentTotal, blueDbg)}`);
-      console.log(`[t=${ticks}] ${sideLabel("RED ", redSnap, ctrl.right.sentTotal, redDbg)}`);
-      const rowsA = boardRows(blueSnap.board.grid);
-      const rowsB = boardRows(redSnap.board.grid);
+      console.log(`[t=${ticks}] ${sideLabel("DEEPSEEK", dsSnap, ctrl.left.sentTotal, dsDbg)}`);
+      console.log(
+        `[t=${ticks}] ${sideLabel("HOIKO   ", hoikoSnap, ctrl.right.sentTotal, hoikoDbg)}`,
+      );
+      const rowsA = boardRows(dsSnap.board.grid);
+      const rowsB = boardRows(hoikoSnap.board.grid);
       for (let y = 0; y < rowsA.length; y += 1) {
         console.log(`  ${rowsA[y]}   ${rowsB[y]}`);
       }
@@ -170,12 +175,12 @@ for (const seed of seeds) {
   console.log(
     `RESULT seed=${seed} winner=${result?.winner ?? "cap"} reason=${result?.reason ?? "max-ticks"} ticks=${ticks} pieces=${result?.pieces ?? ctrl.pieces}`,
   );
-  const blueEnd = ctrl.left.core.getSnapshot();
-  const redEnd = ctrl.right.core.getSnapshot();
+  const dsEnd = ctrl.left.core.getSnapshot();
+  const hoikoEnd = ctrl.right.core.getSnapshot();
   console.log(
-    `  BLUE tetris=${blueTetris} tspinClears=${blueTspin} maxH=${blueMaxH} maxPending=${blueMaxPend} lines=${blueEnd.lines} sent=${ctrl.left.sentTotal}`,
+    `  DEEPSEEK tetris=${dsTetris} tspinClears=${dsTspin} maxH=${dsMaxH} maxPending=${dsMaxPend} lines=${dsEnd.lines} sent=${ctrl.left.sentTotal}`,
   );
   console.log(
-    `  RED  tetris=${redTetris} tspinClears=${redTspin} maxH=${redMaxH} maxPending=${redMaxPend} lines=${redEnd.lines} sent=${ctrl.right.sentTotal}`,
+    `  HOIKO    tetris=${hoikoTetris} tspinClears=${hoikoTspin} maxH=${hoikoMaxH} maxPending=${hoikoMaxPend} lines=${hoikoEnd.lines} sent=${ctrl.right.sentTotal}`,
   );
 }

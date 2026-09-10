@@ -1,10 +1,10 @@
 import "./style.css";
-import { createFighterA } from "./ai/fighterA.js";
-import { createFighterB } from "./ai/fighterB.js";
-import { createApp, resolveAi, resolveCore } from "./ui/app.js";
+import { createDeepSeekTetris } from "./ai/deepseek.js";
+import { createHoiko } from "./ai/hoiko.js";
+import { createApp, resolveCore } from "./ui/app.js";
 import { attachInput } from "./ui/input.js";
 import { createBoardOnlyRenderer, createRenderer } from "./ui/renderer.js";
-import type { AiDebug, PlayMode } from "./ui/types.js";
+import type { AiDebug, GameSnapshot, PlayMode } from "./ui/types.js";
 import {
   createVersusController,
   VERSUS_DEFAULTS,
@@ -278,49 +278,45 @@ async function boot(): Promise<void> {
   try {
     const root = requireElement("app");
     const shell = buildShell(root);
-    const [core, ai] = await Promise.all([resolveCore(), resolveAi()]);
-    const fighterA = createFighterA();
-    const fighterB = createFighterB();
+    const core = await resolveCore();
+    const deepseek = createDeepSeekTetris();
+    const hoiko = createHoiko();
     const renderer = createRenderer(shell.board, shell.hold, shell.next);
     const vsRenderL = createBoardOnlyRenderer(shell.vsBoardL, 22);
     const vsRenderR = createBoardOnlyRenderer(shell.vsBoardR, 22);
     let thinkTotal = 0;
     let thinkCount = 0;
-    const timedAi =
-      ai === null
-        ? null
-        : {
-            name: ai.name,
-            findBestMove: (s: Parameters<typeof ai.findBestMove>[0]) => {
-              const t0 = performance.now();
-              const mv = ai.findBestMove(s);
-              thinkTotal += performance.now() - t0;
-              thinkCount += 1;
-              return mv;
-            },
-            getDebug: () =>
-              typeof ai.getDebug === "function" ? (ai.getDebug() as AiDebug | null) : null,
-          };
-    const timedVersus = {
-      name: fighterB.name,
-      findBestMove: (s: Parameters<typeof fighterB.findBestMove>[0]) => {
+    const timedAi = {
+      name: deepseek.name,
+      findBestMove: (s: GameSnapshot) => {
         const t0 = performance.now();
-        const mv = fighterB.findBestMove(s);
+        const mv = deepseek.findBestMove(s);
         thinkTotal += performance.now() - t0;
         thinkCount += 1;
         return mv;
       },
-      getDebug: () => fighterB.getDebug(),
+      getDebug: () => deepseek.getDebug(),
+    };
+    const timedVersus = {
+      name: hoiko.name,
+      findBestMove: (s: GameSnapshot) => {
+        const t0 = performance.now();
+        const mv = hoiko.findBestMove(s);
+        thinkTotal += performance.now() - t0;
+        thinkCount += 1;
+        return mv;
+      },
+      getDebug: () => hoiko.getDebug?.() ?? null,
     };
     const scoreFighter: VersusFighter = {
-      name: "BLUE🛡️",
+      name: "DEEPSEEK",
       color: "#38bdf8",
-      findBestMove: (s) => fighterA.findBestMove(s),
-      getDebug: () => fighterA.getDebug(),
+      findBestMove: (s) => deepseek.findBestMove(s),
+      getDebug: () => deepseek.getDebug(),
     };
     const versusFighter: VersusFighter = {
-      name: "RED🔥",
-      color: "#f87171",
+      name: hoiko.name,
+      color: hoiko.color,
       findBestMove: (s) => timedVersus.findBestMove(s),
       getDebug: () => timedVersus.getDebug(),
     };
