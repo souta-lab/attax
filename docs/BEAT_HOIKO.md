@@ -74,11 +74,17 @@ scoreboard; a change is only "an improvement" if it raises the win count here.
 | DeepSeek v2 | presets `wr`/`ultra2`/`sprint` (4 seeds) | 4-0, 4-0, 4-0 |
 
 Held-out robustness: v2 beat Hoiko **16-0** (541 vs 128 lines, 0 mismatches) on 16
-seeds that are **not** in the tuning/gate corpus, confirming the result is not
-overfit to the 32 fixed seeds.
+seeds that are **not** in the tuning/gate corpus, and **64-0** (2302 vs 548 lines,
+0 mismatches) on a further 64 unseen seeds — **80-0 on fresh seeds total**,
+confirming the result is not overfit to the 32 fixed seeds.
 
 Beam robustness: v2 beat Hoiko at **beam 1500** (3x the default) **12-0** (422 vs 101
 lines). The gate accepts `HOIKO_BEAM` to sweep this.
 
 DeepSeek v2 is wired as the app's versus fighter (`src/main.ts`). Reproduce the main
 result with `bun scripts/gate-v2.ts`.
+
+DeepSeek v2 is also ported to Rust (`rust/hoiko-deepseek`, `src/v2.rs` + `v2_score.rs` +
+`kick.rs` + `tspin.rs`) with a differential parity test against the TS v2 and a bench
+(`examples/bench_deepseek_v2.rs`, ~18 ms/move). The Rust port exists so future deeper or
+broader search is affordable; it makes the same decisions as the TS v2.
