@@ -316,26 +316,30 @@ impl Board {
     /// native method. The offset driver passes a zero-filled `Int32Array`, so
     /// the result is absolute column heights (not garbage-relative).
     pub fn get_column_height_zeroed(&self, ch: &mut [i32; BOARD_WIDTH]) -> i32 {
-        let mut bit = 0i32;
+        let mut seen = 0i32;
+        let mut first_seen = [0i32; BOARD_WIDTH];
+        let mut t = 0i32;
         let mut min = 0i32;
         let mut y = self.stack_height;
         while y >= 0 {
-            bit |= self.line[y as usize];
-            if bit == FULL_ROW {
+            let row = self.line[y as usize];
+            let mut fresh = row & !seen;
+            while fresh != 0 {
+                let b = fresh.trailing_zeros() as usize;
+                first_seen[9 - b] = t;
+                fresh &= fresh - 1;
+            }
+            seen |= row;
+            if seen == FULL_ROW {
                 min = y + 1;
                 break;
             }
-            for x in 0..BOARD_WIDTH as i32 {
-                if bit & (0x200 >> x) != 0 {
-                    ch[x as usize] += 1;
-                }
-            }
+            t += 1;
             y -= 1;
         }
-        if min > 0 {
-            for ch in ch.iter_mut() {
-                *ch += min;
-            }
+        for (x, slot) in ch.iter_mut().enumerate() {
+            let bit = 1i32 << (9 - x);
+            *slot += if seen & bit != 0 { t - first_seen[x] + min } else { min };
         }
         min - 1
     }
@@ -432,6 +436,56 @@ mod tests {
         let g = b.get_column_height(&mut ch);
         assert_eq!(g, 0);
         assert_eq!(ch, [0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn column_height_zeroed_matches_reference() {
+        fn reference(b: &Board, ch: &mut [i32; 10]) -> i32 {
+            let mut bit = 0i32;
+            let mut min = 0i32;
+            let mut y = b.stack_height;
+            while y >= 0 {
+                bit |= b.line[y as usize];
+                if bit == FULL_ROW {
+                    min = y + 1;
+                    break;
+                }
+                for x in 0..10 {
+                    if bit & (0x200 >> x) != 0 {
+                        ch[x as usize] += 1;
+                    }
+                }
+                y -= 1;
+            }
+            if min > 0 {
+                for c in ch.iter_mut() {
+                    *c += min;
+                }
+            }
+            min - 1
+        }
+        let mut seed = 0x1234_5678u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for _ in 0..20_000 {
+            let mut b = Board::default();
+            for y in 0..10 {
+                b.line[y] = (rnd() & 0x3ff) as i32;
+            }
+            b.update_max_height();
+            let mut a = [0i32; 10];
+            let mut c = [0i32; 10];
+            assert_eq!(b.get_column_height_zeroed(&mut a), reference(&b, &mut c));
+            assert_eq!(a, c);
+            let mut a = [-1i32; 10];
+            let mut c = [-1i32; 10];
+            assert_eq!(b.get_column_height(&mut a), reference(&b, &mut c));
+            assert_eq!(a, c);
+        }
     }
 
     #[test]
