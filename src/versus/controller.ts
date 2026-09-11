@@ -310,10 +310,10 @@ function resetSide(side: SideState, seed: number, engineOptions: EngineOptions =
   side.executionExpectedBoardFailures = 0;
 }
 
-function seededRandom(seed: number): () => number {
-  let s = seed < 0 ? -seed : seed;
+export function seededRandom(seed: number): () => number {
+  let s = seed | 0;
   return () => {
-    s = (s * 1103515245 + 12345) % 2147483648;
+    s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
     return s / 2147483648;
   };
 }
