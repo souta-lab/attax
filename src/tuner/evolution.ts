@@ -4,14 +4,19 @@
 import { type Genome, sanitizeGenome, TUNABLE_SPECS } from "./genome.js";
 import type { Rng } from "./rng.js";
 
-/** Probability that any single tunable gene is perturbed in one offspring. */
-export const MUTATION_RATE = 0.1;
+/** Default probability that any single tunable gene is perturbed in one offspring. */
+export const MUTATION_RATE = 0.05;
 
-export function mutate(parent: Genome, rng: Rng, sigmaScale: number): Genome {
+export function mutate(
+  parent: Genome,
+  rng: Rng,
+  sigmaScale: number,
+  mutationRate: number = MUTATION_RATE,
+): Genome {
   const out: Record<string, number> = { ...parent };
   let changed = 0;
   for (const spec of TUNABLE_SPECS) {
-    if (rng.next() >= MUTATION_RATE) continue;
+    if (rng.next() >= mutationRate) continue;
     const base = parent[spec.key] ?? spec.value;
     out[spec.key] = base + rng.gaussian() * spec.sigma * sigmaScale;
     changed += 1;
@@ -31,10 +36,11 @@ export function proposeOffspring(
   lambda: number,
   rng: Rng,
   sigmaScale: number,
+  mutationRate: number = MUTATION_RATE,
 ): readonly Genome[] {
   const out: Genome[] = [];
   for (let index = 0; index < lambda; index += 1) {
-    out.push(mutate(parent, rng, sigmaScale));
+    out.push(mutate(parent, rng, sigmaScale, mutationRate));
   }
   return out;
 }

@@ -95,6 +95,7 @@ interface Config {
   readonly search: SearchConfig;
   readonly chunkSize: number;
   readonly sigma0: number;
+  readonly mutationRate: number;
 }
 
 function readInt(name: string, fallback: number): number {
@@ -132,7 +133,8 @@ function readConfig(): Config {
     maxTicks: readInt("TUNER_MAXTICKS", TUNER_MAX_TICKS),
     search,
     chunkSize: Math.max(1, readInt("TUNER_CHUNK", chunkDefault)),
-    sigma0: Math.max(0.05, readFloat("TUNER_SIGMA", 0.3)),
+    sigma0: Math.max(0.05, readFloat("TUNER_SIGMA", 0.8)),
+    mutationRate: Math.min(1, Math.max(0.01, readFloat("TUNER_MUTATION_RATE", 0.05))),
   };
 }
 
@@ -350,7 +352,13 @@ async function main(): Promise<void> {
     generation += 1;
     const parent = mutable.best ?? mutable.parent;
     if (parent === null) throw new Error("tuner: no incumbent");
-    const offspring = proposeOffspring(parent.genome, config.lambda, rng, mutable.sigmaScale);
+    const offspring = proposeOffspring(
+      parent.genome,
+      config.lambda,
+      rng,
+      mutable.sigmaScale,
+      config.mutationRate,
+    );
     const rngState = rng.getState();
 
     const evaluations = await evaluateCandidates(config, offspring, config.search);
@@ -372,10 +380,10 @@ async function main(): Promise<void> {
       mutable.best = bestOffspring;
       mutable.parent = bestOffspring;
       mutable.stagnation = 0;
-      mutable.sigmaScale = Math.min(0.6, mutable.sigmaScale * 1.1);
+      mutable.sigmaScale = Math.max(0.35, mutable.sigmaScale * 0.9);
     } else {
       mutable.stagnation += 1;
-      mutable.sigmaScale = Math.max(0.12, mutable.sigmaScale * 0.7);
+      mutable.sigmaScale = Math.min(1.2, mutable.sigmaScale * 1.08);
     }
     mutable.generation = generation;
     mutable.rngState = rngState;

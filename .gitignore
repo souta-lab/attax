@@ -8,6 +8,9 @@ dist/
 # logs / scratch
 *.log
 
+# tuner runtime state (regenerated deterministically from seed + weights)
+weights/tuner-state.json
+
 # Hoiko third-party artifacts — kept locally for reference, not redistributed
 evidence/hoiko/weights/
 evidence/hoiko/README.txt
