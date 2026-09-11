@@ -309,6 +309,7 @@ function boot(): void {
       findBestMove: (snap) => deepseek.findBestMove(snap),
     },
     nextSeed(),
+    { garbageAligned: true },
   );
   let seenResult: VersusResult | null = null;
   let matchNo = 0;

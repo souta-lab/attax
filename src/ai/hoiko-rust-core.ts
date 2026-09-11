@@ -49,6 +49,14 @@ const LOCK_ACTION_CODE: Readonly<Record<LockAction, number>> = {
   Pc: 9,
 };
 
+const CLEAR_DELAY: Readonly<Record<number, number>> = {
+  0: 0, 1: 36, 5: 36, 8: 36, 2: 41, 3: 41, 6: 41, 7: 41, 4: 46, 9: 1,
+};
+
+function rGetDelay(moveDelay: number, act: number): number {
+  return (CLEAR_DELAY[act] ?? 0) * 16 + moveDelay;
+}
+
 interface WasmExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
   h_alloc: (size: number) => number;
@@ -141,6 +149,10 @@ export interface RawSearchRequest {
 
 export interface RustHoikoOptions {
   readonly beamSizeLimit?: number | undefined;
+  /** Initial adaptive beam coefficient (`SetNextOption` maxBeamSize). Default 500. */
+  readonly maxBeamSize?: number | undefined;
+  /** Binary `SetNextOption` time-budget beam adaptation. Default false (deterministic). */
+  readonly adapt?: boolean | undefined;
   readonly weightPreset?: HoikoPreset | undefined;
   readonly weights?: readonly HoikoWeights[] | undefined;
   /** OffsetOffAI garbage management. Default true (mirrors hoiko-native.ts). */
@@ -166,7 +178,7 @@ export class RustHoikoEngine {
 
   // --- carried SearchState (initial = defaultSearchState) ---
   private weightIndex = 0;
-  private maxBeamSize = 50;
+  private maxBeamSize: number = 500;
   private beamSizeLimit: number;
   private timerLimitMs = 1000;
   // --- carried OffsetOffAI ---
@@ -194,6 +206,7 @@ export class RustHoikoEngine {
   readonly isEvenBoard: boolean;
   readonly offsetEnabled: number;
   readonly framesPerThink: number;
+  readonly adapt: boolean;
 
   constructor(instance: WebAssembly.Instance, options: RustHoikoOptions = {}) {
     const ex = instance.exports as WasmExports;
@@ -204,10 +217,12 @@ export class RustHoikoEngine {
     this.outPtr = ex.h_alloc(this.outSize);
     this.weights = options.weights ?? hoikoWeightList(options.weightPreset ?? HOIKO_DEFAULT_PRESET);
     this.beamSizeLimit = options.beamSizeLimit ?? 150;
+    this.maxBeamSize = options.maxBeamSize ?? 500;
     this.depthLimit = options.depthLimit ?? 14;
     this.viewNext = options.viewNext ?? 2;
     this.isEvenBoard = options.isEvenBoard ?? true;
     this.framesPerThink = options.framesPerThink ?? 20;
+    this.adapt = options.adapt ?? false;
     const offset = options.offset ?? true;
     this.offsetEnabled = offset ? 1 : 0;
     this.useOffsetOff = offset ? 1 : 0;
@@ -245,7 +260,7 @@ export class RustHoikoEngine {
     w.i32(1000); // time_limit_ms (constant clock => depth-limited deterministically)
     const nowMs = Math.trunc(this.frameMs);
     w.i32(nowMs);
-    w.i32(0); // adapt
+    w.i32(0);
     w.i32(this.offsetEnabled);
     w.i32(pendingGarbage);
     w.i32(this.useOffsetOff);
@@ -364,15 +379,21 @@ export class RustHoikoEngine {
   /** One `h_search`; carries all SearchState + OffsetOffAI fields forward. */
   search(req: RawSearchRequest, sync: SyncFields, pendingGarbage: number): RustOut {
     this.writeInput(req, sync, pendingGarbage);
+    const t0 = performance.now();
     const rc = this.ex.h_search(this.inPtr, this.outPtr);
+    const elapsedMs = performance.now() - t0;
     const out = this.readOut();
     if (out.ok !== 1 || rc !== 1) {
       throw new Error(`h_search failed (ok=${out.ok} rc=${rc})`);
     }
     this.weightIndex = out.weightIndex;
-    this.maxBeamSize = out.maxBeamSize;
-    this.beamSizeLimit = out.beamSizeLimit;
-    this.timerLimitMs = out.timerLimitMs;
+    if (this.adapt) {
+      this.applySetNextOption(elapsedMs, out);
+    } else {
+      this.maxBeamSize = out.maxBeamSize;
+      this.beamSizeLimit = out.beamSizeLimit;
+      this.timerLimitMs = out.timerLimitMs;
+    }
     this.useOffsetOff = out.useOffsetOff;
     this.ofsCanWait = out.ofsCanWait;
     this.ofsCenter4 = out.ofsCenter4;
@@ -390,6 +411,22 @@ export class RustHoikoEngine {
     this.lastOppLockId = out.lastOppLockId;
     this.frameMs += Math.round(this.framesPerThink / GAME_FRAMES_PER_MS);
     return out;
+  }
+
+  /** Binary `SetNextOption` (IL 15892) driven by the REAL search time. */
+  private applySetNextOption(elapsedMs: number, out: RustOut): void {
+    const timerLimit = rGetDelay(out.moveDelay, out.firstAct);
+    const overTime = elapsedMs - timerLimit;
+    if (overTime > 0) {
+      this.maxBeamSize += (out.depth - 14) * 10;
+    } else if (overTime < -33 && this.timerLimitMs < 336) {
+      this.maxBeamSize += Math.trunc((overTime + 16) * 0.06) * -10;
+    }
+    this.maxBeamSize = Math.min(500, Math.max(50, this.maxBeamSize));
+    this.timerLimitMs = timerLimit - 5;
+    let beam = Math.trunc((this.maxBeamSize * this.timerLimitMs) / 112);
+    beam = Math.min(beam, this.maxBeamSize * 3);
+    this.beamSizeLimit = beam;
   }
 }
 
