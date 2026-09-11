@@ -28,9 +28,10 @@ the binary's ~101 ms/move on speed. What remains:
 
 ## Correcting an invalid earlier claim
 
-A prior "DeepSeek beats Hoiko 7-0-1" result is **not evidence**: that Hoiko was broken
+A prior "DeepSeek beats Hoiko 7-0-1" result was **not evidence**: that Hoiko was broken
 (no OffsetAI, 4x-slow depth cutoff). It measured the port's defects, not DeepSeek's
-strength. The true DeepSeek-vs-Hoiko baseline is unknown until the faithful Hoiko is done.
+strength. Now that the faithful Hoiko is oracle-verified, the measured baseline is
+DeepSeek v1 **23-9**, and DeepSeek v2 **32-0** on the fixed 32-seed gate.
 
 ## Ordered plan
 
@@ -38,12 +39,22 @@ strength. The true DeepSeek-vs-Hoiko baseline is unknown until the faithful Hoik
 2. ~~Depth-14 interim~~ — done; the Rust engine reaches depth 14 within the binary's budget.
 3. ~~Rust core port~~ — done: one `rust/hoiko-core` serves native + wasm, differential-tested
    against the oracle; it now beats the binary on speed (`rust/PERF.md`).
-4. **Honest re-baseline (headless)**: faithful Hoiko vs current DeepSeek, many seeds, win
-   rate + survival metrics.
-5. **Then** decide DeepSeek's fate (strengthen / port / rewrite) based on the true baseline
-   — not before.
+4. ~~Honest re-baseline (headless)~~ — done: on the fixed 32-seed gate vs the faithful
+   Hoiko (beam 500), DeepSeek v1 won **23-9**.
+5. ~~Strengthen DeepSeek~~ — done: **DeepSeek v2** (SRS kicks/tucks, incoming-garbage
+   defense, opponent-aware attack timing, downstack/burst selection, deeper beam) wins
+   **32-0-0/0** with 0 execution mismatches, and is now the app's versus fighter.
+   See `docs/BEAT_HOIKO.md` and `src/ai/deepseek-v2.ts`.
+
+## Next
+
+- Wider robustness testing: Hoiko across all weight presets (`we/wo/wd/wr/ultra2/sprint`),
+  longer corpora, and non-aligned garbage, to confirm the margin is not configuration-specific.
+- Versus self-play weight tuning on top of v2 (`overnight/tuner` harness).
+- Optional: keep the faithful Rust `hoiko-core` frozen as the reference opponent; do not
+  change its observable behavior.
 
 ## Non-goals (for now)
-- Rewriting DeepSeek before the faithful Hoiko baseline exists.
+- Changing Hoiko engine observable behavior (it is the faithful reference).
 - Browser-first development.
 - Chasing micro-optimizations in TS that a Rust core subsumes.
