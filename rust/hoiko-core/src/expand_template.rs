@@ -115,20 +115,20 @@ pub fn expand_template_node(babies: &mut Vec<Baby>, root: &Baby) -> i32 {
     let num = table.len() as i32 + 1;
     let inherit = root.hold.swapped_hold != 0;
     for entry in table {
-        let mut dst = babies.first().cloned().unwrap_or_else(|| root.clone());
+        let mut dst = Baby::default();
         dst.hold = root.hold;
-        dst.next_it.copy_from(&root.next_it);
         dst.falling_mino.m = root.falling_mino.m;
         dst.falling_mino.y = root.falling_mino.y;
         dst.falling_mino.x = entry.x;
         dst.falling_mino.r = entry.r;
         dst.falling_mino.last_srs = 0;
         dst.falling_mino.bug_gravity = 0;
+        dst.next_it.copy_from(&root.next_it);
         if !inherit {
             dst.commands.init();
             dst.commands.move_delay = entry.delay;
         } else {
-            dst.commands = root.commands.clone();
+            dst.commands = root.commands;
             dst.commands.move_delay += entry.delay;
         }
         dst.commands.add_commands(entry.cmds);

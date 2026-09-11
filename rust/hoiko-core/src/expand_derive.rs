@@ -196,12 +196,12 @@ pub fn expand_derive_node(
 
             let mut cand = local.clone();
             if try_derive_move(&mut cand, board, column_height, buckets, babies, Dir::Left) == 1 {
+                let is_t2 = cand.falling_mino.m == 4 && cand.falling_mino.r == 2;
+                let fin = if is_t2 { Some(cand.clone()) } else { None };
                 let idx = babies.len();
                 add_baby(buckets, &cand, idx);
-                let pushed = cand.clone();
-                babies.push(pushed);
-                if cand.falling_mino.m == 4 && cand.falling_mino.r == 2 {
-                    let mut fin = cand.clone();
+                babies.push(cand);
+                if let Some(mut fin) = fin {
                     if try_derive_fin_b(&mut fin, board, buckets, babies) == 1 {
                         let idx = babies.len();
                         add_baby(buckets, &fin, idx);
@@ -209,14 +209,14 @@ pub fn expand_derive_node(
                     }
                 }
             }
-            cand = local.clone();
+            let mut cand = local.clone();
             if try_derive_move(&mut cand, board, column_height, buckets, babies, Dir::Right) == 1 {
+                let is_t2 = cand.falling_mino.m == 4 && cand.falling_mino.r == 2;
+                let fin = if is_t2 { Some(cand.clone()) } else { None };
                 let idx = babies.len();
                 add_baby(buckets, &cand, idx);
-                let pushed = cand.clone();
-                babies.push(pushed);
-                if cand.falling_mino.m == 4 && cand.falling_mino.r == 2 {
-                    let mut fin = cand.clone();
+                babies.push(cand);
+                if let Some(mut fin) = fin {
                     if try_derive_fin_a(&mut fin, board, buckets, babies) == 1 {
                         let idx = babies.len();
                         add_baby(buckets, &fin, idx);
@@ -224,13 +224,13 @@ pub fn expand_derive_node(
                     }
                 }
             }
-            cand = local.clone();
+            let mut cand = local.clone();
             if try_derive_rotate_b(&mut cand, board, column_height, buckets, babies) == 1 {
                 let idx = babies.len();
                 add_baby(buckets, &cand, idx);
                 babies.push(cand);
             }
-            cand = local.clone();
+            let mut cand = local.clone();
             if try_derive_rotate_a(&mut cand, board, column_height, buckets, babies) == 1 {
                 let idx = babies.len();
                 add_baby(buckets, &cand, idx);
