@@ -7,7 +7,7 @@
  * disables the search's hold pass when `canHold` is false to avoid loops).
  */
 
-import type { AiDebug, AiMove, GameSnapshot } from "../ui/types.js";
+import type { AiDebug, AiExecutionStep, AiMove, GameSnapshot } from "../ui/types.js";
 import { ROWS } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
 import type { PieceKind } from "../core/pieces.js";
@@ -64,6 +64,25 @@ function toNativeInput(s: GameSnapshot): NativeInput | null {
     combo: s.nativeCombo,
     btb: s.nativeBtb,
   };
+}
+
+function cosmeticSteps(
+  fromRotation: number,
+  fromX: number,
+  toRotation: number,
+  toX: number,
+): readonly AiExecutionStep[] {
+  const steps: AiExecutionStep[] = [];
+  const cur = ((fromRotation % 4) + 4) % 4;
+  const cw = (toRotation - cur + 4) % 4;
+  const ccw = (cur - toRotation + 4) % 4;
+  for (let i = 0; i < (cw <= ccw ? cw : ccw); i += 1) {
+    steps.push({ kind: cw <= ccw ? "rotateCW" : "rotateCCW" });
+  }
+  for (let i = 0; i < Math.abs(toX - fromX); i += 1) {
+    steps.push({ kind: toX < fromX ? "left" : "right" });
+  }
+  return steps;
 }
 
 function boardStats(grid: GameSnapshot["board"]["grid"], rows: number): {
@@ -123,6 +142,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         return { targetX: o.firstX, targetRotation: rotation, useHold: true };
       }
       const landing = o.firstPlacement;
+      const moveSteps = cosmeticSteps(active.rotation, active.posX, rotation, o.firstX);
       const placeStep = {
         kind: "placeAt",
         rotation,
@@ -137,7 +157,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         execution: {
           targetX: o.firstX,
           targetRotation: rotation,
-          steps: [placeStep],
+          steps: [...moveSteps, placeStep],
           expectedBoard: [],
           expectedLinesCleared: 0,
           sourceActiveKind: active.kind,

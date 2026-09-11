@@ -25,6 +25,7 @@ const PALETTE: readonly PaletteEntry[] = [
   { fill: "#f87171", edge: "#b91c1c" },
   { fill: "#60a5fa", edge: "#1d4ed8" },
   { fill: "#fb923c", edge: "#c2410c" },
+  { fill: "#64748b", edge: "#334155" },
 ] as const;
 
 function colorFor(cell: CellValue): PaletteEntry {
