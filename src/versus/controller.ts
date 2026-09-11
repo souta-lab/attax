@@ -238,6 +238,8 @@ export interface VersusController {
 export interface VersusControllerConfig {
   /** Locks pending garbage waits before spawning (engine `garbageDelay`). */
   readonly garbageDelay?: number | undefined;
+  /** Share one hole column across all rows of a garbage chunk (engine `garbageAligned`). */
+  readonly garbageAligned?: boolean | undefined;
 }
 
 export function createVersusController(
@@ -246,8 +248,10 @@ export function createVersusController(
   seed: number,
   config: VersusControllerConfig = {},
 ): VersusController {
-  const engineOptions: EngineOptions =
-    config.garbageDelay === undefined ? {} : { garbageDelay: config.garbageDelay };
+  const engineOptions: EngineOptions = {
+    ...(config.garbageDelay === undefined ? {} : { garbageDelay: config.garbageDelay }),
+    ...(config.garbageAligned === undefined ? {} : { garbageAligned: config.garbageAligned }),
+  };
   const mkSide = (side: VersusSide, fighter: VersusFighter): SideState => ({
     side,
     core: createEngine({ random: seededRandom(seed), ...engineOptions }),
@@ -279,8 +283,8 @@ export function createVersusController(
       tickVersus(ctrl, dt, options);
     },
     resetMatch(nextSeed: number): void {
-      resetSide(left, nextSeed, config.garbageDelay);
-      resetSide(right, nextSeed, config.garbageDelay);
+      resetSide(left, nextSeed, engineOptions);
+      resetSide(right, nextSeed, engineOptions);
       ctrl.pieces = 0;
       ctrl.result = null;
       ctrl.rematchIn = null;
@@ -289,8 +293,8 @@ export function createVersusController(
   return ctrl;
 }
 
-function resetSide(side: SideState, seed: number, garbageDelay?: number): void {
-  side.core = createEngine({ random: seededRandom(seed), garbageDelay });
+function resetSide(side: SideState, seed: number, engineOptions: EngineOptions = {}): void {
+  side.core = createEngine({ random: seededRandom(seed), ...engineOptions });
   side.thinkMs = 0;
   side.thinkCount = 0;
   side.pendingThink = true;

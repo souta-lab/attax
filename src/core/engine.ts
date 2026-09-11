@@ -75,6 +75,8 @@ export interface EngineOptions {
   readonly random?: () => number;
   /** Locks a pending garbage chunk waits before spawning (default GARBAGE_DELAY). */
   readonly garbageDelay?: number | undefined;
+  /** Share one hole column across all rows of a garbage chunk (PPT-style). */
+  readonly garbageAligned?: boolean | undefined;
 }
 
 function shuffledBag(rand: () => number): PieceKind[] {
@@ -263,9 +265,13 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   }
 
   function spawnGarbageRows(count: number): void {
-    const { holes, prevHole } = genGarbageHoles(count, rand, prevGarbageHole);
-    prevGarbageHole = prevHole;
-    for (const hole of holes) {
+    const gen = options.garbageAligned
+      ? genGarbageHoles(1, rand, prevGarbageHole)
+      : genGarbageHoles(count, rand, prevGarbageHole);
+    const holes = gen.holes;
+    prevGarbageHole = gen.prevHole;
+    for (let i = 0; i < count; i += 1) {
+      const hole = holes[options.garbageAligned ? 0 : i] ?? 0;
       const row: CellValue[] = Array.from({ length: COLS }, (_, x) =>
         x === hole ? (0 as CellValue) : (8 as CellValue),
       );
