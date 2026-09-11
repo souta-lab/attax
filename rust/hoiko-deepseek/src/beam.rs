@@ -37,8 +37,34 @@ struct BeamNode {
     total_score: f64,
     first_rotation: i32,
     first_x: i32,
+    first_y: i32,
     first_hold: bool,
+    lines_cleared: u32,
+    tspin: bool,
+    fire_score: f64,
     pending: i32,
+}
+
+/// Best-move result plus the root-placement detail the host needs to build a
+/// faithful `placeAt` execution plan and `getDebug` telemetry.
+///
+/// `rotation`/`x`/`use_hold` are the chosen first move (the beam's best leaf);
+/// `y`/`score`/`lines_cleared`/`tspin`/`fire_score`/`after` mirror the root
+/// placement the TS `beamBestMove` returns (the highest-scoring first move that
+/// shares the chosen rotation/x/use-hold), so the wasm adapter can reproduce
+/// TS v2's execution exactly. Search tie-breaks are untouched.
+#[derive(Clone, Copy, Debug)]
+pub struct BeamBest {
+    pub rotation: i32,
+    pub x: i32,
+    pub y: i32,
+    pub use_hold: bool,
+    pub score: f64,
+    pub lines_cleared: u32,
+    pub tspin: bool,
+    pub fire_score: f64,
+    pub search_depth: usize,
+    pub after: Board,
 }
 
 pub struct BeamOptions<'a> {
@@ -64,6 +90,20 @@ pub fn beam_best_move(
     combo: i32,
     options: &BeamOptions,
 ) -> Option<(i32, i32, bool)> {
+    beam_best_move_details(board, current, queue, hold, can_hold, b2b, combo, options)
+        .map(|best| (best.rotation, best.x, best.use_hold))
+}
+
+pub fn beam_best_move_details(
+    board: &Board,
+    current: PieceKind,
+    queue: &[PieceKind],
+    hold: Option<PieceKind>,
+    can_hold: bool,
+    b2b: bool,
+    combo: i32,
+    options: &BeamOptions,
+) -> Option<BeamBest> {
     let depth = options.depth.min(queue.len() + 1);
     let mut pieces: Vec<PieceKind> = Vec::with_capacity(depth + 1);
     pieces.push(current);
@@ -79,9 +119,14 @@ pub fn beam_best_move(
         total_score: 0.0,
         first_rotation: 0,
         first_x: 0,
+        first_y: 0,
         first_hold: false,
+        lines_cleared: 0,
+        tspin: false,
+        fire_score: 0.0,
         pending: options.pending,
     }];
+    let mut first_moves: Vec<BeamNode> = Vec::new();
 
     for ply in 0..depth {
         let mut next_beam: Vec<BeamNode> = Vec::new();
@@ -104,6 +149,9 @@ pub fn beam_best_move(
             );
             next_beam.extend(expanded);
         }
+        if ply == 0 {
+            first_moves = next_beam.clone();
+        }
         if next_beam.is_empty() {
             break;
         }
@@ -111,8 +159,32 @@ pub fn beam_best_move(
         beam = dedupe(next_beam).into_iter().take(options.width).collect();
     }
 
+    first_moves.sort_by(|a, b| b.total_score.partial_cmp(&a.total_score).unwrap_or(std::cmp::Ordering::Equal));
+    let mut seen = HashSet::new();
+    first_moves.retain(|n| seen.insert((n.first_rotation, n.first_x, n.first_hold)));
+    first_moves.truncate(options.width.max(options.top_k));
+
     let best = beam.first()?;
-    Some((best.first_rotation, best.first_x, best.first_hold))
+    let root = first_moves
+        .iter()
+        .find(|n| {
+            n.first_rotation == best.first_rotation
+                && n.first_x == best.first_x
+                && n.first_hold == best.first_hold
+        })
+        .unwrap_or(best);
+    Some(BeamBest {
+        rotation: root.first_rotation,
+        x: root.first_x,
+        y: root.first_y,
+        use_hold: root.first_hold,
+        score: root.total_score,
+        lines_cleared: root.lines_cleared,
+        tspin: root.tspin,
+        fire_score: root.fire_score,
+        search_depth: depth,
+        after: root.board,
+    })
 }
 
 fn board_key(board: &Board, hold: Option<PieceKind>, can_hold: bool) -> (i32, i8, bool) {
@@ -360,7 +432,11 @@ fn apply_placement(
         total_score,
         first_rotation: if is_first { s.rotation } else { node.first_rotation },
         first_x: if is_first { s.x } else { node.first_x },
+        first_y: if is_first { s.y } else { node.first_y },
         first_hold: if is_first { used_hold } else { node.first_hold },
+        lines_cleared: lines,
+        tspin,
+        fire_score: fscore,
         pending: pending_after,
     })
 }

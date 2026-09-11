@@ -6,7 +6,7 @@
 //! downstack/burst), v2 weights, and the v2 hard veto. Movement parity is
 //! asserted by `tests/v2_parity.rs`.
 
-use crate::beam::{BeamOptions, DEFAULT_WIDTH, PlacementGenerator, beam_best_move};
+use crate::beam::{BeamOptions, DEFAULT_WIDTH, PlacementGenerator, beam_best_move_details};
 use crate::board::Board;
 use crate::deepseek_score::{
     ds_bump_ex_well, ds_count_holes, ds_count_tslots, ds_emergency, ds_float_well, ds_gamma,
@@ -456,7 +456,24 @@ pub struct V2Move {
     pub use_hold: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct V2MoveDetails {
+    pub mv: V2Move,
+    pub y: i32,
+    pub score: f64,
+    pub lines_cleared: u32,
+    pub is_tspin: bool,
+    pub fire_score: f64,
+    pub search_depth: usize,
+    pub top_holes: u32,
+    pub top_max_height: f64,
+}
+
 pub fn find_best_move_v2(input: &V2Input) -> Option<V2Move> {
+    find_best_move_v2_details(input).map(|details| details.mv)
+}
+
+pub fn find_best_move_v2_details(input: &V2Input) -> Option<V2MoveDetails> {
     let depth = input.options.depth;
     let queue: Vec<PieceKind> = input.next.iter().take(depth.max(1)).copied().collect();
     let opp = v2_opponent_model(&input.opponent);
@@ -493,7 +510,7 @@ pub fn find_best_move_v2(input: &V2Input) -> Option<V2Move> {
         placement_generator: Some(&generator),
         use_kick: false,
     };
-    let (rotation, x, use_hold) = beam_best_move(
+    let best = beam_best_move_details(
         input.board,
         input.active,
         &queue,
@@ -503,9 +520,20 @@ pub fn find_best_move_v2(input: &V2Input) -> Option<V2Move> {
         input.combo,
         &options,
     )?;
-    Some(V2Move {
-        x,
-        rotation,
-        use_hold,
+    let stats = v2_board_stats(&best.after);
+    Some(V2MoveDetails {
+        mv: V2Move {
+            x: best.x,
+            rotation: best.rotation,
+            use_hold: best.use_hold,
+        },
+        y: best.y,
+        score: best.score,
+        lines_cleared: best.lines_cleared,
+        is_tspin: best.tspin,
+        fire_score: best.fire_score,
+        search_depth: best.search_depth,
+        top_holes: stats.holes,
+        top_max_height: stats.global_max,
     })
 }
