@@ -73,5 +73,9 @@ scoreboard; a change is only "an improvement" if it raises the win count here.
 | DeepSeek v2 | presets `wo`/`wd` (6 seeds) | 6-0, 6-0 |
 | DeepSeek v2 | presets `wr`/`ultra2`/`sprint` (4 seeds) | 4-0, 4-0, 4-0 |
 
+Held-out robustness: v2 beat Hoiko **16-0** (541 vs 128 lines, 0 mismatches) on 16
+seeds that are **not** in the tuning/gate corpus, confirming the result is not
+overfit to the 32 fixed seeds.
+
 DeepSeek v2 is wired as the app's versus fighter (`src/main.ts`). Reproduce the main
 result with `bun scripts/gate-v2.ts`.
