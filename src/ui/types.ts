@@ -181,3 +181,53 @@ export function pieceToCell(kind: PieceKind): CellValue {
       return 7;
   }
 }
+
+/**
+ * Spawn-orientation mino offsets per piece, normalized so the top-left of the
+ * bounding box is (0, 0). UI-only geometry for HOLD/NEXT previews; the core
+ * remains the single source of playable rotations.
+ */
+export const SPAWN_SHAPES: Readonly<Record<PieceKind, readonly CellPos[]>> = {
+  I: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 2, y: 0 },
+    { x: 3, y: 0 },
+  ],
+  O: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+  ],
+  T: [
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+    { x: 2, y: 1 },
+  ],
+  S: [
+    { x: 1, y: 0 },
+    { x: 2, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+  ],
+  Z: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 1, y: 1 },
+    { x: 2, y: 1 },
+  ],
+  J: [
+    { x: 0, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+    { x: 2, y: 1 },
+  ],
+  L: [
+    { x: 2, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+    { x: 2, y: 1 },
+  ],
+};
