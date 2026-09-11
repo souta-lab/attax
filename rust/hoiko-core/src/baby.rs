@@ -27,9 +27,7 @@ pub struct Baby {
 impl Baby {
     pub fn copy_from(&mut self, src: &Baby) {
         self.falling_mino = src.falling_mino;
-        self.commands.s.clear();
-        self.commands.s.extend_from_slice(&src.commands.s);
-        self.commands.move_delay = src.commands.move_delay;
+        self.commands.copy_from(&src.commands);
         self.hold = src.hold;
         self.next_it.copy_from(&src.next_it);
     }
@@ -107,9 +105,7 @@ pub fn copy_game(dst: &mut GamePack, src: &GamePack) {
     dst.board.line = src.board.line;
     dst.board.stack_height = src.board.stack_height;
     dst.board.locked_bottom = src.board.locked_bottom;
-    dst.commands.s.clear();
-    dst.commands.s.extend_from_slice(&src.commands.s);
-    dst.commands.move_delay = src.commands.move_delay;
+    dst.commands.copy_from(&src.commands);
     dst.combo = src.combo;
     dst.btb = src.btb;
     dst.act = src.act;

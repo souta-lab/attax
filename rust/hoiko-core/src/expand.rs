@@ -7,12 +7,14 @@
 
 use crate::baby::{
     add_baby, clear_baby_buckets, copy_game, make_root_baby, new_baby_buckets, override_same_node,
-    Baby, Buckets, ExpandedChild,
+    Baby, Buckets, ExpandedChild, MAX_BABYS,
 };
 use crate::board::Board;
 use crate::expand_derive::expand_derive_node;
 use crate::expand_template::expand_template_node;
 use crate::gamepack::GamePack;
+use crate::mino::FallMino;
+use crate::shapes::ACT_NONE;
 
 pub const MAX_CHILDREN: usize = 100;
 const BASE_PRUNE_THRESHOLD: i32 = 34;
@@ -91,15 +93,11 @@ pub fn expand_base_node(babies: &mut Vec<Baby>, board: &Board, buckets: &mut Buc
     let count = babies.len() as i32;
     if count > BASE_PRUNE_THRESHOLD {
         let kept = get_filtered_count(buckets, babies, count).max(0) as usize;
-        let filtered: Vec<Baby> =
-            babies.iter().filter(|b| b.commands.move_delay < PRUNE_KEEP_BELOW).cloned().collect();
-        babies.clear();
-        babies.extend(filtered.into_iter().take(kept));
+        babies.retain(|b| b.commands.move_delay < PRUNE_KEEP_BELOW);
+        babies.truncate(kept);
         clear_baby_buckets(buckets);
-        for i in 0..kept {
-            if let Some(b) = babies.get(i).cloned() {
-                add_baby(buckets, &b, i);
-            }
+        for i in 0..babies.len() {
+            add_baby(buckets, &babies[i], i);
         }
     }
     babies.len() as i32
@@ -148,22 +146,29 @@ fn regist_child_node(
     babies: &[Baby],
     parent: &GamePack,
     hold_used: bool,
-) -> Vec<ExpandedChild> {
-    let mut child_buckets: Vec<Vec<usize>> = (0..CHILD_BUCKETS).map(|_| Vec::new()).collect();
-    let mut out: Vec<ExpandedChild> = Vec::new();
+    child_buckets: &mut [Vec<usize>],
+    out: &mut Vec<ExpandedChild>,
+) {
+    for bucket in child_buckets.iter_mut() {
+        bucket.clear();
+    }
+    out.clear();
     for baby in babies {
-        let mut g = GamePack::default();
-        g.board.line = parent.board.line;
-        g.board.stack_height = parent.board.stack_height;
-        g.board.locked_bottom = parent.board.locked_bottom;
-        g.combo = parent.combo;
-        g.btb = parent.btb;
-        g.falling_mino = baby.falling_mino;
-        g.hold = baby.hold;
-        g.next_it.copy_from(&baby.next_it);
-        g.commands.s.clear();
-        g.commands.s.extend_from_slice(&baby.commands.s);
-        g.commands.move_delay = baby.commands.move_delay;
+        let mut g = GamePack {
+            next_it: baby.next_it.clone(),
+            hold: baby.hold,
+            falling_mino: baby.falling_mino,
+            locked_mino: FallMino::default(),
+            board: Board {
+                line: parent.board.line,
+                stack_height: parent.board.stack_height,
+                locked_bottom: parent.board.locked_bottom,
+            },
+            commands: baby.commands,
+            combo: parent.combo,
+            btb: parent.btb,
+            act: ACT_NONE,
+        };
         if g.lock_down() == 0 {
             continue;
         }
@@ -175,7 +180,7 @@ fn regist_child_node(
             act: g.act,
             game: g,
         };
-        if delete_same_node(&mut child_buckets, &mut out, &cand) == 1 {
+        if delete_same_node(child_buckets, out, &cand) == 1 {
             continue;
         }
         let idx = cand.game.board.locked_bottom * 2 + (cand.game.locked_mino.r & 1);
@@ -184,26 +189,58 @@ fn regist_child_node(
         }
         out.push(cand);
     }
-    out
+}
+
+/// Reusable expansion scratch (baby pool, dedup buckets, hold output). One
+/// instance lives across every `expand_node` call in a search.
+pub struct ExpandScratch {
+    babies: Vec<Baby>,
+    buckets: Buckets,
+    child_buckets: Vec<Vec<usize>>,
+    hold_out: Vec<ExpandedChild>,
+}
+
+impl Default for ExpandScratch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExpandScratch {
+    pub fn new() -> Self {
+        Self {
+            babies: Vec::with_capacity(MAX_BABYS),
+            buckets: new_baby_buckets(),
+            child_buckets: (0..CHILD_BUCKETS).map(|_| Vec::new()).collect(),
+            hold_out: Vec::new(),
+        }
+    }
 }
 
 /// `ExpandNode` (IL 14207): non-hold + hold passes, capped at MAX_CHILDREN.
-pub fn expand_node(parent: &GamePack, allow_hold: bool) -> Vec<ExpandedChild> {
+pub fn expand_node_into(
+    parent: &GamePack,
+    allow_hold: bool,
+    scratch: &mut ExpandScratch,
+    out: &mut Vec<ExpandedChild>,
+) {
+    let ExpandScratch { babies, buckets, child_buckets, hold_out } = scratch;
     let mut ch = [-1i32; 10];
     parent.board.get_column_height(&mut ch);
     let safe = parent.is_safe();
 
     let root = make_root_baby(parent);
-    let mut babies: Vec<Baby> = vec![root.clone()];
-    let mut buckets = new_baby_buckets();
-    add_baby(&mut buckets, &root, 0);
+    babies.clear();
+    clear_baby_buckets(buckets);
+    babies.push(root.clone());
+    add_baby(buckets, &root, 0);
     if safe {
-        expand_template_node(&mut babies, &root);
+        expand_template_node(babies, &root);
     } else {
-        expand_base_node(&mut babies, &parent.board, &mut buckets);
+        expand_base_node(babies, &parent.board, buckets);
     }
-    expand_derive_node(&mut babies, &parent.board, &ch, &mut buckets);
-    let mut out = regist_child_node(&babies, parent, false);
+    expand_derive_node(babies, &parent.board, &ch, buckets);
+    regist_child_node(babies, parent, false, child_buckets, out);
 
     if allow_hold && parent.falling_mino.m != parent.hold.m {
         let mut hold_baby = make_root_baby(parent);
@@ -213,16 +250,18 @@ pub fn expand_node(parent: &GamePack, allow_hold: bool) -> Vec<ExpandedChild> {
             &parent.board,
             &mut hold_baby.next_it,
         );
-        let mut hb: Vec<Baby> = vec![hold_baby.clone()];
-        let mut hbuckets = new_baby_buckets();
-        add_baby(&mut hbuckets, &hold_baby, 0);
+        babies.clear();
+        clear_baby_buckets(buckets);
+        babies.push(hold_baby.clone());
+        add_baby(buckets, &hold_baby, 0);
         if safe {
-            expand_template_node(&mut hb, &hold_baby);
+            expand_template_node(babies, &hold_baby);
         } else {
-            expand_base_node(&mut hb, &parent.board, &mut hbuckets);
+            expand_base_node(babies, &parent.board, buckets);
         }
-        expand_derive_node(&mut hb, &parent.board, &ch, &mut hbuckets);
-        for c in regist_child_node(&hb, parent, true) {
+        expand_derive_node(babies, &parent.board, &ch, buckets);
+        regist_child_node(babies, parent, true, child_buckets, hold_out);
+        for c in hold_out.drain(..) {
             if out.len() >= MAX_CHILDREN {
                 break;
             }
@@ -230,6 +269,12 @@ pub fn expand_node(parent: &GamePack, allow_hold: bool) -> Vec<ExpandedChild> {
         }
     }
     out.truncate(MAX_CHILDREN);
+}
+
+pub fn expand_node(parent: &GamePack, allow_hold: bool) -> Vec<ExpandedChild> {
+    let mut scratch = ExpandScratch::new();
+    let mut out = Vec::new();
+    expand_node_into(parent, allow_hold, &mut scratch, &mut out);
     out
 }
 

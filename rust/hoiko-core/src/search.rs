@@ -14,7 +14,7 @@
 
 use crate::baby::ExpandedChild;
 use crate::evaluate::{evaluate, evaluate_first, transition_weight, EvalOut};
-use crate::expand::expand_node;
+use crate::expand::{expand_node_into, ExpandScratch};
 use crate::gamepack::GamePack;
 use crate::weights::HoikoWeights;
 
@@ -48,6 +48,40 @@ pub fn default_search_state() -> SearchState {
     SearchState::default()
 }
 
+pub const MAX_ACTS: usize = 16;
+
+#[derive(Clone, Copy)]
+struct Acts {
+    buf: [i32; MAX_ACTS],
+    len: u8,
+}
+
+impl Default for Acts {
+    fn default() -> Self {
+        Self { buf: [0; MAX_ACTS], len: 0 }
+    }
+}
+
+impl Acts {
+    fn single(v: i32) -> Self {
+        let mut a = Self::default();
+        a.push(v);
+        a
+    }
+
+    #[inline]
+    fn push(&mut self, v: i32) {
+        if (self.len as usize) < MAX_ACTS {
+            self.buf[self.len as usize] = v;
+            self.len += 1;
+        }
+    }
+
+    fn as_slice(&self) -> &[i32] {
+        &self.buf[..self.len as usize]
+    }
+}
+
 #[derive(Clone)]
 struct NodeState {
     game: GamePack,
@@ -63,7 +97,7 @@ struct NodeState {
     first_move_delay: i32,
     first_y: i32,
     first_last_srs: i32,
-    acts: Vec<i32>,
+    acts: Acts,
 }
 
 pub struct FirstPlacement {
@@ -103,11 +137,11 @@ fn make_node(child: ExpandedChild, parent: Option<&NodeState>, gen_one: bool) ->
                 md,
                 lm.y,
                 lm.last_srs,
-                vec![child.act],
+                Acts::single(child.act),
             )
         } else {
             let p = parent.expect("checked above");
-            let mut a = p.acts.clone();
+            let mut a = p.acts;
             a.push(child.act);
             (
                 p.first_x,
@@ -161,13 +195,15 @@ pub fn run_search(
     state.weight_index = weight_index;
     let ew = weight_list.get(weight_index.max(0) as usize).or_else(|| weight_list.first())?;
 
-    let gen1 = expand_node(root, allow_hold);
-    if gen1.is_empty() {
+    let mut scratch = ExpandScratch::new();
+    let mut expanded: Vec<ExpandedChild> = Vec::new();
+    expand_node_into(root, allow_hold, &mut scratch, &mut expanded);
+    if expanded.is_empty() {
         return None;
     }
 
-    let mut parents: Vec<NodeState> = gen1
-        .into_iter()
+    let mut parents: Vec<NodeState> = expanded
+        .drain(..)
         .map(|child| {
             let mut node = make_node(child, None, true);
             let ev = evaluate_first(&node.game, ew, weight_index, is_even_board);
@@ -178,18 +214,20 @@ pub fn run_search(
         .collect();
     let mut total = parents.len() as i32;
     let mut depth = 1i32;
-    let mut results: Vec<NodeState>;
+    let mut children: Vec<NodeState> = Vec::new();
+    let mut results: Vec<NodeState> = Vec::new();
+    let mut order: Vec<u32> = Vec::new();
 
     loop {
         depth += 1;
         let trust_rate = if depth > view_next + 2 { 0.9 } else { 1.0 };
         let mut num_children = 0i32;
-        let mut children: Vec<NodeState> = Vec::new();
+        children.clear();
         for i in 0..parents.len() {
-            let expanded = expand_node(&parents[i].game, allow_hold);
+            expand_node_into(&parents[i].game, allow_hold, &mut scratch, &mut expanded);
             parents[i].child_count = expanded.len() as i32;
             num_children += expanded.len() as i32;
-            for c in expanded {
+            for c in expanded.drain(..) {
                 let mut node = make_node(c, Some(&parents[i]), false);
                 let ev = evaluate(&node.game, ew, weight_index, is_even_board, use_s4w, trust_rate);
                 apply_eval(&mut node, &ev, parents[i].family_score);
@@ -200,20 +238,36 @@ pub fn run_search(
             }
         }
         total += num_children;
-        results = children;
         if depth >= state.depth_limit {
+            std::mem::swap(&mut results, &mut children);
             break;
         }
         if depth >= state.min_depth && now() - t0 > limit as f64 {
+            std::mem::swap(&mut results, &mut children);
             break;
         }
         if num_children <= 0 {
+            std::mem::swap(&mut results, &mut children);
             break;
         }
         let cap = if depth > 7 { state.beam_size_limit / 2 } else { state.beam_size_limit };
         let next_beam = cap.min(num_children).max(0) as usize;
-        results.sort_by(|a, b| b.score.cmp(&a.score));
-        parents = results.iter().take(next_beam).cloned().collect();
+        order.clear();
+        order.extend(0..children.len() as u32);
+        let better = |&a: &u32, &b: &u32| {
+            children[b as usize].score.cmp(&children[a as usize].score).then(a.cmp(&b))
+        };
+        if next_beam < order.len() {
+            order.select_nth_unstable_by(next_beam, better);
+            order[..next_beam].sort_by(better);
+        } else {
+            order.sort_by(better);
+        }
+        parents.clear();
+        for &idx in &order[..next_beam] {
+            parents.push(children[idx as usize].clone());
+        }
+        children.clear();
     }
 
     if results.is_empty() {
@@ -233,7 +287,7 @@ pub fn run_search(
         first_m: best.first_m,
         first_hold: best.first_hold,
         first_act: best.first_act,
-        plan_acts: best.acts.clone(),
+        plan_acts: best.acts.as_slice().to_vec(),
         score: best.score,
         depth,
         node: total,

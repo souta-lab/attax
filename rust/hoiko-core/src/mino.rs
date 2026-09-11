@@ -95,35 +95,62 @@ impl FallMino {
     }
 }
 
-#[derive(Clone, Default)]
+/// Native `Command` is a fixed 56-byte struct: `char s[48]`, `int moveDelay`,
+/// `int len` (SPEC_Search §1.4). The command log is never read by the engine
+/// (only copied and `IsFirstHold`-checked), so it lives inline — no heap.
+pub const COMMAND_CAP: usize = 48;
+
+#[derive(Clone, Copy)]
 pub struct Command {
-    pub s: Vec<i32>,
+    pub s: [u8; COMMAND_CAP],
+    pub len: u8,
     pub move_delay: i32,
+}
+
+impl Default for Command {
+    fn default() -> Self {
+        Self { s: [0; COMMAND_CAP], len: 0, move_delay: 0 }
+    }
 }
 
 impl Command {
     pub fn init(&mut self) {
-        self.s.clear();
+        self.len = 0;
         self.move_delay = 0;
     }
 
+    pub fn copy_from(&mut self, src: &Command) {
+        self.s = src.s;
+        self.len = src.len;
+        self.move_delay = src.move_delay;
+    }
+
+    #[inline]
+    fn push(&mut self, cmd: u8) {
+        if (self.len as usize) < COMMAND_CAP {
+            self.s[self.len as usize] = cmd;
+            self.len += 1;
+        }
+    }
+
+    #[inline]
     pub fn add_command(&mut self, cmd: i32) {
-        self.s.push(cmd);
+        self.push(cmd as u8);
     }
 
     fn add_command_soft_drop(&mut self, cmd: i32, y: i32) {
-        self.s.push(cmd);
-        self.s.push(65 + y);
+        self.push(cmd as u8);
+        self.push((65 + y) as u8);
     }
 
     pub fn add_commands(&mut self, cmds: &str) {
         for ch in cmds.bytes() {
-            self.s.push(ch as i32);
+            self.push(ch);
         }
     }
 
     pub fn is_first_hold(&self) -> bool {
-        self.s.first() == Some(&102)
+        self.len > 0 && self.s[0] == 102
     }
 
     pub fn hard_drop(&mut self, mino: &mut FallMino, bd: &Board) -> i32 {
@@ -285,7 +312,7 @@ mod tests {
         cmd.hard_drop(&mut f, &b);
         assert_eq!(f.y, 1);
         assert_eq!(cmd.move_delay, 112);
-        assert_eq!(cmd.s, vec![b'u' as i32]);
+        assert_eq!(&cmd.s[..cmd.len as usize], &[b'u']);
     }
 
     #[test]
