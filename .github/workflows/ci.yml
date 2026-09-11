@@ -1,10 +1,11 @@
 name: CI
 
+# NOTE: this repo's GitHub account currently has a billing issue that prevents
+# Actions from starting ("recent account payments have failed"). The workflow is
+# kept on manual dispatch so it does not spam failed checks on every push; switch
+# `on:` back to push/pull_request once billing is restored.
 on:
-  push:
-    branches: ["main", "overnight/**"]
-  pull_request:
-    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   web:
