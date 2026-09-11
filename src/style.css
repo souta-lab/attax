@@ -262,6 +262,37 @@ body {
   animation: meter-hot 0.45s steps(2) infinite alternate;
 }
 
+/* piece trays */
+.tray {
+  display: grid;
+  grid-template-columns: minmax(0, 0.78fr) minmax(0, 2.6fr);
+  gap: 0.4rem;
+  align-items: start;
+}
+
+.tray-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.tray-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.tray-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
 .attack-pop {
   min-height: 1.05rem;
   text-align: center;
@@ -288,9 +319,20 @@ body {
     0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
+.side.game-over .arena-board {
+  border-color: rgba(248, 113, 113, 0.6);
+  box-shadow:
+    0 0 22px rgba(248, 113, 113, 0.26),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.side.game-over .tray-canvas {
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(3.4rem, 1fr));
   gap: 0.3rem 0.4rem;
   margin: 0;
 }
@@ -424,10 +466,6 @@ body {
 @media (max-width: 430px) {
   .title {
     white-space: normal;
-  }
-
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .log-score {

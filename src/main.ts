@@ -2,7 +2,7 @@ import "./style.css";
 import { createDeepSeekTetris } from "./ai/deepseek.js";
 import { createRustHoiko } from "./ai/hoiko-rust.js";
 import { type BoardRenderer, createBoardOnlyRenderer } from "./ui/renderer.js";
-import type { GameSnapshot } from "./ui/types.js";
+import { COLS, type GameSnapshot, ROWS } from "./ui/types.js";
 import {
   createVersusController,
   type SideState,
@@ -16,6 +16,7 @@ import {
 const SPEEDS = [0.5, 1, 2, 4] as const;
 const MAX_LOG_ROWS = 6;
 const GARBAGE_METER_MAX = 12;
+const NEXT_PREVIEW_COUNT = 5;
 const DEEPSEEK_COLOR = "#38bdf8";
 
 type SpeedMultiplier = (typeof SPEEDS)[number];
@@ -35,18 +36,34 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+interface SideDomState {
+  comboDim: boolean | null;
+  b2bDim: boolean | null;
+  meterPct: number;
+  meterNow: number;
+  meterText: string | null;
+  hot: boolean;
+  gameOver: boolean;
+  popShown: boolean;
+}
+
 interface SideView {
   readonly column: HTMLElement;
   readonly canvas: HTMLCanvasElement;
+  readonly holdCanvas: HTMLCanvasElement;
+  readonly nextCanvas: HTMLCanvasElement;
   readonly wins: HTMLElement;
   readonly lines: HTMLElement;
   readonly sent: HTMLElement;
+  readonly score: HTMLElement;
+  readonly level: HTMLElement;
   readonly combo: HTMLElement;
   readonly b2b: HTMLElement;
   readonly meter: HTMLElement;
   readonly meterFill: HTMLElement;
   readonly pop: HTMLElement;
-  lastAttack: number;
+  readonly dom: SideDomState;
+  lastLockId: number;
   popUntil: number;
 }
 
@@ -70,6 +87,7 @@ interface Shell {
   readonly logList: HTMLElement;
   readonly speedButtons: readonly HTMLButtonElement[];
   readonly pauseButton: HTMLButtonElement;
+  bannerMode: string;
 }
 
 function statRow(label: string): { row: HTMLElement; value: HTMLElement } {
@@ -77,6 +95,37 @@ function statRow(label: string): { row: HTMLElement; value: HTMLElement } {
   const value = el("dd", "stat-value", "0");
   row.append(el("dt", undefined, label), value);
   return { row, value };
+}
+
+function setText(node: HTMLElement, value: string): void {
+  if (node.textContent !== value) node.textContent = value;
+}
+
+function buildTray(name: string): {
+  tray: HTMLElement;
+  hold: HTMLCanvasElement;
+  next: HTMLCanvasElement;
+} {
+  const tray = el("div", "tray");
+
+  const holdCell = el("div", "tray-cell");
+  const hold = el("canvas", "tray-canvas");
+  hold.width = 80;
+  hold.height = 60;
+  hold.setAttribute("role", "img");
+  hold.setAttribute("aria-label", `${name} hold: empty`);
+  holdCell.append(el("span", "tray-label", "hold"), hold);
+
+  const nextCell = el("div", "tray-cell tray-cell-next");
+  const next = el("canvas", "tray-canvas");
+  next.width = 200;
+  next.height = 30;
+  next.setAttribute("role", "img");
+  next.setAttribute("aria-label", `${name} next queue`);
+  nextCell.append(el("span", "tray-label", "next"), next);
+
+  tray.append(holdCell, nextCell);
+  return { tray, hold, next };
 }
 
 function buildSide(side: "hoiko" | "deepseek", name: string): SideView {
@@ -99,33 +148,53 @@ function buildSide(side: "hoiko" | "deepseek", name: string): SideView {
   const meterFill = el("div", "meter-fill");
   meter.append(meterFill);
 
+  const { tray, hold, next } = buildTray(name);
+
   const pop = el("div", "attack-pop");
   pop.setAttribute("aria-hidden", "true");
 
   const canvas = el("canvas", "arena-board");
+  canvas.width = COLS * 22;
+  canvas.height = ROWS * 22;
   canvas.setAttribute("role", "img");
   canvas.setAttribute("aria-label", `${name} board`);
 
   const stats = el("dl", "stats");
   const lines = statRow("lines");
   const sent = statRow("sent");
+  const score = statRow("score");
+  const level = statRow("level");
   const combo = statRow("combo");
   const b2b = statRow("b2b");
-  stats.append(lines.row, sent.row, combo.row, b2b.row);
+  stats.append(lines.row, sent.row, score.row, level.row, combo.row, b2b.row);
 
-  column.append(head, meter, pop, canvas, stats);
+  column.append(head, meter, tray, pop, canvas, stats);
   return {
     column,
     canvas,
+    holdCanvas: hold,
+    nextCanvas: next,
     wins,
     lines: lines.value,
     sent: sent.value,
+    score: score.value,
+    level: level.value,
     combo: combo.value,
     b2b: b2b.value,
     meter,
     meterFill,
     pop,
-    lastAttack: -1,
+    dom: {
+      comboDim: null,
+      b2bDim: null,
+      meterPct: -1,
+      meterNow: -1,
+      meterText: null,
+      hot: false,
+      gameOver: false,
+      popShown: false,
+    },
+    lastLockId: -1,
     popUntil: 0,
   };
 }
@@ -189,53 +258,101 @@ function buildShell(root: HTMLElement): Shell {
     logList,
     speedButtons,
     pauseButton,
+    bannerMode: "",
   };
 }
 
 function paintSide(view: SideView, side: SideState, snap: GameSnapshot, now: number): void {
-  view.wins.textContent = String(side.wins);
-  view.lines.textContent = String(snap.lines);
-  view.sent.textContent = String(side.sentTotal);
-  view.combo.textContent = snap.combo > 0 ? String(snap.combo) : "—";
-  view.combo.classList.toggle("dim", snap.combo === 0);
-  view.b2b.textContent = snap.b2b ? "on" : "—";
-  view.b2b.classList.toggle("dim", !snap.b2b);
+  setText(view.wins, String(side.wins));
+  setText(view.lines, String(snap.lines));
+  setText(view.sent, String(side.sentTotal));
+  setText(view.score, String(snap.score));
+  setText(view.level, String(snap.level));
 
-  const pct = Math.min(100, (snap.pendingGarbage / GARBAGE_METER_MAX) * 100);
-  view.meterFill.style.width = `${pct}%`;
-  view.meter.setAttribute("aria-valuenow", String(snap.pendingGarbage));
-  view.meter.classList.toggle("hot", snap.pendingGarbage >= GARBAGE_METER_MAX / 2);
-
-  if (snap.lastAttack > 0 && snap.lastAttack !== view.lastAttack) {
-    view.lastAttack = snap.lastAttack;
-    view.pop.textContent = `+${snap.lastAttack}`;
-    view.popUntil = now + 1200;
+  setText(view.combo, snap.combo > 0 ? String(snap.combo) : "—");
+  const comboDim = snap.combo <= 0;
+  if (comboDim !== view.dom.comboDim) {
+    view.dom.comboDim = comboDim;
+    view.combo.classList.toggle("dim", comboDim);
   }
-  view.pop.classList.toggle("show", now < view.popUntil);
+
+  setText(view.b2b, snap.b2b ? "on" : "—");
+  const b2bDim = !snap.b2b;
+  if (b2bDim !== view.dom.b2bDim) {
+    view.dom.b2bDim = b2bDim;
+    view.b2b.classList.toggle("dim", b2bDim);
+  }
+
+  const queued = Math.min(snap.pendingGarbage, GARBAGE_METER_MAX);
+  const pct = (queued / GARBAGE_METER_MAX) * 100;
+  if (pct !== view.dom.meterPct) {
+    view.dom.meterPct = pct;
+    view.meterFill.style.width = `${pct}%`;
+  }
+  if (queued !== view.dom.meterNow) {
+    view.dom.meterNow = queued;
+    view.meter.setAttribute("aria-valuenow", String(queued));
+  }
+  const meterText = `${snap.pendingGarbage} incoming`;
+  if (meterText !== view.dom.meterText) {
+    view.dom.meterText = meterText;
+    view.meter.setAttribute("aria-valuetext", meterText);
+  }
+  const hot = queued >= GARBAGE_METER_MAX / 2;
+  if (hot !== view.dom.hot) {
+    view.dom.hot = hot;
+    view.meter.classList.toggle("hot", hot);
+  }
+
+  if (snap.lockId !== view.lastLockId) {
+    view.lastLockId = snap.lockId;
+    if (snap.lastAttack > 0) {
+      view.pop.textContent = `+${snap.lastAttack}`;
+      view.popUntil = now + 1200;
+    }
+  }
+  const popShown = now < view.popUntil;
+  if (popShown !== view.dom.popShown) {
+    view.dom.popShown = popShown;
+    view.pop.classList.toggle("show", popShown);
+  }
+
+  if (snap.gameOver !== view.dom.gameOver) {
+    view.dom.gameOver = snap.gameOver;
+    view.column.classList.toggle("game-over", snap.gameOver);
+  }
 }
 
 function paintBanner(shell: Shell, controller: VersusController, paused: boolean): void {
   const result = controller.result;
-  shell.banner.classList.toggle("live", result === null && !paused);
-  shell.banner.classList.toggle("paused", result === null && paused);
-  shell.banner.classList.toggle("winner-left", result?.winner === "left");
-  shell.banner.classList.toggle("winner-right", result?.winner === "right");
-  shell.banner.classList.toggle("winner-draw", result?.winner === "draw");
+  const mode = result === null ? (paused ? "paused" : "live") : result.winner;
+  if (mode !== shell.bannerMode) {
+    shell.bannerMode = mode;
+    shell.banner.classList.toggle("live", mode === "live");
+    shell.banner.classList.toggle("paused", mode === "paused");
+    shell.banner.classList.toggle("winner-left", mode === "left");
+    shell.banner.classList.toggle("winner-right", mode === "right");
+    shell.banner.classList.toggle("winner-draw", mode === "draw");
+  }
 
   if (result === null) {
-    shell.bannerMain.textContent = paused ? "PAUSED" : "BATTLE IN PROGRESS";
-    shell.bannerReason.textContent = `${controller.pieces} pieces placed`;
-    shell.bannerCount.textContent = "";
+    setText(shell.bannerMain, paused ? "PAUSED" : "BATTLE IN PROGRESS");
+    setText(shell.bannerReason, `${controller.pieces} pieces placed`);
+    setText(shell.bannerCount, "");
     return;
   }
-  shell.bannerMain.textContent =
-    result.winner === "draw" ? "DRAW" : `${controller[result.winner].fighter.name} WINS`;
-  shell.bannerReason.textContent = result.reason;
+  setText(
+    shell.bannerMain,
+    result.winner === "draw" ? "DRAW" : `${controller[result.winner].fighter.name} WINS`,
+  );
+  setText(shell.bannerReason, result.reason);
   const remaining = controller.rematchIn;
-  shell.bannerCount.textContent =
+  setText(
+    shell.bannerCount,
     remaining === null || remaining <= 0
       ? "next battle starting"
-      : `next battle in ${(remaining / 1000).toFixed(1)}s`;
+      : `next battle in ${(remaining / 1000).toFixed(1)}s`,
+  );
 }
 
 function battleRow(no: number, result: VersusResult, controller: VersusController): BattleRow {
@@ -298,8 +415,16 @@ function boot(): void {
 
   const hoiko = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
   const deepseek = createDeepSeekTetris();
-  const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas);
-  const renderR: BoardRenderer = createBoardOnlyRenderer(shell.sideR.canvas);
+  const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas, {
+    holdCanvas: shell.sideL.holdCanvas,
+    nextCanvas: shell.sideL.nextCanvas,
+    nextCount: NEXT_PREVIEW_COUNT,
+  });
+  const renderR: BoardRenderer = createBoardOnlyRenderer(shell.sideR.canvas, {
+    holdCanvas: shell.sideR.holdCanvas,
+    nextCanvas: shell.sideR.nextCanvas,
+    nextCount: NEXT_PREVIEW_COUNT,
+  });
 
   let speed: SpeedMultiplier = 1;
   let options = speedOptions(speed);
@@ -372,7 +497,15 @@ function boot(): void {
     paused = !paused;
     syncControls();
   });
-  window.addEventListener("pagehide", () => cancelAnimationFrame(raf), { once: true });
+  window.addEventListener(
+    "pagehide",
+    () => {
+      cancelAnimationFrame(raf);
+      renderL.dispose();
+      renderR.dispose();
+    },
+    { once: true },
+  );
 
   syncControls();
   raf = requestAnimationFrame(frame);
