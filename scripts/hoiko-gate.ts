@@ -12,7 +12,8 @@
 //   HOIKO_SHARD_COUNT   shard count over the fixed corpus (default 1)
 //   HOIKO_MAX_TICKS     default 12000
 import { createDeepSeekTetris } from "../src/ai/deepseek.js";
-import { createHoiko, type HoikoPreset } from "../src/ai/hoiko.js";
+import { createRustHoiko } from "../tools/hoiko-rust/loader.js";
+import type { HoikoPreset } from "../src/ai/hoiko-weights.js";
 import type { GameSnapshot } from "../src/ui/types.js";
 import {
   createVersusController,
@@ -272,7 +273,7 @@ function main(): void {
 
   const rows: Row[] = [];
   for (const seed of seeds) {
-    const row = runMatch(seed, makeOurFighter(), createHoiko({ weightPreset: preset }));
+    const row = runMatch(seed, makeOurFighter(), createRustHoiko({ weightPreset: preset, beamSizeLimit: 500 }));
     rows.push(row);
     console.log(JSON.stringify({ type: "HOIKO-match", preset, ours, ...row }));
   }

@@ -1,5 +1,5 @@
 // Hoiko solo benchmark: does the replica survive on its own (no attacker)?
-import { createHoiko } from "/home/s0u7a/browser-tetris/src/ai/hoiko.js";
+import { createRustHoiko } from "/home/s0u7a/browser-tetris/tools/hoiko-rust/loader.js";
 import { createEngine } from "/home/s0u7a/browser-tetris/src/core/engine.js";
 
 function lcg(seed: number): () => number {
@@ -11,7 +11,7 @@ function lcg(seed: number): () => number {
 }
 const seeds = [1, 7, 42];
 for (const seed of seeds) {
-  const ai = createHoiko({ weightPreset: "we" });
+  const ai = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
   const core = createEngine({ random: lcg(seed) });
   const port = core as unknown as { hardDropAt(r: number, x: number): boolean };
   let n = 0;

@@ -88,6 +88,9 @@ internal static class OracleHost
     private static bool _initDone;
     private static bool _startTimer;
     private static bool _twoSearch;
+    private static int _offsetMode;
+    private static FieldInfo _isEvenBoardField;
+    private static bool _fieldScanDone;
     private static string _logPath;
     private static StreamWriter _file;
 
@@ -230,6 +233,15 @@ internal static class OracleHost
             Marshal.FreeHGlobal(nx2);
         }
 
+        if (_offsetMode != 0)
+        {
+            IntPtr offBuf = Marshal.AllocHGlobal(RootBufSize);
+            for (int i = 0; i < RootBufSize; i += 8) Marshal.WriteInt64(offBuf, i, 0L);
+            try { RunOffsetProbes(offBuf, miUpdateMaxHeight); }
+            catch (Exception e) { Log("[offset] RunOffsetProbes threw: " + Describe(e)); }
+            Marshal.FreeHGlobal(offBuf);
+        }
+
         Marshal.FreeHGlobal(buf);
         Marshal.FreeHGlobal(nx);
         return true;
@@ -295,6 +307,10 @@ internal static class OracleHost
             {
                 _twoSearch = val != "0";
             }
+            else if (key == "offset")
+            {
+                _offsetMode = int.Parse(val, CultureInfo.InvariantCulture);
+            }
         }
         Log("[input] loaded oracle_input.txt (board rows=" + board.Length + ", next=" + seq.Length + ")");
     }
@@ -310,12 +326,185 @@ internal static class OracleHost
     private static object Invoke(MethodInfo m, params object[] args)
     {
         if (m == null) throw new InvalidOperationException("null method");
-        try { return m.Invoke(null, args); }
+        ParameterInfo[] ps = m.GetParameters();
+        object[] coerced = new object[args.Length];
+        for (int i = 0; i < args.Length; i++)
+        {
+            object a = args[i];
+            if (i < ps.Length && ps[i].ParameterType.IsEnum && a is int) a = Enum.ToObject(ps[i].ParameterType, a);
+            coerced[i] = a;
+        }
+        try { return m.Invoke(null, coerced); }
         catch (TargetInvocationException e)
         {
             Exception inner = e.InnerException != null ? e.InnerException : e;
             throw new Exception("Invoke [" + m.Name + "] -> " + inner.GetType().FullName + ": " + inner.Message
                 + " | stack: " + inner.StackTrace, inner);
+        }
+    }
+
+    private static void SetBoard(IntPtr root, int c4)
+    {
+        for (int i = 0; i < 32; i++) Marshal.WriteInt32(root, OffBoard + i * 4, 0);
+        int mask = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);
+        for (int y = 0; y < c4 && y < 32; y++) Marshal.WriteInt32(root, OffBoard + y * 4, mask);
+        Invoke(_miUpdateMaxHeight, new IntPtr(root.ToInt64() + OffBoard));
+    }
+
+    private static MethodInfo _miUpdateMaxHeight;
+
+    private static void SetEvenBoard(bool v)
+    {
+        if (!_fieldScanDone)
+        {
+            _fieldScanDone = true;
+            try
+            {
+                _isEvenBoardField = _asm.ManifestModule.ResolveField(0x0400012f);
+                if (_isEvenBoardField != null)
+                    Log("[offset] isEvenBoard field = " + _isEvenBoardField.Name + " token=0x" + _isEvenBoardField.MetadataToken.ToString("x8"));
+            }
+            catch (Exception e) { Log("[offset] field scan error: " + e.GetType().Name + ": " + e.Message); }
+            if (_isEvenBoardField == null) Log("[offset] WARNING isEvenBoard field not found");
+        }
+        if (_isEvenBoardField != null) _isEvenBoardField.SetValue(null, v);
+    }
+
+    private static void LogOffsetState(string tag)
+    {
+        DumpStaticStruct(tag, "ofsData", 0x04000139);
+        DumpStaticStruct(tag, "gbData", 0x04000137);
+    }
+
+    private static void DumpStaticStruct(string tag, string namePart, int fieldToken)
+    {
+        try
+        {
+            FieldInfo fi = _asm.ManifestModule.ResolveField(fieldToken);
+            object v = fi.GetValue(null);
+            if (v == null) return;
+            FieldInfo[] inner = v.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            StringBuilder sb = new StringBuilder("[ofs] " + tag + " " + namePart + " {");
+            for (int j = 0; j < inner.Length; j++)
+                sb.Append(" ").Append(inner[j].Name).Append("=").Append(Convert.ToString(inner[j].GetValue(v), CultureInfo.InvariantCulture));
+            sb.Append(" }");
+            Log(sb.ToString());
+        }
+        catch (Exception e) { Log("[ofs] " + tag + " dump error: " + e.GetType().Name + ": " + e.Message); }
+    }
+
+    private static void RunOffsetProbes(IntPtr root, MethodInfo miUpdateMaxHeight)
+    {
+        _miUpdateMaxHeight = miUpdateMaxHeight;
+        // Global (mixed-mode <Module>) methods are not enumerable via reflection;
+        // resolve them by their verified metadata tokens (RID from monodis --method).
+        Log("[gfind] manifest global methods = " + _asm.ManifestModule.GetMethods().Length + " (tokens used instead)");
+
+        MethodInfo useOff = Resolve(0x060001d5, "OffsetOffAI.UseOffsetOff", 1);
+        MethodInfo canOff = Resolve(0x060001d7, "OffsetOffAI.CanOffsetOff", 1);
+        MethodInfo decOff = Resolve(0x060001d8, "OffsetOffAI.DecisionOffsetOff", 1);
+        MethodInfo resetAtk = Resolve(0x060001d9, "OffsetOffAI.ResetOpponentsAtk", 0);
+        MethodInfo calcAtk = Resolve(0x060001da, "OffsetOffAI.CalcOpponentsAtk", 4);
+        MethodInfo getAtk = Resolve(0x060001db, "OffsetOffAI.GetOpponentsAtk", 0);
+        MethodInfo setPrev = Resolve(0x060001dc, "OffsetOffAI.SetPrevAct", 1);
+        MethodInfo lockOff = Resolve(0x060001dd, "OffsetOffAI.LockOffsetAfterClearing", 3);
+        MethodInfo oppNew = Resolve(0x060001de, "OffsetOffAI.OpponentIsNewLockDown", 1);
+        MethodInfo invAtk = Resolve(0x060001df, "OffsetOffAI.InvalidateGettingEnemysAtk", 0);
+        MethodInfo isLocked = Resolve(0x060001e0, "OffsetOffAI.IsLocked", 1);
+        MethodInfo firstInvalid = Resolve(0x060001e1, "OffsetOffAI.IsFirstInvalidLockDown", 0);
+
+        Log("");
+        Log("=============== OFFSET PROBES ===============");
+        Log("[methods] useOff=" + (useOff != null) + " canOff=" + (canOff != null) + " decOff=" + (decOff != null)
+            + " calcAtk=" + (calcAtk != null) + " getAtk=" + (getAtk != null) + " resetAtk=" + (resetAtk != null)
+            + " invAtk=" + (invAtk != null) + " setPrev=" + (setPrev != null) + " lockOff=" + (lockOff != null)
+            + " oppNew=" + (oppNew != null) + " isLocked=" + (isLocked != null) + " firstInvalid=" + (firstInvalid != null));
+
+        if (useOff == null || canOff == null) { Log("[offset] core methods missing"); return; }
+
+        Invoke(useOff, true);
+        StringBuilder fresh = new StringBuilder("canWaitFresh");
+        for (int g = 0; g <= 15; g++) fresh.Append(" ").Append(g).Append(":").Append((bool)Invoke(canOff, g) ? 1 : 0);
+        Log(fresh.ToString());
+        LogOffsetState("fresh");
+
+        int[,] cases = new int[,] {
+            {0,1,0,0},{1,1,0,0},{2,1,0,0},{3,1,0,0},{4,1,0,0},{5,1,0,0},
+            {2,0,0,0},{2,1,0,2},{2,1,0,3},{3,1,1,4},{3,1,1,5},{4,1,1,2},{4,2,1,0},{2,1,1,4}
+        };
+        for (int i = 0; i < cases.GetLength(0); i++)
+        {
+            int line = cases[i, 0], btb = cases[i, 1], buff = cases[i, 2], combo = cases[i, 3];
+            Invoke(resetAtk);
+            Invoke(calcAtk, line, btb, buff, combo);
+            Log("calcAtk " + line + "," + btb + "," + buff + "," + combo + " -> " + Invoke(getAtk));
+        }
+        Invoke(invAtk);
+        Log("afterInvalidate getAtk -> " + Invoke(getAtk));
+
+        for (int act = 0; act <= 9; act++)
+        {
+            Invoke(useOff, true);
+            Invoke(setPrev, act);
+            Invoke(lockOff, 1000, 0, 7);
+            Log("lock act=" + act + " send=0 " + (bool)Invoke(isLocked, 1000) + " " + (bool)Invoke(isLocked, 1028) + " "
+                + (bool)Invoke(isLocked, 1029) + " " + (bool)Invoke(isLocked, 1030) + " fi=" + (bool)Invoke(firstInvalid)
+                + " fi2=" + (bool)Invoke(firstInvalid));
+            Invoke(useOff, true);
+            Invoke(setPrev, act);
+            Invoke(lockOff, 1000, 1, 9);
+            Log("lock act=" + act + " send=1 " + (bool)Invoke(isLocked, 1000) + " " + (bool)Invoke(isLocked, 1024)
+                + " " + (bool)Invoke(isLocked, 1025));
+        }
+        Invoke(useOff, true);
+        Invoke(lockOff, 1000, 0, 3);
+        Log("lockNone isLocked(2000)=" + (bool)Invoke(isLocked, 2000));
+
+        Invoke(useOff, true);
+        Log("oppNew " + (bool)Invoke(oppNew, 5) + " " + (bool)Invoke(oppNew, 5) + " " + (bool)Invoke(oppNew, 6));
+
+        if (decOff == null) { Log("[offset] DecisionOffsetOff missing"); return; }
+        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "offset_cases.txt");
+        if (!File.Exists(path)) { Log("[offset] offset_cases.txt not found"); return; }
+        foreach (string raw in File.ReadAllLines(path))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith("#")) continue;
+            string[] p = line.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (p.Length < 9) continue;
+            int act1 = int.Parse(p[0], CultureInfo.InvariantCulture);
+            int act2 = int.Parse(p[1], CultureInfo.InvariantCulture);
+            int act3 = int.Parse(p[2], CultureInfo.InvariantCulture);
+            int hold = int.Parse(p[3], CultureInfo.InvariantCulture);
+            int next2 = int.Parse(p[4], CultureInfo.InvariantCulture);
+            int btb = int.Parse(p[5], CultureInfo.InvariantCulture);
+            int depth = int.Parse(p[6], CultureInfo.InvariantCulture);
+            int trustEnd = int.Parse(p[7], CultureInfo.InvariantCulture);
+            int c4 = int.Parse(p[8], CultureInfo.InvariantCulture);
+            int even = p.Length > 9 ? int.Parse(p[9], CultureInfo.InvariantCulture) : 0;
+
+            SetEvenBoard(even != 0);
+            SetBoard(root, c4);
+            Marshal.WriteInt32(root, 136, hold);
+            Marshal.WriteInt32(root, 8, next2);
+            Marshal.WriteInt32(root, 412, btb);
+            Marshal.WriteInt32(root, 444, depth);
+            Marshal.WriteInt32(root, 112, trustEnd);
+            for (int i = 0; i < 14; i++) Marshal.WriteInt32(root, 904 + i * 4, 0);
+            Marshal.WriteInt32(root, 904, 0);
+            Marshal.WriteInt32(root, 908, act1);
+            Marshal.WriteInt32(root, 912, act2);
+            Marshal.WriteInt32(root, 916, act3);
+
+            Invoke(useOff, true);
+            Invoke(decOff, root);
+            LogOffsetState("dec");
+            StringBuilder sb = new StringBuilder("decision");
+            sb.Append(" a1=").Append(act1).Append(" a2=").Append(act2).Append(" a3=").Append(act3)
+              .Append(" hold=").Append(hold).Append(" n2=").Append(next2).Append(" btb=").Append(btb)
+              .Append(" d=").Append(depth).Append(" te=").Append(trustEnd).Append(" c4=").Append(c4).Append(" even=").Append(even).Append(" g=");
+            for (int g = 0; g <= 15; g++) sb.Append((bool)Invoke(canOff, g) ? 1 : 0);
+            Log(sb.ToString());
         }
     }
 

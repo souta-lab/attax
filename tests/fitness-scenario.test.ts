@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createDeepSeekTetris } from "../src/ai/deepseek.js";
 import { type FitnessScenarioInput, runFitnessScenario } from "../src/ai/fitness.js";
-import { createHoiko } from "../src/ai/hoiko.js";
+import { createRustHoiko } from "../tools/hoiko-rust/loader.js";
 
 describe("fitness scenario API", () => {
   test("runs the typed S3 scenario in input seed order", () => {
@@ -15,7 +15,7 @@ describe("fitness scenario API", () => {
         },
         rightFactory: () => {
           rightFactoryCalls += 1;
-          return createHoiko();
+          return createRustHoiko();
         },
       },
       seeds: [7, 1],

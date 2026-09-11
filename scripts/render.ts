@@ -17,7 +17,7 @@ if (seeds.length === 0) seeds.push(1, 7);
 
 const { createVersusController, VERSUS_DEFAULTS } = await import(`${BASE}/versus/controller.js`);
 const { createDeepSeekTetris } = await import(`${BASE}/ai/deepseek.js`);
-const { createHoiko } = await import(`${BASE}/ai/hoiko.js`);
+const { createRustHoiko } = await import(`${BASE}/../tools/hoiko-rust/loader.js`);
 
 type Grid = readonly (readonly number[])[];
 
@@ -93,7 +93,7 @@ function sideLabel(label: string, snap: SideSnap, sent: number, debug: SideDebug
 for (const seed of seeds) {
   console.log(`\n===== SEED ${seed} =====`);
   const ds = createDeepSeekTetris();
-  const hoiko = createHoiko();
+  const hoiko = createRustHoiko();
   const dsDebug = () => ds.getDebug();
   const hoikoDebug = () => hoiko.getDebug?.() ?? null;
   const ctrl = createVersusController(
