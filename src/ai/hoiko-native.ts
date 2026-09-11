@@ -26,6 +26,8 @@ export interface HoikoNativeOptions {
   readonly isEvenBoard?: boolean | undefined;
   /** OffsetOffAI garbage management (binary enables it for a real VS match). */
   readonly offset?: boolean | undefined;
+  /** Binary `SetNextOption` beam adaptation. Default false = fixed depth-14 beam. */
+  readonly adapt?: boolean | undefined;
 }
 
 interface DebugState {
@@ -137,11 +139,11 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         searchState: state,
         ...(weightList === undefined ? {} : { weights: weightList }),
         ...(weightList === undefined ? { weightPreset } : {}),
-        ...(timeLimitMs === undefined ? {} : { timeLimitMs }),
+        timeLimitMs: timeLimitMs ?? Number.POSITIVE_INFINITY,
         ...(viewNext === undefined ? {} : { viewNext }),
         isEvenBoard,
         allowHold: s.canHold,
-        adapt: true,
+        adapt: options.adapt ?? false,
       });
       if (run === null) return null;
       const o = run.outcome;
