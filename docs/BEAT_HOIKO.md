@@ -90,3 +90,25 @@ DeepSeek v2 is also ported to Rust (`rust/hoiko-deepseek`, `src/v2.rs` + `v2_sco
 `src/ai/wasm/deepseek_v2.wasm`) and the app/gate run it (`src/main.ts`, `DSV2_RUST=1`).
 It makes the same decisions as the TS v2 at **2.4x** the speed (24.6 vs 58.6 ms/move),
 so future deeper/broader search is affordable.
+
+## Strength vs search budget (fresh seeds)
+
+`bun scripts/strength-sweep.ts` runs v2 (Rust wasm) against Rust Hoiko over a fixed
+fresh seed set (`301,307,311,313,317,331,337,347,349,353,359,367`), sweeping v2
+depth/width against Hoiko beam. Every configuration won **12-0**, so the tiebreak is
+the margin (F = for, A = against). Full record in `evidence/strength/sweep.json`.
+
+| v2 depth | width | Hoiko beam | W-L-D/cap | lines F-A | sent F-A | v2 ms/mv | Hoiko ms/mv |
+|---|---|---|---|---|---|---|---|
+| 7 (default) | 24 | 500 | 12-0-0/0 | 406-92 | 231-46 | 34.4 | 170.8 |
+| 7 (default) | 24 | 3000 | 12-0-0/0 | 457-119 | 270-57 | 36.3 | 1116.7 |
+| 10 | 24 | 500 | 12-0-0/0 | 423-97 | 242-38 | 50.8 | 171.1 |
+| 10 | 24 | 3000 | 12-0-0/0 | 327-62 | 204-29 | 51.9 | 1080.4 |
+| 10 | 32 | 3000 | 12-0-0/0 | 439-114 | 266-53 | 65.4 | 1123.7 |
+| 13 | 24 | 3000 | 12-0-0/0 | 404-93 | 237-43 | 61.0 | 1042.6 |
+
+ms/move figures come from the 6-way parallel sweep and are contention-inflated; a
+solo depth-7 run measures **27.0 ms/decision**. Deeper search does **not** help
+against the strongest Hoiko: at beam 3000 the depth-7 default has the best line
+margin (+338) and is tied-best on attacks sent (+213), while depth 10/13 are both
+slower and worse. No default change was adopted; depth 7 / width 24 stays.
