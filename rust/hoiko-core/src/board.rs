@@ -169,7 +169,8 @@ impl Board {
             }
         }
         let limit = mino.y.min(self.stack_height + 40) + 4;
-        let mut s = 1i32;
+        let first_touch = mino.y - sh.max_y - self.stack_height;
+        let mut s = first_touch.max(1).min(limit.max(1));
         while s <= limit {
             let top = mino.y - s;
             let mut hit = false;
@@ -496,7 +497,7 @@ mod tests {
         };
         for _ in 0..50_000 {
             let mut b = Board::default();
-            for y in 0..12 {
+            for y in 0..32 {
                 b.line[y] = (rnd() & 0x3ff) as i32;
             }
             b.update_max_height();
