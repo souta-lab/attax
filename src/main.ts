@@ -1,5 +1,5 @@
 import "./style.css";
-import { createDeepSeekTetris } from "./ai/deepseek.js";
+import { createDeepSeekV2 } from "./ai/deepseek-v2.js";
 import { createRustHoiko } from "./ai/hoiko-rust.js";
 import { type BoardRenderer, createBoardOnlyRenderer } from "./ui/renderer.js";
 import { COLS, type GameSnapshot, ROWS } from "./ui/types.js";
@@ -414,7 +414,7 @@ function boot(): void {
   const shell = buildShell(root);
 
   const hoiko = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
-  const deepseek = createDeepSeekTetris();
+  const deepseek = createDeepSeekV2();
   const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas, {
     holdCanvas: shell.sideL.holdCanvas,
     nextCanvas: shell.sideL.nextCanvas,
