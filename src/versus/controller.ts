@@ -26,10 +26,12 @@ export interface SideState {
   pendingThink: boolean;
   queue: AiStep[] | readonly AiStep[];
   execution: AiExecutionPlan | null;
+  garbageWait: boolean;
   acc: number;
   gravityAcc: number;
   sentTotal: number;
   blockedTotal: number;
+  processedLockId: number;
   executionSourceMismatches: number;
   executionExpectedBoardFailures: number;
   wins: number;
@@ -86,24 +88,42 @@ export function planSteps(
   return steps;
 }
 
-function think(side: SideState): void {
+function think(side: SideState, opponent: SideState): void {
   const snap = side.core.getSnapshot();
+  const opponentSnap = opponent.core.getSnapshot();
+  const opponentTransition = opponent.core.getLastLockTransition();
   const a = snap.active;
   if (a === null || snap.gameOver) return;
+  const decisionSnapshot: GameSnapshot = {
+    ...snap,
+    opponentCombo: opponentSnap.nativeCombo,
+    opponentBtb: opponentSnap.nativeBtb,
+    opponentLockId: opponentSnap.lockId,
+    ...(opponentTransition === null
+      ? {}
+      : {
+          opponentLastClearLines: opponentTransition.linesCleared,
+          opponentLastNativeCombo: opponentTransition.nativeCombo,
+          opponentLastNativeBtb: opponentTransition.nativeBtb,
+          opponentLastRawAttack: opponentTransition.rawAttack,
+        }),
+  };
   const t0 = performance.now();
   let move: AiMove | null = null;
   try {
-    move = side.fighter.findBestMove(snap);
+    move = side.fighter.findBestMove(decisionSnapshot);
   } catch {
     move = null;
   }
   side.thinkMs += performance.now() - t0;
   side.thinkCount += 1;
   if (move === null) {
+    side.garbageWait = false;
     side.execution = null;
     side.queue = [{ kind: "drop" }];
     return;
   }
+  side.garbageWait = move.garbageWait ?? false;
   if (move.useHold) {
     side.execution = null;
     side.queue = [{ kind: "hold" }];
@@ -156,6 +176,10 @@ function executionMatches(snapshot: GameSnapshot, execution: AiExecutionPlan): b
 
 type ApplyStepResult = { readonly kind: "applied" } | { readonly kind: "expected-board-failure" };
 
+function locksPiece(kind: AiStep["kind"]): boolean {
+  return kind === "drop" || kind === "placeAt";
+}
+
 function applyStep(
   core: CorePort,
   step: AiStep,
@@ -190,6 +214,11 @@ function applyStep(
         ? { kind: "applied" }
         : { kind: "expected-board-failure" };
     }
+    case "placeAt": {
+      const placed = core.hardDropAt?.(step.rotation, step.x) ?? false;
+      if (!placed) core.hardDrop();
+      return { kind: "applied" };
+    }
   }
 }
 
@@ -218,9 +247,11 @@ export function createVersusController(
     queue: [],
     acc: 0,
     execution: null,
+    garbageWait: false,
     gravityAcc: 0,
     sentTotal: 0,
     blockedTotal: 0,
+    processedLockId: 0,
     executionSourceMismatches: 0,
     executionExpectedBoardFailures: 0,
     wins: 0,
@@ -254,10 +285,12 @@ function resetSide(side: SideState, seed: number): void {
   side.pendingThink = true;
   side.queue = [];
   side.execution = null;
+  side.garbageWait = false;
   side.acc = 0;
   side.gravityAcc = 0;
   side.sentTotal = 0;
   side.blockedTotal = 0;
+  side.processedLockId = 0;
   side.executionSourceMismatches = 0;
   side.executionExpectedBoardFailures = 0;
 }
@@ -270,19 +303,25 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function stepSide(side: SideState, dt: number, options: VersusControllerOptions): number {
+function stepSide(
+  side: SideState,
+  opponent: SideState,
+  dt: number,
+  options: VersusControllerOptions,
+): number {
   const snap = side.core.getSnapshot();
   if (snap.gameOver) return 0;
   const hadActive = snap.active !== null;
   if (side.pendingThink && side.queue.length === 0 && snap.active !== null) {
     side.pendingThink = false;
-    think(side);
+    think(side, opponent);
   }
   side.acc += dt;
   if (side.queue.length > 0 && side.acc >= options.stepIntervalMs) {
     side.acc = 0;
     const [head, ...rest] = side.queue;
     if (head !== undefined) {
+      if (locksPiece(head.kind)) side.core.setGarbageWait?.(side.garbageWait);
       const stepResult = applyStep(side.core, head, side.execution);
       switch (stepResult.kind) {
         case "applied":
@@ -294,15 +333,18 @@ function stepSide(side: SideState, dt: number, options: VersusControllerOptions)
           side.pendingThink = true;
           return 0;
       }
-      if (head.kind === "drop" || head.kind === "hold") {
+      if (locksPiece(head.kind) || head.kind === "hold") {
         side.pendingThink = side.queue.length <= 1;
       }
-      if (head.kind === "drop") side.execution = null;
+      if (locksPiece(head.kind)) side.execution = null;
+      if (locksPiece(head.kind)) {
+        side.garbageWait = false;
+        side.core.setGarbageWait?.(false);
+      }
     }
     side.queue = rest;
-    // A drop step locks exactly one piece (hardDrop no-ops without an active piece).
-    if (head !== undefined && head.kind === "drop") return hadActive ? 1 : 0;
-    return 0;
+    const lockedPiece = head !== undefined && locksPiece(head.kind) && hadActive;
+    return lockedPiece ? 1 : 0;
   } else if (side.queue.length === 0) {
     side.gravityAcc = (side.gravityAcc ?? 0) + dt;
     if (side.gravityAcc >= options.gravityMs) {
@@ -331,8 +373,14 @@ function exchangeGarbage(left: SideState, right: SideState): void {
   }
   const snapL = left.core.getSnapshot();
   const snapR = right.core.getSnapshot();
-  left.blockedTotal += snapL.lastBlocked;
-  right.blockedTotal += snapR.lastBlocked;
+  if (snapL.lockId !== left.processedLockId) {
+    left.blockedTotal += snapL.lastBlocked;
+    left.processedLockId = snapL.lockId;
+  }
+  if (snapR.lockId !== right.processedLockId) {
+    right.blockedTotal += snapR.lastBlocked;
+    right.processedLockId = snapR.lockId;
+  }
 }
 
 function tickVersus(ctrl: VersusController, dt: number, options: VersusControllerOptions): void {
@@ -348,8 +396,8 @@ function tickVersus(ctrl: VersusController, dt: number, options: VersusControlle
     }
     return;
   }
-  const lockedL = stepSide(ctrl.left, dt, options);
-  const lockedR = stepSide(ctrl.right, dt, options);
+  const lockedL = stepSide(ctrl.left, ctrl.right, dt, options);
+  const lockedR = stepSide(ctrl.right, ctrl.left, dt, options);
   exchangeGarbage(ctrl.left, ctrl.right);
   ctrl.pieces += lockedL + lockedR;
   const snapL = ctrl.left.core.getSnapshot();

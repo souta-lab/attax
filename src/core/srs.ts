@@ -142,5 +142,5 @@ export function isTspinKick(kind: PieceKind, kickIndex: number): boolean {
 }
 
 export function asRotation(n: number): Rotation {
-  return ((n % 4) + 4) % 4 as Rotation;
+  return (((n % 4) + 4) % 4) as Rotation;
 }

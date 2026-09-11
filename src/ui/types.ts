@@ -5,6 +5,18 @@ export const ROWS = 20;
 
 export type CellValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
+export type LockAction =
+  | "None"
+  | "Single"
+  | "Double"
+  | "Triple"
+  | "Quad"
+  | "Tss"
+  | "Tsd"
+  | "Tst"
+  | "Tsm"
+  | "Pc";
+
 export type PieceKind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 
 export interface CellPos {
@@ -39,7 +51,19 @@ export interface GameSnapshot {
   readonly gameOver: boolean;
   readonly combo: number;
   readonly b2b: boolean;
+  readonly nativeCombo: number;
+  readonly nativeBtb: number;
+  readonly lockId: number;
+  readonly lastAction: LockAction;
+  readonly lastRawAttack: number;
   readonly pendingGarbage: number;
+  readonly opponentCombo?: number;
+  readonly opponentBtb?: number;
+  readonly opponentLockId?: number;
+  readonly opponentLastClearLines?: number;
+  readonly opponentLastNativeCombo?: number;
+  readonly opponentLastNativeBtb?: number;
+  readonly opponentLastRawAttack?: number;
   readonly lastAttack: number;
   readonly lastBlocked: number;
 }
@@ -48,6 +72,12 @@ export interface LockTransition {
   readonly boardAfterLockClear: readonly number[];
   readonly linesCleared: number;
   readonly garbageRowsApplied: number;
+  readonly action: LockAction;
+  readonly nativeCombo: number;
+  readonly nativeBtb: number;
+  readonly rawAttack: number;
+  readonly sentAttack: number;
+  readonly lockId: number;
 }
 
 export type AiExecutionStep =
@@ -57,7 +87,8 @@ export type AiExecutionStep =
   | { readonly kind: "left" }
   | { readonly kind: "right" }
   | { readonly kind: "softDrop" }
-  | { readonly kind: "drop" };
+  | { readonly kind: "drop" }
+  | { readonly kind: "placeAt"; readonly rotation: number; readonly x: number };
 
 export interface AiExecutionPlan {
   readonly targetX: number;
@@ -77,6 +108,7 @@ export interface AiMove {
   readonly targetX: number;
   readonly targetRotation: number;
   readonly useHold: boolean;
+  readonly garbageWait?: boolean;
   readonly execution?: AiExecutionPlan;
 }
 
@@ -119,6 +151,7 @@ export interface CorePort {
   drainOutbox?(): number;
   /** Deliver incoming garbage rows (already cancelled). Spawns after current lock flow. */
   receiveGarbage?(rows: number): void;
+  setGarbageWait?(wait: boolean): void;
   reset(): void;
 }
 

@@ -9,8 +9,8 @@
  *
  * Defaults follow config.dll: beamSize 50, minDepth 10, useHold true,
  * viewNext 2 (our engine exposes 5 next pieces, so depth is clamped to the
- * available queue by beamBestMove). Move execution is stepwise (no kicks),
- * matching a hard-drop-only bot.
+ * available queue by beamBestMove). Move execution uses the search-generated
+ * SRS path from spawn state; other states use the controller's safe fallback.
  *
  * GameState -> afterstate/PlyContext mapping (see hoiko-eval.ts for the board
  * bit-orientation conversion):
@@ -19,26 +19,32 @@
  *   fallingMino.m               -> ctx.nextPiece (piece placed next)
  *   lockedMino.m                -> ctx.piece (piece just placed)
  *   others.combo / btb / act    -> derived from ctx.combo/ctx.b2b + lines/tspin
- *   commands.moveDelay          -> 0 (approximation; the term is 0 for small delays)
+ *   commands.moveDelay          -> estimated from the selected execution path
  */
 
 import type { Board } from "../core/board.js";
-import type { AiDebug, AiMove, GameSnapshot } from "../ui/types.js";
+import type { AiDebug, AiExecutionPlan, AiMove, GameSnapshot } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
+import { isEvenPop, toSourceBoard, transitionWeight } from "./hoiko-eval.js";
 import {
-  isEvenPop,
-  toSourceBoard,
-  transitionWeight,
-} from "./hoiko-eval.js";
+  calcOpponentsAtk,
+  canWaitGarbage,
+  computeOffsetData,
+  isInCoolTime,
+  newGarbageData,
+  setCoolTimeAfterClearing,
+  setRemainingTime,
+  type GarbageData,
+} from "./hoiko-offset.js";
 import { hoikoBeamSearch } from "./hoiko-search.js";
-import { computeOffsetData } from "./hoiko-offset.js";
 import {
   HOIKO_DEFAULT_PRESET,
   type HoikoPreset,
   type HoikoWeights,
   hoikoWeightList,
 } from "./hoiko-weights.js";
-import { ROWS } from "./types.js";
+
+const HOIKO_BOARD_ROWS = 32;
 
 export type { HoikoPreset, HoikoWeights } from "./hoiko-weights.js";
 export {
@@ -48,7 +54,7 @@ export {
 } from "./hoiko-weights.js";
 
 const HOIKO_WIDTH = 50;
-const HOIKO_DEPTH = 10;
+const HOIKO_DEPTH = 14;
 const HOIKO_COLOR = "#e94fb0";
 
 export interface HoikoOptions {
@@ -62,9 +68,9 @@ export interface HoikoOptions {
 }
 
 function toBoard(s: GameSnapshot): Board {
-  const board: Board = new Uint16Array(ROWS);
+  const board: Board = new Uint16Array(HOIKO_BOARD_ROWS);
   const rows = s.board.rows;
-  for (let y = 0; y < rows && y < ROWS; y += 1) {
+  for (let y = 0; y < rows && y < HOIKO_BOARD_ROWS; y += 1) {
     const src = s.board.grid[rows - 1 - y];
     if (src === undefined) continue;
     let bits = 0;
@@ -72,6 +78,34 @@ function toBoard(s: GameSnapshot): Board {
     board[y] = bits;
   }
   return board;
+}
+
+function boardFingerprint(s: GameSnapshot): string {
+  const rows: number[] = [];
+  for (let y = 0; y < s.board.rows; y += 1) {
+    const row = s.board.grid[s.board.rows - 1 - y];
+    let bits = 0;
+    for (let x = 0; x < 10; x += 1) {
+      if ((row?.[x] ?? 0) !== 0) bits |= 1 << x;
+    }
+    rows.push(bits);
+  }
+  return rows.join(",");
+}
+
+function normalizeExecution(s: GameSnapshot, execution: AiExecutionPlan): AiExecutionPlan {
+  const active = s.active;
+  if (active === null) return execution;
+  return {
+    ...execution,
+    expectedBoard: execution.expectedBoard.slice(0, s.board.rows),
+    sourceActiveKind: active.kind,
+    sourceRotation: active.rotation,
+    sourceX: active.posX,
+    sourceBoardFingerprint: boardFingerprint(s),
+    sourceHold: s.hold,
+    sourceCanHold: s.canHold,
+  };
 }
 
 function boardStats(after: Board): { readonly holes: number; readonly maxHeight: number } {
@@ -114,51 +148,97 @@ export function createHoiko(options: HoikoOptions = {}): VersusFighter {
   const width = options.width ?? HOIKO_WIDTH;
   const depth = options.depth ?? HOIKO_DEPTH;
   let last: HoikoDebugState | null = null;
+  let garbageData: GarbageData = newGarbageData();
+  let lastOwnLock = -1;
+  let lastOpponentLock = -1;
   return {
     name: "HOIKO",
     color: HOIKO_COLOR,
     findBestMove: (s: GameSnapshot): AiMove | null => {
       const t0 = performance.now();
       if (s.active === null || s.gameOver) return null;
+      if (s.lockId < lastOwnLock) {
+        garbageData = newGarbageData();
+        lastOwnLock = -1;
+        lastOpponentLock = -1;
+      }
+      const frame = Math.trunc(performance.now() * 0.06);
+      if (s.lockId !== lastOwnLock) {
+        if (lastOwnLock >= 0) {
+          setCoolTimeAfterClearing(garbageData, frame, s.lastAttack, s.lockId);
+        }
+        lastOwnLock = s.lockId;
+      }
+      const opponentLock = s.opponentLockId ?? 0;
+      if (opponentLock !== lastOpponentLock) {
+        const lines = s.opponentLastClearLines ?? 0;
+        calcOpponentsAtk(
+          garbageData,
+          lines,
+          s.opponentLastNativeBtb ?? 0,
+          (s.opponentLastNativeBtb ?? 0) > 1 ? 1 : 0,
+          s.opponentLastNativeCombo ?? s.opponentCombo ?? 0,
+        );
+        lastOpponentLock = opponentLock;
+      }
       const board = toBoard(s);
       const rootSrc = toSourceBoard(board);
       const isEvenBoard = isEvenPop(rootSrc);
       const weightIndex = transitionWeight(rootSrc, 0, isEvenBoard);
       const ew = weightList[weightIndex] ?? weightList[0];
       if (ew === undefined) return null;
-      // OffsetAI::DecisionOffset — compute ofsData for the current board.
-      const ofs = computeOffsetData(
-        board,
-        s.active.kind,
-        s.next,
-        s.hold,
-        s.b2b ? 1 : 0,
-      );
       const move = hoikoBeamSearch(
         board,
         s.active.kind,
         s.next,
         s.hold,
         s.canHold,
-        s.b2b,
-        s.combo,
+        s.nativeBtb,
+        s.nativeCombo,
         ew,
         {
           width,
           depth,
-          useHold: false,
+          useHold: options.useHold ?? true,
           pending: s.pendingGarbage,
-          offset: ofs,
           isEvenBoard,
           weightIndex,
         },
       );
       if (move === null) return null;
-      last = { move, after: move.after, score: move.score, linesCleared: move.linesCleared, isTspin: move.isTspin, thinkMs: performance.now() - t0 };
+      const offset = computeOffsetData(
+        board,
+        s.next,
+        s.hold,
+        s.nativeBtb,
+        move.planActs,
+        isEvenBoard,
+      );
+      const execution =
+        move.useHold ||
+        move.execution === undefined ||
+        s.active.rotation !== 0 ||
+        s.active.posX !== 3
+          ? undefined
+          : normalizeExecution(s, move.execution);
+      last = {
+        move,
+        after: move.after,
+        score: move.score,
+        linesCleared: move.linesCleared,
+        isTspin: move.isTspin,
+        thinkMs: performance.now() - t0,
+      };
+      setRemainingTime(garbageData, move.planActs[0] ?? "None");
+      const opponentCombo = s.opponentCombo ?? 0;
       return {
         targetX: move.x,
         targetRotation: move.rotation,
         useHold: move.useHold,
+        ...(execution === undefined ? {} : { execution }),
+        garbageWait:
+          !isInCoolTime(garbageData, frame) &&
+          canWaitGarbage(offset, s.pendingGarbage, opponentCombo, isEvenBoard),
       };
     },
     getDebug: (): AiDebug | null => {

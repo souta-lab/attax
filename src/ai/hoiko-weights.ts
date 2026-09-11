@@ -149,9 +149,9 @@ holdI,10
 holdT,10
 wasteI,-100
 wasteT,-100
-single,200
-double,100
-triple,150
+single,-350
+double,-300
+triple,-250
 quad,200
 tss,50
 tsd,300

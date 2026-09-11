@@ -11,3 +11,7 @@ dist/
 evidence/hoiko/weights/
 evidence/hoiko/README.txt
 evidence/hoiko/お読みください.txt
+
+# opencode / loop runtime state
+.omo/
+.opencode/

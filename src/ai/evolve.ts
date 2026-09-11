@@ -339,7 +339,7 @@ export function playMatch(a: Genome, b: Genome, seed: number): MatchResult {
         if (sent > 0) {
           outgoing.push({ from: side, to: side === sideA ? sideB : sideA, rows: sent });
         }
-        side.b2b = info.linesCleared === 4 ? true : false;
+        side.b2b = info.linesCleared === 4;
       } else {
         side.combo = -1;
       }

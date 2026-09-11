@@ -24,6 +24,7 @@ export interface ScoredPlacement {
   readonly features: FeatureVector;
   readonly after: Board;
   readonly viaKick: boolean;
+  readonly srsKickIndex?: number;
   readonly execution?: AiExecutionPlan;
 }
 
@@ -45,8 +46,8 @@ function enumerateWithScore(board: Board, kind: PieceKind, w: Weights): ScoredPl
   const rots = rotationCount(kind);
   for (let r = 0; r < rots; r += 1) {
     const cells = bottomCells(kind, r);
-    let minX = 0;
-    let maxX = 0;
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
     for (const c of cells) {
       if (c.x < minX) minX = c.x;
       if (c.x > maxX) maxX = c.x;
@@ -72,6 +73,7 @@ function pushPlacement(
   w: Weights,
   viaKick: boolean,
   path?: readonly AiExecutionStep[],
+  srsKickIndex?: number,
 ): void {
   if (collides(board, cells, px, y)) return;
   const transition = computeLockAfterstate(board, cells, px, y);
@@ -107,6 +109,7 @@ function pushPlacement(
     features: feat,
     after: transition.after,
     viaKick,
+    ...(srsKickIndex === undefined ? {} : { srsKickIndex }),
     ...execution,
   });
 }
@@ -135,7 +138,19 @@ export function enumerateKickPlacements(board: Board, kind: PieceKind): ScoredPl
     for (const f of found) {
       const key = placementKey(cells, f.px, f.y);
       if (hardCells.has(key)) continue;
-      pushPlacement(out, board, kind, cells, r, f.px, f.y, DU_WEIGHTS, true, f.path);
+      pushPlacement(
+        out,
+        board,
+        kind,
+        cells,
+        r,
+        f.px,
+        f.y,
+        DU_WEIGHTS,
+        true,
+        f.path,
+        f.srsKickIndex,
+      );
     }
   }
   return out;
@@ -151,6 +166,7 @@ interface Landing {
   readonly px: number;
   readonly y: number;
   readonly path: readonly AiExecutionStep[];
+  readonly srsKickIndex: number;
 }
 
 function shapeHeight(kind: PieceKind, rotation: number): number {
@@ -160,7 +176,8 @@ function shapeHeight(kind: PieceKind, rotation: number): number {
 }
 
 function spawnSearchY(board: Board, kind: PieceKind): number {
-  return board.length - 1 - shapeHeight(kind, 0);
+  void board;
+  return 20 - shapeHeight(kind, 0);
 }
 
 function reachableLandings(
@@ -177,8 +194,9 @@ function reachableLandings(
     readonly px: number;
     readonly y: number;
     readonly path: readonly AiExecutionStep[];
+    readonly srsKickIndex: number;
   }
-  const queue: State[] = [{ rot: 0, px: 3, y: startY, path: [] }];
+  const queue: State[] = [{ rot: 0, px: 3, y: startY, path: [], srsKickIndex: 0 }];
   seen.add(`0,3,${startY}`);
   let head = 0;
   let guard = 40000;
@@ -189,7 +207,7 @@ function reachableLandings(
     if (guard <= 0 || cur === undefined) break;
     const curCells = bottomCells(kind, cur.rot);
     if (cur.rot === targetRot && collides(board, curCells, cur.px, cur.y - 1)) {
-      out.push({ px: cur.px, y: cur.y, path: cur.path });
+      out.push({ px: cur.px, y: cur.y, path: cur.path, srsKickIndex: cur.srsKickIndex });
     }
     for (const [dx, step] of [
       [-1, { kind: "left" }],
@@ -200,6 +218,7 @@ function reachableLandings(
         px: cur.px + dx,
         y: cur.y,
         path: [...cur.path, step],
+        srsKickIndex: 0,
       };
       const key = `${nxt.rot},${nxt.px},${nxt.y}`;
       if (seen.has(key)) continue;
@@ -212,6 +231,7 @@ function reachableLandings(
       px: cur.px,
       y: cur.y - 1,
       path: [...cur.path, { kind: "softDrop" }],
+      srsKickIndex: 0,
     };
     const downKey = `${down.rot},${down.px},${down.y}`;
     if (!seen.has(downKey) && !collides(board, bottomCells(kind, down.rot), down.px, down.y)) {
@@ -222,11 +242,12 @@ function reachableLandings(
       const from = asRotation(cur.rot);
       const to = asRotation(cur.rot + dir);
       const kicks = kickTable(kind, from, to);
-      const kick = kicks.find((candidate) => {
+      const kickIndex = kicks.findIndex((candidate) => {
         const nx = cur.px + candidate.dx;
         const ny = cur.y + candidate.dy + shapeHeight(kind, cur.rot) - shapeHeight(kind, to);
         return !collides(board, bottomCells(kind, to), nx, ny);
       });
+      const kick = kicks[kickIndex];
       if (kick !== undefined) {
         const nx = cur.px + kick.dx;
         const ny = cur.y + kick.dy + shapeHeight(kind, cur.rot) - shapeHeight(kind, to);
@@ -238,6 +259,7 @@ function reachableLandings(
             px: nx,
             y: ny,
             path: [...cur.path, { kind: dir === 1 ? "rotateCW" : "rotateCCW" }],
+            srsKickIndex: kickIndex,
           });
         }
       }

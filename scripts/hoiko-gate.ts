@@ -266,7 +266,7 @@ function main(): void {
       seeds,
       maxTicks: MAX_TICKS,
       tickMs: TICK_MS,
-      hoiko: { width: 50, depth: 10, topK: 50, useHold: true, useKick: false },
+      hoiko: { width: 50, depth: 10, topK: 50, useHold: true, useKick: true },
     }),
   );
 

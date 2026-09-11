@@ -23,18 +23,19 @@ import type { Board } from "../core/board.js";
 import { cloneBoard, collides, computeLockAfterstate, dropY } from "../core/board.js";
 import type { PieceKind } from "../core/pieces.js";
 import { bottomCellsOf, rotationCount } from "../core/pieces.js";
-import type { AiExecutionPlan } from "../ui/types.js";
+import { classifyTspin, type TspinKind } from "../core/tspin.js";
+import type { AiExecutionPlan, AiExecutionStep } from "../ui/types.js";
 import type { ClearAct } from "./hoiko-eval.js";
-import { evaluateNodeFull, isEvenPop, toSourceBoard } from "./hoiko-eval.js";
+import { evaluateNodeFull, isEvenPop, toSourceBoard, W } from "./hoiko-eval.js";
 import type { HoikoWeights } from "./hoiko-weights.js";
-import { offsetBonus, type OffsetData } from "./hoiko-offset.js";
+import { enumerateKickPlacements, type ScoredPlacement } from "./search.js";
 
 export interface HoikoSearchOptions {
   readonly width?: number | undefined;
+  readonly correctedWidth?: number | undefined;
   readonly depth?: number | undefined;
   readonly useHold?: boolean | undefined;
   readonly pending?: number | undefined;
-  readonly offset?: OffsetData | undefined;
   readonly isEvenBoard?: boolean | undefined;
   readonly weightIndex?: number | undefined;
   readonly useS4W?: boolean | undefined;
@@ -50,15 +51,17 @@ export interface HoikoSearchMove {
   readonly linesCleared: number;
   readonly isTspin: boolean;
   readonly execution?: AiExecutionPlan;
+  readonly planActs: readonly ClearAct[];
 }
 
 interface SearchNode {
   readonly board: Board;
   readonly hold: PieceKind | null;
   readonly canHold: boolean;
-  readonly b2b: boolean;
+  readonly btb: number;
   readonly combo: number;
   readonly queueIndex: number;
+  readonly nextPieceOverride: PieceKind | null;
   readonly familyScore: number;
   readonly score: number;
   readonly pcScore: number;
@@ -68,6 +71,8 @@ interface SearchNode {
   readonly after: Board;
   readonly linesCleared: number;
   readonly isTspin: boolean;
+  readonly planActs: readonly ClearAct[];
+  readonly firstExecution?: AiExecutionPlan;
   readonly pending: number;
 }
 
@@ -77,36 +82,129 @@ interface Placement {
   readonly y: number;
   readonly linesCleared: number;
   readonly after: Board;
+  readonly moveDelay: number;
+  readonly lastSrs: number;
+  readonly execution?: AiExecutionPlan;
 }
 
-function enumeratePlacements(board: Board, kind: PieceKind): Placement[] {
-  const out: Placement[] = [];
-  const rots = rotationCount(kind);
-  for (let r = 0; r < rots; r += 1) {
-    const cells = bottomCellsOf(kind, r);
-    let minX = 0;
-    let maxX = 0;
-    for (const c of cells) {
-      if (c.x < minX) minX = c.x;
-      if (c.x > maxX) maxX = c.x;
+export interface SearchQueueState {
+  readonly queueIndex: number;
+  readonly nextPieceOverride: PieceKind | null;
+}
+
+export type SearchQueueAction = "normal" | "emptyHold" | "swapHold";
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected search queue action: ${String(value)}`);
+}
+
+export function advanceSearchQueue(
+  state: SearchQueueState,
+  action: SearchQueueAction,
+  current: PieceKind,
+): SearchQueueState {
+  switch (action) {
+    case "normal":
+      return {
+        queueIndex: state.nextPieceOverride === null ? state.queueIndex + 1 : state.queueIndex,
+        nextPieceOverride: null,
+      };
+    case "emptyHold":
+      return {
+        queueIndex: state.queueIndex + (state.nextPieceOverride === null ? 2 : 1),
+        nextPieceOverride: null,
+      };
+    case "swapHold":
+      return {
+        queueIndex: state.nextPieceOverride === null ? state.queueIndex + 1 : state.queueIndex,
+        nextPieceOverride: current,
+      };
+    default:
+      return assertNever(action);
+  }
+}
+
+function moveDelay(
+  steps: readonly AiExecutionStep[] | undefined,
+  rotation: number,
+  x: number,
+): number {
+  if (steps === undefined)
+    return 116 + Math.min(rotation, 4 - rotation) * 16 + Math.abs(x - 3) * 30;
+  let delay = 0;
+  for (const step of steps) {
+    switch (step.kind) {
+      case "left":
+      case "right":
+        delay += 30;
+        break;
+      case "rotateCW":
+      case "rotateCCW":
+        delay += 16;
+        break;
+      case "softDrop":
+        delay += 33;
+        break;
+      case "drop":
+        delay += 116;
+        break;
+      case "hold":
+        delay += 16;
+        break;
     }
-    for (let px = -minX; px < 10 - maxX; px += 1) {
-      const startY = board.length + 4;
-      if (collides(board, cells, px, startY)) continue;
-      const y = dropY(board, cells, px, startY);
-      if (collides(board, cells, px, y)) continue;
-      const transition = computeLockAfterstate(board, cells, px, y);
+  }
+  return delay;
+}
+
+function enumerateHardPlacements(board: Board, kind: PieceKind): Placement[] {
+  const out: Placement[] = [];
+  for (let rotation = 0; rotation < rotationCount(kind); rotation += 1) {
+    const cells = bottomCellsOf(kind, rotation);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    for (const cell of cells) {
+      minX = Math.min(minX, cell.x);
+      maxX = Math.max(maxX, cell.x);
+    }
+    for (let x = -minX; x < 10 - maxX; x += 1) {
+      const y = dropY(board, cells, x, board.length + 4);
+      if (y > 19) continue;
+      if (collides(board, cells, x, y)) continue;
+      const transition = computeLockAfterstate(board, cells, x, y);
       if (transition.topOut && transition.linesCleared === 0) continue;
       out.push({
-        rotation: r,
-        x: px,
+        rotation,
+        x,
         y,
         linesCleared: transition.linesCleared,
         after: transition.after,
+        moveDelay: moveDelay(undefined, rotation, x),
+        lastSrs: rotation === 0 ? 0 : 1,
       });
     }
   }
   return out;
+}
+
+function enumeratePlacements(board: Board, kind: PieceKind, useKick: boolean): Placement[] {
+  if (!useKick) return enumerateHardPlacements(board, kind);
+  return enumerateKickPlacements(board, kind)
+    .filter((placement: ScoredPlacement) => placement.y <= 19)
+    .map((placement: ScoredPlacement) => ({
+      rotation: placement.rotation,
+      x: placement.x,
+      y: placement.y,
+      linesCleared: placement.linesCleared,
+      after: placement.after,
+      moveDelay: moveDelay(placement.execution?.steps, placement.rotation, placement.x),
+      lastSrs:
+        placement.srsKickIndex === undefined
+          ? placement.rotation === 0
+            ? 0
+            : 1
+          : placement.srsKickIndex + 1,
+      ...(placement.execution === undefined ? {} : { execution: placement.execution }),
+    }));
 }
 
 function isEmpty(board: Board): boolean {
@@ -116,89 +214,60 @@ function isEmpty(board: Board): boolean {
   return true;
 }
 
-function isTspinShape(
-  after: Board,
-  cells: readonly { readonly x: number; readonly y: number }[],
-  px: number,
-  py: number,
-): boolean {
-  let cx = 0;
-  let cy = 0;
-  for (const c of cells) {
-    cx += px + c.x;
-    cy += py + c.y;
-  }
-  cx /= cells.length;
-  cy /= cells.length;
-  const corners: Array<readonly [number, number]> = [
-    [Math.floor(cx - 0.6), Math.floor(cy - 0.6)],
-    [Math.ceil(cx + 0.6), Math.floor(cy - 0.6)],
-    [Math.floor(cx - 0.6), Math.ceil(cy + 0.6)],
-    [Math.ceil(cx + 0.6), Math.ceil(cy + 0.6)],
-  ];
-  let filled = 0;
-  for (const [x, y] of corners) {
-    if (x < 0 || x >= 10 || y < 0) {
-      filled += 1;
-      continue;
-    }
-    if (y >= after.length) continue;
-    if (((after[y] ?? 0) & (1 << x)) !== 0) filled += 1;
-  }
-  return filled >= 3;
-}
-
 function sourceOthers(
-  ctx: { readonly combo: number; readonly b2b: boolean },
+  ctx: { readonly combo: number; readonly btb: number },
   lines: number,
-  tspin: boolean,
+  tspin: TspinKind,
   after: Board,
 ): { readonly combo: number; readonly btb: number; readonly act: ClearAct } {
-  const sourcePrev = ctx.combo >= 0 ? ctx.combo + 1 : 0;
-  const combo = lines > 0 ? sourcePrev + 1 : sourcePrev > 0 ? -sourcePrev : 0;
+  let combo = ctx.combo;
+  if (lines === 0) {
+    combo = combo > 0 ? -combo : 0;
+  } else {
+    if (combo < 0) combo = 0;
+    combo += 1;
+  }
   const isPc = lines > 0 && isEmpty(after);
-  const isB2bClear = lines === 4 || (tspin && lines > 0);
   let btb: number;
-  if (lines === 0) btb = ctx.b2b ? 1 : 0;
-  else if (isPc) btb = lines >= 4 ? (ctx.b2b ? 2 : 1) : 0;
-  else if (isB2bClear) btb = ctx.b2b ? 2 : 1;
+  if (lines === 0) btb = ctx.btb;
+  else if (isPc) btb = lines >= 4 ? ctx.btb + 1 : 0;
+  else if (lines === 4 || (tspin !== "none" && lines > 0)) btb = ctx.btb + 1;
   else btb = 0;
   let act: ClearAct;
   if (lines === 0) act = "None";
   else if (isPc) act = "Pc";
   else if (lines === 4) act = "Quad";
-  else if (tspin) act = lines === 1 ? "Tss" : lines === 2 ? "Tsd" : "Tst";
+  else if (tspin === "mini") act = "Tsm";
+  else if (tspin === "full") act = lines === 1 ? "Tss" : lines === 2 ? "Tsd" : "Tst";
   else act = lines === 1 ? "Single" : lines === 2 ? "Double" : "Triple";
   return { combo, btb, act };
 }
 
-function boardKey(board: Board, hold: PieceKind | null, canHold: boolean): string {
-  let h = 0;
-  for (let y = 0; y < board.length; y += 1) {
-    h = (Math.imul(h, 31) + (board[y] ?? 0)) | 0;
+function lockBeforeClear(
+  board: Board,
+  cells: readonly { readonly x: number; readonly y: number }[],
+  px: number,
+  py: number,
+): Board {
+  const locked = cloneBoard(board);
+  for (const cell of cells) {
+    const x = px + cell.x;
+    const y = py + cell.y;
+    if (x < 0 || x >= 10 || y < 0 || y >= locked.length) continue;
+    locked[y] = (locked[y] ?? 0) | (1 << x);
   }
-  return `${h}:${hold ?? "-"}:${canHold ? 1 : 0}`;
-}
-
-function dedupe(nodes: SearchNode[]): SearchNode[] {
-  const seen = new Set<string>();
-  const out: SearchNode[] = [];
-  for (const n of nodes) {
-    const k = boardKey(n.board, n.hold, n.canHold);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(n);
-  }
-  return out;
+  return locked;
 }
 
 function applyPlacement(
   node: SearchNode,
   placedPiece: PieceKind,
+  fallingPiece: PieceKind | undefined,
   p: Placement,
   holdAfter: PieceKind | null,
   canHoldAfter: boolean,
   queueIndexAfter: number,
+  nextPieceOverrideAfter: PieceKind | null,
   isFirst: boolean,
   ply: number,
   ew: HoikoWeights,
@@ -206,19 +275,21 @@ function applyPlacement(
   isEvenBoard: boolean,
   useS4W: boolean,
   opponentIsPowerful: boolean,
-  offset: OffsetData | undefined,
 ): SearchNode | null {
   const cells = bottomCellsOf(placedPiece, p.rotation);
-  const y = dropY(node.board, cells, p.x, node.board.length + 4);
+  const y = p.y;
+  if (y > 19) return null;
   if (collides(node.board, cells, p.x, y)) return null;
   const transition = computeLockAfterstate(node.board, cells, p.x, y);
   if (transition.topOut && transition.linesCleared === 0) return null;
   const test = transition.after;
-  const tspin = placedPiece === "T" && isTspinShape(test, cells, p.x, y);
+  const beforeClear = lockBeforeClear(node.board, cells, p.x, y);
+  const tspin: TspinKind =
+    placedPiece === "T" ? classifyTspin(beforeClear, cells, p.x, y, p.rotation, p.lastSrs) : "none";
   const pendingAfter = Math.max(0, node.pending - transition.linesCleared);
   const src = toSourceBoard(test);
   const others = sourceOthers(
-    { combo: node.combo, b2b: node.b2b },
+    { combo: node.combo, btb: node.btb },
     transition.linesCleared,
     tspin,
     test,
@@ -232,8 +303,8 @@ function applyPlacement(
       btb: others.btb,
       lockedMino: placedPiece,
       hold: holdAfter,
-      fallingMino: placedPiece,
-      moveDelay: 0,
+      fallingMino: fallingPiece ?? placedPiece,
+      moveDelay: p.moveDelay + (holdAfter !== node.hold ? 16 : 0),
     },
     ew,
     weightIndex,
@@ -243,44 +314,33 @@ function applyPlacement(
     trustRate,
     node.pcScore,
   );
-  let scoreContribution = evalResult.score;
-  if (offset !== undefined && transition.linesCleared > 0) {
-    scoreContribution += offsetBonus(
-      offset,
-      node.pending,
-      transition.linesCleared,
-      tspin,
-      node.combo,
-      node.b2b,
-      0,
-      isEvenBoard,
-    );
-  }
   const familyScore = evalResult.familyScore + node.familyScore;
-  const score = scoreContribution + node.familyScore;
-  const nextCombo = transition.linesCleared > 0 ? node.combo + 1 : -1;
-  const nextB2b =
-    transition.linesCleared === 4 || (tspin && transition.linesCleared > 0)
-      ? true
-      : transition.linesCleared > 0
-        ? false
-        : node.b2b;
+  const score = evalResult.score + node.familyScore;
   return {
     board: test,
     hold: holdAfter,
     canHold: canHoldAfter,
-    b2b: nextB2b,
-    combo: nextCombo,
+    btb: others.btb,
+    combo: others.combo,
     queueIndex: queueIndexAfter,
+    nextPieceOverride: nextPieceOverrideAfter,
     familyScore,
     score,
     pcScore: evalResult.pcScore,
+    planActs: [...node.planActs, others.act],
+    ...(isFirst
+      ? node.hold === null && holdAfter === node.hold && p.execution !== undefined
+        ? { firstExecution: p.execution }
+        : {}
+      : node.firstExecution === undefined
+        ? {}
+        : { firstExecution: node.firstExecution }),
     firstRotation: isFirst ? p.rotation : node.firstRotation,
     firstX: isFirst ? p.x : node.firstX,
     firstHold: isFirst ? holdAfter !== node.hold : node.firstHold,
     after: test,
     linesCleared: transition.linesCleared,
-    isTspin: tspin,
+    isTspin: tspin !== "none",
     pending: pendingAfter,
   };
 }
@@ -289,6 +349,7 @@ function expandNode(
   node: SearchNode,
   piece: PieceKind,
   nextPiece: PieceKind | undefined,
+  followingPiece: PieceKind | undefined,
   isFirst: boolean,
   ply: number,
   ew: HoikoWeights,
@@ -296,18 +357,24 @@ function expandNode(
   isEvenBoard: boolean,
   useS4W: boolean,
   opponentIsPowerful: boolean,
-  offset: OffsetData | undefined,
   useHold: boolean,
 ): SearchNode[] {
   const out: SearchNode[] = [];
-  for (const p of enumeratePlacements(node.board, piece)) {
+  const queueState: SearchQueueState = {
+    queueIndex: node.queueIndex,
+    nextPieceOverride: node.nextPieceOverride,
+  };
+  const normalQueue = advanceSearchQueue(queueState, "normal", piece);
+  for (const p of enumeratePlacements(node.board, piece, isFirst)) {
     const child = applyPlacement(
       node,
       piece,
+      nextPiece,
       p,
       node.hold,
-      node.canHold,
-      node.queueIndex + 1,
+      true,
+      normalQueue.queueIndex,
+      normalQueue.nextPieceOverride,
       isFirst,
       ply,
       ew,
@@ -315,21 +382,23 @@ function expandNode(
       isEvenBoard,
       useS4W,
       opponentIsPowerful,
-      offset,
     );
     if (child !== null) out.push(child);
   }
   if (useHold && node.canHold) {
     if (node.hold !== null && node.hold !== piece) {
       const held = node.hold;
-      for (const p of enumeratePlacements(node.board, held)) {
+      const swapQueue = advanceSearchQueue(queueState, "swapHold", piece);
+      for (const p of enumeratePlacements(node.board, held, isFirst)) {
         const child = applyPlacement(
           node,
           held,
-          p,
-          piece,
-          false,
-          node.queueIndex + 1,
+           piece,
+           p,
+           piece,
+           true,
+           swapQueue.queueIndex,
+           swapQueue.nextPieceOverride,
           isFirst,
           ply,
           ew,
@@ -337,19 +406,21 @@ function expandNode(
           isEvenBoard,
           useS4W,
           opponentIsPowerful,
-          offset,
         );
         if (child !== null) out.push(child);
       }
     } else if (node.hold === null && nextPiece !== undefined) {
-      for (const p of enumeratePlacements(node.board, nextPiece)) {
+      const emptyHoldQueue = advanceSearchQueue(queueState, "emptyHold", piece);
+      for (const p of enumeratePlacements(node.board, nextPiece, isFirst)) {
         const child = applyPlacement(
           node,
           nextPiece,
-          p,
-          piece,
-          false,
-          node.queueIndex + 2,
+           followingPiece,
+           p,
+           piece,
+           true,
+           emptyHoldQueue.queueIndex,
+           emptyHoldQueue.nextPieceOverride,
           isFirst,
           ply,
           ew,
@@ -357,7 +428,6 @@ function expandNode(
           isEvenBoard,
           useS4W,
           opponentIsPowerful,
-          offset,
         );
         if (child !== null) out.push(child);
       }
@@ -376,22 +446,22 @@ export function hoikoBeamSearch(
   queue: readonly PieceKind[],
   hold: PieceKind | null,
   canHold: boolean,
-  b2b: boolean,
+  btb: number,
   combo: number,
   ew: HoikoWeights,
   options: HoikoSearchOptions = {},
 ): HoikoSearchMove | null {
   const width = options.width ?? 50;
-  const depth = Math.min(options.depth ?? 10, queue.length + 1);
+  const correctedWidth = options.correctedWidth ?? width * 3;
+  const depth = Math.min(options.depth ?? 14, queue.length + 1);
   const useHold = options.useHold ?? true;
   const pending = options.pending ?? 0;
-  const offset = options.offset;
   const isEvenBoard = options.isEvenBoard ?? isEvenPop(toSourceBoard(board));
   const weightIndex = options.weightIndex ?? 0;
   const useS4W = options.useS4W ?? false;
   const opponentIsPowerful = options.opponentIsPowerful ?? false;
 
-  const pieces: readonly PieceKind[] = [current, ...queue.slice(0, depth)];
+  const pieces: readonly PieceKind[] = [current, ...queue.slice(0, depth + 1)];
   if (pieces.length === 0) return null;
   const PLIES = depth;
 
@@ -400,9 +470,10 @@ export function hoikoBeamSearch(
       board: cloneBoard(board),
       hold,
       canHold,
-      b2b,
+      btb,
       combo,
       queueIndex: 0,
+      nextPieceOverride: null,
       familyScore: 0,
       score: 0,
       pcScore: 0,
@@ -412,6 +483,7 @@ export function hoikoBeamSearch(
       after: cloneBoard(board),
       linesCleared: 0,
       isTspin: false,
+      planActs: [],
       pending,
     },
   ];
@@ -419,13 +491,17 @@ export function hoikoBeamSearch(
   for (let ply = 0; ply < PLIES; ply += 1) {
     const nextBeam: SearchNode[] = [];
     for (const node of beam) {
-      const piece = pieces[node.queueIndex];
+      const piece = node.nextPieceOverride ?? pieces[node.queueIndex];
       if (piece === undefined) continue;
-      const nextPiece: PieceKind | undefined = pieces[node.queueIndex + 1];
+      const nextQueueIndex =
+        node.nextPieceOverride === null ? node.queueIndex + 1 : node.queueIndex;
+      const nextPiece: PieceKind | undefined = pieces[nextQueueIndex];
+      const followingPiece: PieceKind | undefined = pieces[nextQueueIndex + 1];
       const expanded = expandNode(
         node,
         piece,
         nextPiece,
+        followingPiece,
         ply === 0,
         ply,
         ew,
@@ -433,19 +509,30 @@ export function hoikoBeamSearch(
         isEvenBoard,
         useS4W,
         opponentIsPowerful,
-        offset,
         useHold,
       );
       for (const child of expanded) nextBeam.push(child);
     }
     if (nextBeam.length === 0) break;
     nextBeam.sort((a: SearchNode, b: SearchNode) => b.score - a.score);
-    beam = dedupe(nextBeam).slice(0, width);
+    const limit =
+      ply === 0
+        ? Math.min(100, nextBeam.length)
+        : Math.min(correctedWidth >> (ply >= 7 ? 1 : 0), nextBeam.length);
+    beam = nextBeam.slice(0, Math.max(limit, width));
   }
 
   if (beam.length === 0) return null;
-  const bestLeaf = beam[0];
+  let bestLeaf = beam[0];
   if (bestLeaf === undefined) return null;
+  let bestCorrected = correctedScore(bestLeaf, ew);
+  for (const candidate of beam.slice(1)) {
+    const corrected = correctedScore(candidate, ew);
+    if (corrected > bestCorrected) {
+      bestLeaf = candidate;
+      bestCorrected = corrected;
+    }
+  }
   return {
     rotation: bestLeaf.firstRotation,
     x: bestLeaf.firstX,
@@ -454,5 +541,12 @@ export function hoikoBeamSearch(
     after: bestLeaf.after,
     linesCleared: bestLeaf.linesCleared,
     isTspin: bestLeaf.isTspin,
+    planActs: bestLeaf.planActs,
+    ...(bestLeaf.firstExecution === undefined ? {} : { execution: bestLeaf.firstExecution }),
   };
+}
+
+function correctedScore(node: SearchNode, ew: HoikoWeights): number {
+  const comboDebt = node.combo > 0 ? node.combo * (ew.weight[W.ComboDebt] ?? 0) : 0;
+  return node.score - comboDebt - node.pcScore;
 }

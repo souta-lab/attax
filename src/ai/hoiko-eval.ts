@@ -350,7 +350,7 @@ function s4w(
       break;
     }
     if (r === 0x387) {
-      if ((fill & 0x038) !== 0) return 0;
+      if ((fill & 0x078) !== 0) return 0;
       wide = 0x387;
       h = y;
       break;

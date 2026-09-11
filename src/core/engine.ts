@@ -10,6 +10,7 @@ import type {
   CellValue,
   CorePort,
   GameSnapshot,
+  LockAction,
   LockTransition,
 } from "../ui/types.js";
 import { COLS, ROWS } from "../ui/types.js";
@@ -22,8 +23,9 @@ import {
   pushIncoming,
   tickPending,
 } from "./garbage.js";
-import { cellsFor, type PieceKind, pieceCellValue } from "./pieces.js";
+import { bottomCellsOf, cellsFor, type PieceKind, pieceCellValue } from "./pieces.js";
 import { asRotation, kickTable, type Rotation } from "./srs.js";
+import { classifyTspin, type TspinKind } from "./tspin.js";
 
 type Grid = CellValue[][];
 
@@ -46,11 +48,27 @@ const BAG: readonly PieceKind[] = ["I", "O", "T", "S", "Z", "J", "L"] as const;
 
 const LINE_SCORES: readonly number[] = [0, 100, 300, 500, 800] as const;
 
+function actionForClear(cleared: number, tspin: TspinKind, perfectClear: boolean): LockAction {
+  if (cleared === 0) return "None";
+  if (perfectClear) return "Pc";
+  if (cleared === 4) return "Quad";
+  if (tspin === "mini") return "Tsm";
+  if (tspin === "full") {
+    if (cleared === 1) return "Tss";
+    if (cleared === 2) return "Tsd";
+    return "Tst";
+  }
+  if (cleared === 1) return "Single";
+  if (cleared === 2) return "Double";
+  return "Triple";
+}
+
 interface SpawnState {
   readonly kind: PieceKind;
   readonly rotation: number;
   readonly x: number;
   readonly y: number;
+  readonly lastSrs: number;
 }
 
 export interface EngineOptions {
@@ -73,7 +91,12 @@ function shuffledBag(rand: () => number): PieceKind[] {
 export function createEngine(options: EngineOptions = {}): CorePort {
   const rand = options.random ?? Math.random;
   let grid: Grid = emptyGrid();
-  let queue: PieceKind[] = [...shuffledBag(rand), ...shuffledBag(rand)];
+  let queue: PieceKind[] = [
+    ...shuffledBag(rand),
+    ...shuffledBag(rand),
+    ...shuffledBag(rand),
+    ...shuffledBag(rand),
+  ];
   let active: SpawnState | null = null;
   let hold: PieceKind | null = null;
   let canHold = true;
@@ -82,14 +105,20 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   let level = 1;
   let combo = -1;
   let b2b = false;
+  let nativeCombo = 0;
+  let nativeBtb = 0;
+  let lockId = 0;
+  let lastAction: LockAction = "None";
+  let lastRawAttack = 0;
+  let lastSentAttack = 0;
   let gameOver = false;
   let pending: PendingChunk[] = [];
   let outbox = 0;
   let lastAttack = 0;
   let lastBlocked = 0;
   let prevGarbageHole = 4;
-  let lastRotated = false;
   let lastLockTransition: LockTransition | null = null;
+  let waitGarbage = false;
 
   function collides(kind: PieceKind, rotation: number, px: number, py: number): boolean {
     for (const c of cellsFor(kind, rotation)) {
@@ -108,8 +137,8 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   function spawn(): void {
     const kind = queue.shift();
     if (kind === undefined) return;
-    if (queue.length < 11) queue.push(...shuffledBag(rand));
-    const s: SpawnState = { kind, rotation: 0, x: 3, y: spawnY(kind) };
+    if (queue.length < 21) queue.push(...shuffledBag(rand));
+    const s: SpawnState = { kind, rotation: 0, x: 3, y: spawnY(kind), lastSrs: 0 };
     if (collides(s.kind, s.rotation, s.x, s.y)) {
       gameOver = true;
       active = s;
@@ -125,16 +154,23 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     return -minY;
   }
 
-  function applyClear(cleared: number, tspinLines: number, perfectClear: boolean): void {
+  function applyClear(cleared: number, tspin: TspinKind, perfectClear: boolean): void {
+    lastAction = actionForClear(cleared, tspin, perfectClear);
     if (cleared === 0) {
+      nativeCombo = nativeCombo > 0 ? -nativeCombo : 0;
       combo = -1;
       lastAttack = 0;
       lastBlocked = 0;
+      lastRawAttack = 0;
+      lastSentAttack = 0;
       return;
     }
+    if (nativeCombo < 0) nativeCombo = 0;
+    nativeCombo += 1;
     lines += cleared;
     const base = LINE_SCORES[cleared] ?? cleared * 200;
-    const difficult = cleared === 4 || tspinLines > 0;
+    const tspinLines = tspin === "full" ? cleared : 0;
+    const difficult = cleared === 4 || tspin !== "none";
     const b2bBefore = b2b;
     let gained = base * level;
     if (difficult && b2bBefore) gained = Math.floor(gained * 1.5);
@@ -149,11 +185,19 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       perfectClear,
     });
     const blocked = cancelPending(pending, attack);
+    lastRawAttack = attack;
     lastBlocked = blocked;
     lastAttack = attack - blocked;
+    lastSentAttack = attack - blocked;
     outbox += attack - blocked;
-    if (difficult) b2b = true;
-    else b2b = false;
+    if (perfectClear) {
+      nativeBtb = cleared >= 4 ? nativeBtb + 1 : 0;
+    } else if (difficult) {
+      nativeBtb += 1;
+    } else {
+      nativeBtb = 0;
+    }
+    b2b = nativeBtb > 0;
     level = Math.floor(lines / 10) + 1;
   }
 
@@ -169,7 +213,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         if (row !== undefined) row[x] = value;
       }
     }
-    const tspinLines = detectTspin(a) ? countFullRows() : 0;
+    const tspin = detectTspin(a);
     const kept: Grid = [];
     let cleared = 0;
     for (const row of grid) {
@@ -179,57 +223,41 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     while (kept.length < ROWS) kept.unshift(Array.from({ length: COLS }, () => 0 as CellValue));
     grid = kept;
     const perfectClear = cleared > 0 && grid.every((row) => row.every((v) => v === 0));
-    applyClear(cleared, tspinLines > 0 ? cleared : 0, perfectClear);
+    applyClear(cleared, tspin, perfectClear);
     canHold = true;
+    const due = waitGarbage ? 0 : tickPending(pending);
+    waitGarbage = false;
+    lockId += 1;
+    lastLockTransition = {
+      boardAfterLockClear: gridToBottomUpRows(grid),
+      linesCleared: cleared,
+      garbageRowsApplied: due,
+      action: lastAction,
+      nativeCombo,
+      nativeBtb,
+      rawAttack: lastRawAttack,
+      sentAttack: lastSentAttack,
+      lockId,
+    };
     if (!gameOver) {
-      const due = tickPending(pending);
-      lastLockTransition = {
-        boardAfterLockClear: gridToBottomUpRows(grid),
-        linesCleared: cleared,
-        garbageRowsApplied: due,
-      };
       if (due > 0) spawnGarbageRows(due);
       spawn();
     }
   }
 
-  function countFullRows(): number {
-    let n = 0;
-    for (const row of grid) {
-      if (row.every((v) => v !== 0)) n += 1;
-    }
-    return n;
-  }
-
-  function detectTspin(a: SpawnState): boolean {
-    if (a.kind !== "T") return false;
-    if (!lastRotated) return false;
-    let cx = 0;
-    let cy = 0;
-    const cells = cellsFor(a.kind, a.rotation);
-    for (const c of cells) {
-      cx += a.x + c.x;
-      cy += a.y + c.y;
-    }
-    cx /= cells.length;
-    cy /= cells.length;
-    const corners: ReadonlyArray<readonly [number, number]> = [
-      [Math.floor(cx - 0.6), Math.floor(cy - 0.6)],
-      [Math.ceil(cx + 0.6), Math.floor(cy - 0.6)],
-      [Math.floor(cx - 0.6), Math.ceil(cy + 0.6)],
-      [Math.ceil(cx + 0.6), Math.ceil(cy + 0.6)],
-    ];
-    let filled = 0;
-    for (const [x, y] of corners) {
-      if (x < 0 || x >= COLS || y < 0) {
-        filled += 1;
-        continue;
+  function detectTspin(a: SpawnState): TspinKind {
+    if (a.kind !== "T" || a.lastSrs === 0) return "none";
+    const board = new Uint16Array(ROWS);
+    for (let y = 0; y < ROWS; y += 1) {
+      const row = grid[ROWS - 1 - y];
+      if (row === undefined) continue;
+      for (let x = 0; x < COLS; x += 1) {
+        if ((row[x] ?? 0) !== 0) board[y] = (board[y] ?? 0) | (1 << x);
       }
-      if (y >= ROWS) continue;
-      const row = grid[y];
-      if (row !== undefined && (row[x] ?? 0) !== 0) filled += 1;
     }
-    return filled >= 3;
+    const cells = bottomCellsOf(a.kind, a.rotation);
+    const py = ROWS - 1 - a.y - Math.max(...cells.map((cell) => cell.y));
+    return classifyTspin(board, cells, a.x, py, a.rotation, a.lastSrs);
   }
 
   function spawnGarbageRows(count: number): void {
@@ -258,7 +286,13 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     if (cells.some((c) => x + c.x < 0 || x + c.x >= COLS)) return false;
     if (!reachable(active.kind, active.rotation, active.x, active.y, rot, x)) return false;
     const y = ghostYFrom(active.kind, rot, x, active.y);
-    active = { ...active, rotation: rot, x, y };
+    active = {
+      ...active,
+      rotation: rot,
+      x,
+      y,
+      lastSrs: rot === active.rotation ? active.lastSrs : 1,
+    };
     score += 2;
     lockAndSpawn();
     return true;
@@ -294,15 +328,20 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         { rot: cur.rot, x: cur.x - 1, y: cur.y },
         { rot: cur.rot, x: cur.x + 1, y: cur.y },
         { rot: cur.rot, x: cur.x, y: cur.y + 1 },
-        { rot: rotCW, x: cur.x, y: cur.y },
-        { rot: rotCCW, x: cur.x, y: cur.y },
-        { rot: rotCW, x: cur.x - 1, y: cur.y },
-        { rot: rotCW, x: cur.x + 1, y: cur.y },
-        { rot: rotCCW, x: cur.x - 1, y: cur.y },
-        { rot: rotCCW, x: cur.x + 1, y: cur.y },
-        { rot: rotCW, x: cur.x, y: cur.y - 1 },
-        { rot: rotCCW, x: cur.x, y: cur.y - 1 },
       ];
+      for (const dir of [1, -1] as const) {
+        const to = dir === 1 ? rotCW : rotCCW;
+        const kicks = kickTable(kind, asRotation(cur.rot), asRotation(to));
+        for (const [kickIndex, kick] of kicks.entries()) {
+          const candidate = {
+            rot: to,
+            x: cur.x + kick.dx,
+            y: cur.y - kick.dy,
+          };
+          candidates.push(candidate);
+          if (kickIndex === kicks.length - 1) break;
+        }
+      }
       for (const n of candidates) {
         const key = `${n.rot},${n.x},${n.y}`;
         if (seen.has(key)) continue;
@@ -341,8 +380,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       const nx = active.x + k.dx;
       const ny = active.y - k.dy;
       if (!collides(active.kind, to, nx, ny)) {
-        active = { ...active, rotation: to, x: nx, y: ny };
-        lastRotated = true;
+        active = { ...active, rotation: to, x: nx, y: ny, lastSrs: i === 0 ? 1 : i + 1 };
         return;
       }
     }
@@ -372,13 +410,18 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         ghostY,
         hold,
         canHold,
-        next: [...queue].slice(0, 10),
+         next: [...queue].slice(0, 20),
         score,
         lines,
         level,
         gameOver,
         combo,
         b2b,
+        nativeCombo,
+        nativeBtb,
+        lockId,
+        lastAction,
+        lastRawAttack,
         pendingGarbage: pendingTotal(pending),
         lastAttack,
         lastBlocked,
@@ -389,23 +432,20 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     },
     moveLeft(): void {
       if (active === null || gameOver) return;
-      lastRotated = false;
       if (!collides(active.kind, active.rotation, active.x - 1, active.y)) {
-        active = { ...active, x: active.x - 1 };
+        active = { ...active, x: active.x - 1, lastSrs: 0 };
       }
     },
     moveRight(): void {
       if (active === null || gameOver) return;
-      lastRotated = false;
       if (!collides(active.kind, active.rotation, active.x + 1, active.y)) {
-        active = { ...active, x: active.x + 1 };
+        active = { ...active, x: active.x + 1, lastSrs: 0 };
       }
     },
     softDrop(): void {
       if (active === null || gameOver) return;
-      lastRotated = false;
       if (!collides(active.kind, active.rotation, active.x, active.y + 1)) {
-        active = { ...active, y: active.y + 1 };
+        active = { ...active, y: active.y + 1, lastSrs: 0 };
         score += 1;
       } else {
         lockAndSpawn();
@@ -438,7 +478,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         const swapped = hold;
         hold = cur;
         canHold = false;
-        const s: SpawnState = { kind: swapped, rotation: 0, x: 3, y: 0 };
+        const s: SpawnState = { kind: swapped, rotation: 0, x: 3, y: 0, lastSrs: 0 };
         if (collides(s.kind, s.rotation, s.x, s.y)) {
           gameOver = true;
           active = s;
@@ -465,9 +505,17 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       if (gameOver || rows <= 0) return;
       pushIncoming(pending, rows);
     },
+    setGarbageWait(wait: boolean): void {
+      waitGarbage = wait;
+    },
     reset(): void {
       grid = emptyGrid();
-      queue = [...shuffledBag(rand), ...shuffledBag(rand)];
+      queue = [
+        ...shuffledBag(rand),
+        ...shuffledBag(rand),
+        ...shuffledBag(rand),
+        ...shuffledBag(rand),
+      ];
       hold = null;
       canHold = true;
       score = 0;
@@ -475,9 +523,16 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       level = 1;
       combo = -1;
       b2b = false;
+      nativeCombo = 0;
+      nativeBtb = 0;
+      lockId = 0;
+      lastAction = "None";
+      lastRawAttack = 0;
+      lastSentAttack = 0;
       gameOver = false;
       active = null;
       pending = [];
+      waitGarbage = false;
       lastLockTransition = null;
       outbox = 0;
       lastAttack = 0;

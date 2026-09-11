@@ -5,10 +5,7 @@
  * OpponentIsNewLockDown, InvalidateOpponentsAtk, IsFirstInvalidLockDown.
  *
  * Our engine's garbage model: `pendingGarbage` is the incoming (unspawned)
- * garbage; clearing lines cancels it via cancelPending (offset/相殺). The
- * offset bonus below rewards clearing lines when pending garbage is high,
- * which is exactly how real Hoiko survives attacks: it clears to cancel the
- * garbage instead of letting it spawn and bury the board.
+ * garbage; clearing lines cancels it via cancelPending (offset/相殺).
  *
  * Mapping notes (native -> ours):
  *   ofsData.canWaitGarbage  -> whether a clear is coming in the next 1-2 moves
@@ -19,23 +16,14 @@
  *   gbData.coolTime         -> frame until which clearing is suppressed
  *   gbData.remainingTime    -> clear-delay budget (SetRemainingTime)
  *
- * DecisionOffset in the native source reads the search result plan
- * (act[0]/act[1]/act[2]). Our beam does not expose a pre-search plan, so the
- * upcoming clear is estimated greedily from the next pieces (see
- * estimateClearAction). This is the one approximation; the CanWaitGarbage
- * gate and the offset bonus are otherwise transcribed verbatim.
+ * DecisionOffset in the native source reads the selected search result plan
+ * (act[0]/act[1]/act[2]); the Hoiko search supplies that plan directly.
  */
 
 import type { Board } from "../core/board.js";
-import { attackForClear } from "../core/garbage.js";
 import type { PieceKind } from "../core/pieces.js";
 import type { ClearAct, SourceBoard } from "./hoiko-eval.js";
 import { getColumnHeight, toSourceBoard } from "./hoiko-eval.js";
-import { enumerateScored } from "./search.js";
-import { DU_WEIGHTS } from "./weights.js";
-
-/** Value (in Hoiko score units) of cancelling one pending garbage row. */
-export const OFFSET_PER_ROW = 300;
 
 /** OffsetAI::OffsetData. */
 export interface OffsetData {
@@ -67,72 +55,20 @@ export function newGarbageData(): GarbageData {
   };
 }
 
-/** Hoiko's attack table for a clear action (DecisionOffset). */
-export function attackForAct(act: ClearAct): number {
-  switch (act) {
-    case "Double":
-      return 1;
-    case "Triple":
-    case "Tss":
-      return 2;
-    case "Tsd":
-    case "Quad":
-      return 4;
-    case "Tst":
-      return 6;
-    default:
-      return 0;
-  }
-}
-
-/** Map linesCleared to a ClearAct (tspin handled separately by the caller). */
-function linesToAct(lines: number): ClearAct {
-  switch (lines) {
-    case 1:
-      return "Single";
-    case 2:
-      return "Double";
-    case 3:
-      return "Triple";
-    case 4:
-      return "Quad";
-    default:
-      return "None";
-  }
-}
-
-/**
- * Greedy estimate of the best clear action for `piece` on `board`. Used to
- * approximate the search-result plan that native DecisionOffset reads.
- */
-function estimateClearAction(board: Board, piece: PieceKind): ClearAct {
-  const placements = enumerateScored(board, piece, DU_WEIGHTS);
-  let best: ClearAct = "None";
-  let bestAtk = -1;
-  for (const p of placements) {
-    const act = linesToAct(p.linesCleared);
-    const atk = attackForAct(act);
-    if (atk > bestAtk) {
-      bestAtk = atk;
-      best = act;
-    }
-  }
-  return best;
-}
-
 /**
  * OffsetAI::DecisionOffset — computes ofsData for the current board.
  *
- * Native reads `searched->result.plans.act[0..2]`; we estimate those from the
- * current piece and the next two pieces. `board` is our orientation; the
- * board metrics are computed on the native orientation internally.
+ * `planActs` is the selected leaf's action plan in native depth order.
+ * `board` is our orientation; the board metrics are computed on the native
+ * orientation internally.
  */
 export function computeOffsetData(
   board: Board,
-  currentPiece: PieceKind,
   nextPieces: readonly PieceKind[],
   hold: PieceKind | null,
   btb: number,
+  planActs: readonly ClearAct[],
+  isEvenBoard: boolean,
 ): OffsetData {
   const src: SourceBoard = toSourceBoard(board);
   const column = new Array<number>(10).fill(-1);
@@ -150,16 +86,21 @@ export function computeOffsetData(
     nearOffset: false,
   };
 
-  // act[0]: the current move clears -> cannot wait (native early return).
-  if (estimateClearAction(board, currentPiece) !== "None") return ofs;
+  const act0 = planActs[0] ?? "None";
+  if (act0 !== "None") return ofs;
 
-  // pcChance: native scans act[2..trustEnd] for a Pc. We approximate by
-  // checking whether the next two pieces can perfect-clear; rare in practice,
-  // so a conservative false is acceptable (it only relaxes the gate).
-  ofs.pcChance = false;
+  if (isEvenBoard) {
+    const trustEndExclusive = Math.min(planActs.length, nextPieces.length + 1);
+    for (let i = 2; i < trustEndExclusive; i += 1) {
+      if (planActs[i] === "Pc") {
+        ofs.pcChance = true;
+        break;
+      }
+    }
+  }
 
-  const act1 = estimateClearAction(board, nextPieces[0] ?? "I");
-  const act2 = estimateClearAction(board, nextPieces[1] ?? "I");
+  const act1 = planActs[1] ?? "None";
+  const act2 = planActs[2] ?? "None";
 
   // Port of the switch on act[1] (with the act[2] fallback when act[1]==None).
   switch (act1) {
@@ -250,37 +191,6 @@ export function canWaitGarbage(
   if (ofs.atk < garbage) return true;
   if (garbage <= 2) return false;
   return true;
-}
-
-/**
- * Offset bonus for a clear placement: the amount of pending garbage it
- * cancels (offset/相殺), scaled to Hoiko's score units. When CanWaitGarbage
- * says Hoiko must clear now, the bonus is full; when it can wait, the bonus is
- * halved (it still prefers clearing, but does not force it).
- */
-export function offsetBonus(
-  ofs: OffsetData,
-  pending: number,
-  lines: number,
-  tspin: boolean,
-  combo: number,
-  b2b: boolean,
-  opponentsCombo: number,
-  isEvenBoard: boolean,
-): number {
-  if (lines === 0) return 0;
-  const nextCombo = combo + 1;
-  const attack = attackForClear({
-    lines,
-    tspinLines: tspin ? lines : 0,
-    combo: nextCombo,
-    b2bActive: b2b,
-    perfectClear: false,
-  });
-  const cancelled = Math.min(pending, attack);
-  if (cancelled <= 0) return 0;
-  const wait = canWaitGarbage(ofs, pending, opponentsCombo, isEvenBoard);
-  return cancelled * OFFSET_PER_ROW * (wait ? 0.5 : 1);
 }
 
 /** OffsetAI::ResetOpponentsAtk. */

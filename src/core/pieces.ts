@@ -1,4 +1,4 @@
-/** Tetromino shapes. Rotation = CW turns inside a 4x4 box, normalized to min 0. */
+/** Tetromino shapes using Hoiko's fixed 4x4 rotation anchors. */
 
 export type PieceKind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 
@@ -7,61 +7,50 @@ export interface Cell {
   readonly y: number;
 }
 
-const BASE_CELLS: Record<PieceKind, readonly (readonly [number, number])[]> = {
+type NativeCoord = readonly [number, number];
+
+const NATIVE_CELLS: Readonly<Record<PieceKind, readonly (readonly NativeCoord[])[]>> = {
   I: [
-    [0, 1],
-    [1, 1],
-    [2, 1],
-    [3, 1],
-  ],
-  O: [
-    [0, 0],
-    [1, 0],
-    [0, 1],
-    [1, 1],
-  ],
-  T: [
-    [1, 0],
-    [0, 1],
-    [1, 1],
-    [2, 1],
-  ],
-  S: [
-    [1, 0],
-    [2, 0],
-    [0, 1],
-    [1, 1],
-  ],
-  Z: [
-    [0, 0],
-    [1, 0],
-    [1, 1],
-    [2, 1],
+    [[0, 1], [1, 1], [2, 1], [3, 1]],
+    [[2, 0], [2, 1], [2, 2], [2, 3]],
+    [[0, 2], [1, 2], [2, 2], [3, 2]],
+    [[1, 0], [1, 1], [1, 2], [1, 3]],
   ],
   J: [
-    [0, 0],
-    [0, 1],
-    [1, 1],
-    [2, 1],
+    [[0, 0], [0, 1], [1, 1], [2, 1]],
+    [[1, 0], [2, 0], [1, 1], [1, 2]],
+    [[0, 1], [1, 1], [2, 1], [2, 2]],
+    [[1, 0], [1, 1], [0, 2], [1, 2]],
   ],
   L: [
-    [0, 1],
-    [1, 1],
-    [2, 1],
-    [2, 0],
+    [[2, 0], [0, 1], [1, 1], [2, 1]],
+    [[1, 0], [1, 1], [1, 2], [2, 2]],
+    [[0, 1], [1, 1], [2, 1], [0, 2]],
+    [[0, 0], [1, 0], [1, 1], [1, 2]],
+  ],
+  O: [[[1, 0], [2, 0], [1, 1], [2, 1]]],
+  T: [
+    [[1, 0], [0, 1], [1, 1], [2, 1]],
+    [[1, 0], [1, 1], [2, 1], [1, 2]],
+    [[0, 1], [1, 1], [2, 1], [1, 2]],
+    [[1, 0], [0, 1], [1, 1], [1, 2]],
+  ],
+  S: [
+    [[1, 0], [2, 0], [0, 1], [1, 1]],
+    [[1, 0], [1, 1], [2, 1], [2, 2]],
+    [[1, 1], [2, 1], [0, 2], [1, 2]],
+    [[0, 0], [0, 1], [1, 1], [1, 2]],
+  ],
+  Z: [
+    [[0, 0], [1, 0], [1, 1], [2, 1]],
+    [[2, 0], [1, 1], [2, 1], [1, 2]],
+    [[0, 1], [1, 1], [1, 2], [2, 2]],
+    [[1, 0], [0, 1], [1, 1], [0, 2]],
   ],
 } as const;
 
 export function rotationCount(kind: PieceKind): number {
   return kind === "O" ? 1 : 4;
-}
-
-function normalize(pts: readonly Cell[]): Cell[] {
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  return pts.map((p) => ({ x: p.x - minX, y: p.y - minY }));
 }
 
 export function bottomCellsOf(kind: PieceKind, rotation: number): readonly Cell[] {
@@ -72,15 +61,10 @@ export function bottomCellsOf(kind: PieceKind, rotation: number): readonly Cell[
 }
 
 export function cellsFor(kind: PieceKind, rotation: number): readonly Cell[] {
-  const base = BASE_CELLS[kind].map(([x, y]) => ({ x, y }));
-  if (kind === "O") return base;
   const n = ((rotation % 4) + 4) % 4;
-  let pts: Cell[] = normalize(base);
-  for (let i = 0; i < n; i += 1) {
-    const h = Math.max(...pts.map((p) => p.y)) + 1;
-    pts = normalize(pts.map((p) => ({ x: h - 1 - p.y, y: p.x })));
-  }
-  return pts;
+  const shape = NATIVE_CELLS[kind][kind === "O" ? 0 : n];
+  if (shape === undefined) return [];
+  return shape.map(([x, y]) => ({ x, y }));
 }
 
 export function pieceCellValue(kind: PieceKind): 1 | 2 | 3 | 4 | 5 | 6 | 7 {
