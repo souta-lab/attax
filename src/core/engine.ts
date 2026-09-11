@@ -161,7 +161,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   function applyClear(cleared: number, tspin: TspinKind, perfectClear: boolean): void {
     lastAction = actionForClear(cleared, tspin, perfectClear);
     if (cleared === 0) {
-      nativeCombo = nativeCombo > 0 ? -nativeCombo : 0;
+      nativeCombo = 0;
       combo = -1;
       lastAttack = 0;
       lastBlocked = 0;
@@ -187,6 +187,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       combo,
       b2bActive: b2bBefore,
       perfectClear,
+      tspinKind: tspin,
     });
     const blocked = cancelPending(pending, attack);
     lastRawAttack = attack;
@@ -208,8 +209,13 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   function lockAndSpawn(): void {
     const a = active;
     if (a === null) return;
+    const cells = cellsFor(a.kind, a.rotation);
+    if (cells.every((c) => a.y + c.y < 0)) {
+      gameOver = true;
+      return;
+    }
     const value = pieceCellValue(a.kind);
-    for (const c of cellsFor(a.kind, a.rotation)) {
+    for (const c of cells) {
       const x = a.x + c.x;
       const y = a.y + c.y;
       if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
@@ -271,6 +277,11 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     const holes = gen.holes;
     prevGarbageHole = gen.prevHole;
     for (let i = 0; i < count; i += 1) {
+      const removed = grid[0];
+      if (removed !== undefined && removed.some((v) => v !== 0)) {
+        gameOver = true;
+        return;
+      }
       const hole = holes[options.garbageAligned ? 0 : i] ?? 0;
       const row: CellValue[] = Array.from({ length: COLS }, (_, x) =>
         x === hole ? (0 as CellValue) : (8 as CellValue),
@@ -312,6 +323,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     if (cells.some((c) => x + c.x < 0 || x + c.x >= COLS)) return false;
     if (!reachable(active.kind, active.rotation, active.x, active.y, rot, x)) return false;
     const y = ghostYFrom(active.kind, rot, x, active.y);
+    const fallen = y - active.y;
     active = {
       ...active,
       rotation: rot,
@@ -319,7 +331,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       y,
       lastSrs: rot === active.rotation ? active.lastSrs : 1,
     };
-    score += 2;
+    if (fallen > 0) score += 2 * fallen;
     lockAndSpawn();
     return true;
   }
@@ -485,8 +497,10 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     },
     hardDrop(): void {
       if (active === null || gameOver) return;
-      active = { ...active, y: ghostYFor(active) };
-      score += 2;
+      const landingY = ghostYFor(active);
+      const fallen = landingY - active.y;
+      if (fallen > 0) score += 2 * fallen;
+      active = { ...active, y: landingY };
       lockAndSpawn();
     },
     hardDropAt(rotation: number, x: number): boolean {

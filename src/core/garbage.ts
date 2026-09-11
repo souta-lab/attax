@@ -6,12 +6,16 @@
  * opponent where it spawns after a 1-turn delay.
  */
 
+export type TspinAttackKind = "none" | "mini" | "full";
+
 export interface ClearInfo {
   readonly lines: number;
   readonly tspinLines: number;
   readonly combo: number;
   readonly b2bActive: boolean;
   readonly perfectClear: boolean;
+  /** T-spin classification when known; "mini" selects the PPT mini attack table. */
+  readonly tspinKind?: TspinAttackKind;
 }
 
 export const PERFECT_CLEAR_BONUS = 10;
@@ -31,6 +35,13 @@ const TSPIN_BASE: Readonly<Record<number, number>> = {
   3: 6,
 };
 
+const MINI_TSPIN_BASE: Readonly<Record<number, number>> = {
+  0: 0,
+  1: 0,
+  2: 1,
+  3: 0,
+};
+
 export function comboBonus(combo: number): number {
   if (combo <= 1) return 0;
   if (combo <= 3) return 1;
@@ -42,8 +53,13 @@ export function comboBonus(combo: number): number {
 
 export function attackForClear(info: ClearInfo): number {
   if (info.lines <= 0) return 0;
+  const kind = info.tspinKind ?? (info.tspinLines > 0 ? "full" : "none");
   const base =
-    info.tspinLines > 0 ? (TSPIN_BASE[info.tspinLines] ?? 0) : (LINE_BASE[info.lines] ?? 0);
+    kind === "mini"
+      ? (MINI_TSPIN_BASE[info.lines] ?? 0)
+      : info.tspinLines > 0
+        ? (TSPIN_BASE[info.tspinLines] ?? 0)
+        : (LINE_BASE[info.lines] ?? 0);
   const b2b = info.b2bActive && (info.lines === 4 || info.tspinLines > 0) ? 1 : 0;
   const combo = comboBonus(info.combo);
   const pc = info.perfectClear ? PERFECT_CLEAR_BONUS : 0;
