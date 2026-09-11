@@ -157,6 +157,14 @@ pub struct Shape {
     pub row_mask: [i32; 4],
 }
 
+impl Shape {
+    /// The occupied cells, in the reference table order.
+    #[inline]
+    pub fn cells(&self) -> &[Cell] {
+        &self.cells
+    }
+}
+
 fn build_shape(mino: usize, r: usize) -> Shape {
     if mino >= 7 {
         return Shape::default();

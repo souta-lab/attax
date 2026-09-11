@@ -8,7 +8,7 @@
 // the inherent impl would fragment a single concept.
 
 use crate::mino::FallMino;
-use crate::shapes::{mino_to_kind, shape_for};
+use crate::shapes::{mino_to_kind, shape_for, Shape};
 use crate::srs::kick_table;
 
 pub const BOARD_HEIGHT: usize = 32;
@@ -64,7 +64,7 @@ impl Board {
     /// `Board.rowAt` — out-of-range rows read as 0 (JS typed-array semantics).
     #[inline]
     pub fn row_at(&self, y: i32) -> i32 {
-        if y < 0 || y as usize >= BOARD_HEIGHT { 0 } else { self.line[y as usize] }
+        if (y as u32) < BOARD_HEIGHT as u32 { self.line[y as usize] } else { 0 }
     }
 
     /// Alias kept for the existing foundation tests.
@@ -83,15 +83,35 @@ impl Board {
         self.stack_height = -1;
     }
 
-    fn hit_at(&self, mino: &FallMino, x: i32, y: i32) -> i32 {
-        let sh = shape_for(mino.m, mino.r);
-        for cell in &sh.cells {
+    /// General hit test: caller has *not* established column bounds, so test
+    /// both coordinates. `base = 9 - x` factors the per-cell bit shift.
+    #[inline]
+    fn hit_at(&self, sh: &Shape, x: i32, y: i32) -> i32 {
+        let base = 9 - x;
+        for cell in sh.cells() {
             let col = x + cell.x;
             let row = y - cell.y;
-            if col < 0 || col >= BOARD_WIDTH as i32 || row < 0 || row >= BOARD_HEIGHT as i32 {
+            if (col as u32) >= BOARD_WIDTH as u32 || (row as u32) >= BOARD_HEIGHT as u32 {
                 continue;
             }
-            if (self.line[row as usize] & (1 << (9 - col))) != 0 {
+            if (self.line[row as usize] & (1 << (base - cell.x))) != 0 {
+                return 1;
+            }
+        }
+        0
+    }
+
+    /// `collision_board` already proved every cell column is in `0..10` and the
+    /// lowest cell is not below the floor, so only `row < 32` remains to check.
+    #[inline]
+    fn hit_at_cols_in_board(&self, sh: &Shape, x: i32, y: i32) -> i32 {
+        let base = 9 - x;
+        for cell in sh.cells() {
+            let row = y - cell.y;
+            if (row as u32) >= BOARD_HEIGHT as u32 {
+                continue;
+            }
+            if (self.line[row as usize] & (1 << (base - cell.x))) != 0 {
                 return 1;
             }
         }
@@ -110,7 +130,7 @@ impl Board {
         if mino.y - sh.max_y < 0 {
             return 1;
         }
-        self.hit_at(mino, mino.x, mino.y)
+        self.hit_at_cols_in_board(sh, mino.x, mino.y)
     }
 
     /// `Board.CollisionBottom`: one row down (the floor counts as a collision).
@@ -119,7 +139,7 @@ impl Board {
         if mino.y - sh.max_y < 1 {
             return 1;
         }
-        self.hit_at(mino, mino.x, mino.y - 1)
+        self.hit_at(sh, mino.x, mino.y - 1)
     }
 
     pub fn collision_left(&self, mino: &FallMino) -> i32 {
@@ -127,7 +147,7 @@ impl Board {
         if mino.x + sh.min_x < 1 {
             return 1;
         }
-        self.hit_at(mino, mino.x - 1, mino.y)
+        self.hit_at(sh, mino.x - 1, mino.y)
     }
 
     pub fn collision_right(&self, mino: &FallMino) -> i32 {
@@ -135,18 +155,19 @@ impl Board {
         if mino.x + sh.max_x >= BOARD_WIDTH as i32 - 1 {
             return 1;
         }
-        self.hit_at(mino, mino.x + 1, mino.y)
+        self.hit_at(sh, mino.x + 1, mino.y)
     }
 
     /// `Board.CollisionDistance` — rows the piece can still fall.
     pub fn collision_distance(&self, mino: &FallMino) -> i32 {
+        let sh = shape_for(mino.m, mino.r);
         let limit = mino.y.min(self.stack_height + 40) + 4;
         let mut s = 1i32;
         while s <= limit {
-            if self.hit_at(mino, mino.x, mino.y - s) != 0 {
+            if self.hit_at(sh, mino.x, mino.y - s) != 0 {
                 break;
             }
-            if mino.y - s - shape_for(mino.m, mino.r).max_y < 0 {
+            if mino.y - s - sh.max_y < 0 {
                 break;
             }
             s += 1;
@@ -242,7 +263,7 @@ impl Board {
         if mino.y - sh.max_y > 19 {
             return -1;
         }
-        for cell in &sh.cells {
+        for cell in sh.cells() {
             let row = mino.y - cell.y;
             let col = mino.x + cell.x;
             if row < 0 || row >= BOARD_HEIGHT as i32 || col < 0 || col >= BOARD_WIDTH as i32 {

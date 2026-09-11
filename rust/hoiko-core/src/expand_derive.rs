@@ -22,7 +22,7 @@ fn step(target: &mut Baby, board: &Board, dir: Dir) -> i32 {
 }
 
 pub fn get_above_cell(column_height: &[i32; 10], mino: &crate::mino::FallMino) -> i32 {
-    let cells = &shape_for(mino.m, mino.r).cells;
+    let cells = shape_for(mino.m, mino.r).cells();
     for c in cells {
         let col = mino.x + c.x;
         let row = mino.y - c.y;
