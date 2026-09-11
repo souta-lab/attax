@@ -122,8 +122,12 @@ export function genGarbageHoles(
   const holes: number[] = [];
   let prev = prevHole;
   for (let i = 0; i < count; i += 1) {
-    let hole = Math.floor(rand() * 10);
-    if (hole === prev && rand() < 0.5) hole = Math.floor(rand() * 10);
+    const roll = Math.floor(rand() * 10);
+    let hole = roll >= 0 && roll <= 9 ? roll : ((roll % 10) + 10) % 10;
+    if (hole === prev && rand() < 0.5) {
+      const reroll = Math.floor(rand() * 10);
+      hole = reroll >= 0 && reroll <= 9 ? reroll : ((reroll % 10) + 10) % 10;
+    }
     holes.push(hole);
     prev = hole;
   }

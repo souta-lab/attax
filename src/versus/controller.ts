@@ -299,7 +299,7 @@ function resetSide(side: SideState, seed: number): void {
 }
 
 function seededRandom(seed: number): () => number {
-  let s = seed;
+  let s = seed < 0 ? -seed : seed;
   return () => {
     s = (s * 1103515245 + 12345) % 2147483648;
     return s / 2147483648;
