@@ -20,3 +20,7 @@ evidence/hoiko/お読みください.txt
 tools/hoiko-oracle/run/
 tools/hoiko-oracle/prefix/
 tools/hoiko-oracle/ScpDriverInterface.dll
+
+# Rust / wasm build artifacts
+rust/target/
+src/ai/wasm/
