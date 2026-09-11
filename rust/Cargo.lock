@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "deepseek-wasm"
+version = "0.1.0"
+dependencies = [
+ "hoiko-deepseek",
+]
+
+[[package]]
 name = "hoiko-core"
 version = "0.1.0"
 

@@ -13,7 +13,8 @@
     "test": "bun test",
     "test:rust": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup cargo test --manifest-path rust/Cargo.toml",
     "bench:rust": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup cargo run --release --manifest-path rust/Cargo.toml -p hoiko-core --example bench_search",
-    "build:wasm": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup bash rust/build.sh"
+    "build:wasm": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup bash rust/build.sh",
+    "build:wasm:deepseek": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup bash rust/build-deepseek.sh"
   },
   "dependencies": {},
   "devDependencies": {
