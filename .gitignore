@@ -15,3 +15,8 @@ evidence/hoiko/お読みください.txt
 # opencode / loop runtime state
 .omo/
 .opencode/
+
+# Hoiko oracle runtime artifacts (proprietary binaries are staged locally)
+tools/hoiko-oracle/run/
+tools/hoiko-oracle/prefix/
+tools/hoiko-oracle/ScpDriverInterface.dll
