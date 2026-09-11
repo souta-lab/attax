@@ -3,8 +3,6 @@
 //! A native cell `(cx, cy)` for a piece anchored at `(p.x, p.y)` occupies board
 //! column `p.x + cx` and board row `p.y - cy` (bits use `9 - col`).
 
-use std::sync::OnceLock;
-
 /// Native mino type code (I=0..Z=6, None=7), mirroring the TS `MinoType`.
 pub type MinoType = i32;
 
@@ -146,9 +144,10 @@ const NATIVE_CELLS: [[[Cell; 4]; 4]; 7] = [
     ],
 ];
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shape {
-    pub cells: Vec<Cell>,
+    pub cells: [Cell; 4],
+    pub len: u8,
     pub min_x: i32,
     pub max_x: i32,
     pub min_y: i32,
@@ -161,22 +160,29 @@ impl Shape {
     /// The occupied cells, in the reference table order.
     #[inline]
     pub fn cells(&self) -> &[Cell] {
-        &self.cells
+        &self.cells[..self.len as usize]
     }
 }
 
-fn build_shape(mino: usize, r: usize) -> Shape {
-    if mino >= 7 {
-        return Shape::default();
-    }
-    let cells = NATIVE_CELLS[mino][r].to_vec();
-    let first = cells[0];
-    let mut min_x = first.x;
-    let mut max_x = first.x;
-    let mut min_y = first.y;
-    let mut max_y = first.y;
+const EMPTY_SHAPE: Shape = Shape {
+    cells: [Cell { x: 0, y: 0 }; 4],
+    len: 0,
+    min_x: 0,
+    max_x: 0,
+    min_y: 0,
+    max_y: 0,
+    row_mask: [0; 4],
+};
+
+const fn shape_from_cells(cells: [Cell; 4]) -> Shape {
+    let mut min_x = cells[0].x;
+    let mut max_x = cells[0].x;
+    let mut min_y = cells[0].y;
+    let mut max_y = cells[0].y;
     let mut row_mask = [0i32; 4];
-    for cell in &cells {
+    let mut i = 0;
+    while i < 4 {
+        let cell = cells[i];
         if cell.x < min_x {
             min_x = cell.x;
         }
@@ -190,25 +196,32 @@ fn build_shape(mino: usize, r: usize) -> Shape {
             max_y = cell.y;
         }
         let k = cell.y;
-        if (0..4).contains(&k) {
+        if k >= 0 && k < 4 {
             row_mask[k as usize] |= 1 << (9 - cell.x);
         }
+        i += 1;
     }
-    Shape { cells, min_x, max_x, min_y, max_y, row_mask }
+    Shape { cells, len: 4, min_x, max_x, min_y, max_y, row_mask }
 }
 
-static SHAPE_CACHE: OnceLock<[[Shape; 4]; 8]> = OnceLock::new();
+static SHAPES: [[Shape; 4]; 8] = {
+    let mut table = [[EMPTY_SHAPE; 4]; 8];
+    let mut m = 0;
+    while m < 7 {
+        let mut r = 0;
+        while r < 4 {
+            table[m][r] = shape_from_cells(NATIVE_CELLS[m][r]);
+            r += 1;
+        }
+        m += 1;
+    }
+    table
+};
 
-fn cache() -> &'static [[Shape; 4]; 8] {
-    SHAPE_CACHE.get_or_init(|| {
-        std::array::from_fn(|m| std::array::from_fn(|r| build_shape(m, r)))
-    })
-}
-
+#[inline]
 pub fn shape_for(m: i32, r: i32) -> &'static Shape {
-    let rr = (((r % 4) + 4) % 4) as usize;
-    let m = if (0..8).contains(&m) { m as usize } else { MINO_NONE as usize };
-    &cache()[m][rr]
+    let mi = if (m as u32) < 8 { m as usize } else { MINO_NONE as usize };
+    &SHAPES[mi][(r & 3) as usize]
 }
 
 /// `((n % 4) + 4) % 4`.
@@ -248,10 +261,10 @@ mod tests {
     #[test]
     fn none_shape_is_empty() {
         let s = shape_for(MINO_NONE, 0);
-        assert!(s.cells.is_empty());
+        assert!(s.cells().is_empty());
         assert_eq!(s.row_mask, [0, 0, 0, 0]);
         // Out-of-range mino falls back to the empty shape.
-        assert!(shape_for(99, 0).cells.is_empty());
+        assert!(shape_for(99, 0).cells().is_empty());
     }
 
     #[test]
