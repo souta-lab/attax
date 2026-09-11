@@ -448,7 +448,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         ghostY,
         hold,
         canHold,
-         next: [...queue].slice(0, 20),
+        next: [...queue].slice(0, 20),
         score,
         lines,
         level,
@@ -589,8 +589,4 @@ export function createEngine(options: EngineOptions = {}): CorePort {
 
 function emptyGrid(): Grid {
   return Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => 0 as CellValue));
-}
-
-export function createCore(options: EngineOptions = {}): CorePort {
-  return createEngine(options);
 }

@@ -1,4 +1,4 @@
-/** DU-controller weights (35M lines) + El-Tetris preset. Score = dot(w, features). */
+/** DU-controller weights (35M lines). Score = dot(w, features). */
 
 import type { FeatureVector, FireFeatures } from "./features.js";
 
@@ -39,20 +39,6 @@ export const DU_WEIGHTS: Weights = {
   bumpiness: -1.5,
   maxHeight: -3.0,
   linesCleared: 200,
-} as const;
-
-export const EL_TETRIS_WEIGHTS: Weights = {
-  landingHeight: -4.5,
-  erodedCells: 3.42,
-  rowTransitions: -3.22,
-  colTransitions: -9.35,
-  holes: -7.9,
-  wells: -3.39,
-  holeDepth: -1.0,
-  rowsWithHoles: -8.0,
-  bumpiness: 0,
-  maxHeight: 0,
-  linesCleared: 0,
 } as const;
 
 export const FIRE_WEIGHTS: FireWeights = {

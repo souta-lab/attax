@@ -66,17 +66,6 @@ export function attackForClear(info: ClearInfo): number {
   return base + b2b + combo + pc;
 }
 
-export interface CancelResult {
-  readonly blocked: number;
-  readonly sent: number;
-}
-
-export function cancelAttack(pendingRows: number, attack: number): CancelResult {
-  if (attack <= 0 || pendingRows <= 0) return { blocked: 0, sent: Math.max(0, attack) };
-  const blocked = Math.min(pendingRows, attack);
-  return { blocked, sent: attack - blocked };
-}
-
 export interface PendingChunk {
   rows: number;
   timer: number;

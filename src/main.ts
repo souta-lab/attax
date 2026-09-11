@@ -81,6 +81,7 @@ function statRow(label: string): { row: HTMLElement; value: HTMLElement } {
 
 function buildSide(side: "hoiko" | "deepseek", name: string): SideView {
   const column = el("section", "side");
+  // biome-ignore lint/complexity/useLiteralKeys: DOMStringMap index signature; noPropertyAccessFromIndexSignature forbids dot access
   column.dataset["side"] = side;
 
   const head = el("header", "side-head");
@@ -147,6 +148,7 @@ function buildShell(root: HTMLElement): Shell {
     const button = el("button", "ctl");
     button.type = "button";
     button.textContent = `${mult}x`;
+    // biome-ignore lint/complexity/useLiteralKeys: DOMStringMap index signature; noPropertyAccessFromIndexSignature forbids dot access
     button.dataset["mult"] = String(mult);
     speedButtons.push(button);
   }
@@ -262,6 +264,7 @@ function renderLog(list: HTMLElement, rows: readonly BattleRow[]): void {
   }
   for (const row of rows.slice(0, MAX_LOG_ROWS)) {
     const node = el("div", "log-row");
+    // biome-ignore lint/complexity/useLiteralKeys: DOMStringMap index signature; noPropertyAccessFromIndexSignature forbids dot access
     node.dataset["side"] = row.side;
     node.append(
       el("span", "log-no", `#${row.no}`),
@@ -319,6 +322,7 @@ function boot(): void {
 
   const syncControls = (): void => {
     for (const button of shell.speedButtons) {
+      // biome-ignore lint/complexity/useLiteralKeys: DOMStringMap index signature; noPropertyAccessFromIndexSignature forbids dot access
       const active = Number(button.dataset["mult"]) === speed;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
@@ -354,6 +358,7 @@ function boot(): void {
 
   for (const button of shell.speedButtons) {
     button.addEventListener("click", () => {
+      // biome-ignore lint/complexity/useLiteralKeys: DOMStringMap index signature; noPropertyAccessFromIndexSignature forbids dot access
       const mult = Number(button.dataset["mult"]);
       if (!isSpeed(mult)) return;
       speed = mult;

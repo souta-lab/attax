@@ -8,10 +8,10 @@
  * `depthLimit` (constant clock, no time cap).
  */
 
-import { writeFileSync } from "fs";
-import { POSITIONS, type Position } from "./positions.js";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import { writeFileSync } from "node:fs";
 import type { GameSnapshot, PieceKind } from "../../../src/ui/types.js";
+import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import { POSITIONS, type Position } from "./positions.js";
 
 const ORACLE_INPUT = "/tmp/opencode/oracle/run/oracle_input.txt";
 const ORACLE_SCRIPT = "/tmp/opencode/oracle/run_oracle.sh";
@@ -19,7 +19,16 @@ const ORACLE_SCRIPT = "/tmp/opencode/oracle/run_oracle.sh";
 const KIND: Record<number, PieceKind> = { 0: "I", 1: "J", 2: "L", 3: "O", 4: "T", 5: "S", 6: "Z" };
 
 const CLEAR_DELAY: Readonly<Record<number, number>> = {
-  0: 0, 1: 36, 5: 36, 8: 36, 2: 41, 3: 41, 6: 41, 7: 41, 4: 46, 9: 1,
+  0: 0,
+  1: 36,
+  5: 36,
+  8: 36,
+  2: 41,
+  3: 41,
+  6: 41,
+  7: 41,
+  4: 46,
+  9: 1,
 };
 function getDelay(moveDelay: number, act: number): number {
   return (CLEAR_DELAY[act] ?? 0) * 16 + moveDelay;
@@ -30,8 +39,10 @@ function snapshotFrom(p: Position): GameSnapshot {
   const grid: number[][] = Array.from({ length: rows }, () => Array.from({ length: 10 }, () => 0));
   for (let y = 0; y < p.board.length && y < rows; y += 1) {
     const native = p.board[y] ?? 0;
+    const row = grid[rows - 1 - y];
+    if (row === undefined) continue;
     for (let c = 0; c < 10; c += 1) {
-      if ((native & (1 << (9 - c))) !== 0) grid[rows - 1 - y]![c] = 1;
+      if ((native & (1 << (9 - c))) !== 0) row[c] = 1;
     }
   }
   const next = p.next.slice(1, 13).map((v) => KIND[v] ?? "I");
@@ -71,18 +82,28 @@ interface OracleResult {
 }
 
 function runOracle(p: Position, startTimer: boolean): OracleResult {
-  const boardHex = p.board.map((v) => "0x" + (v >>> 0).toString(16)).join(",");
+  const boardHex = p.board.map((v) => `0x${(v >>> 0).toString(16)}`).join(",");
   const timerLine = startTimer ? "timer=1\n" : "";
-  writeFileSync(ORACLE_INPUT, `# ${p.name}\nboard=${boardHex}\nnext=${p.next.join(",")}\n${timerLine}`);
-  const proc = Bun.spawnSync(["bash", ORACLE_SCRIPT], { stdout: "pipe", stderr: "pipe", timeout: 180000 });
-  const text = proc.stdout.toString() + "\n" + proc.stderr.toString();
+  writeFileSync(
+    ORACLE_INPUT,
+    `# ${p.name}\nboard=${boardHex}\nnext=${p.next.join(",")}\n${timerLine}`,
+  );
+  const proc = Bun.spawnSync(["bash", ORACLE_SCRIPT], {
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 180000,
+  });
+  const text = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
   const fm = text.match(/firstMove @\+?456:\s*x=(-?\d+)\s+y=(-?\d+)\s+rot=(-?\d+)\s+m=(-?\d+)/);
   const depth = text.match(/depth\s+@\+?444\s*=\s*(-?\d+)/);
   const delay = text.match(/GetDelay\s*=\s*(-?\d+)/);
   if (!fm) return { ok: false, x: 0, y: 0, rot: 0, m: 0, depth: 0, getDelay: null, raw: text };
   return {
     ok: true,
-    x: +fm[1], y: +fm[2], rot: +fm[3], m: +fm[4],
+    x: +fm[1],
+    y: +fm[2],
+    rot: +fm[3],
+    m: +fm[4],
     depth: depth ? +depth[1] : -1,
     getDelay: delay ? +delay[1] : null,
     raw: text,
@@ -124,5 +145,7 @@ for (const p of list) {
     `${moveMatch ? "MATCH  " : "MISMATCH"} ${p.name.padEnd(14)} | oracle x=${o.x} y=${o.y} rot=${o.rot} m=${o.m} depth=${o.depth} delay=${o.getDelay} | rust x=${t?.x} rot=${t?.rot} m=${t?.m} depth=${t?.depth} delay=${t?.getDelay} ${delayMatch ? "DELAY-OK" : "DELAY-NO"}`,
   );
 }
-console.log(`\n${list.length - mismatches}/${list.length} first-move match (${startTimer ? "depth 14" : "depth 10"})`);
+console.log(
+  `\n${list.length - mismatches}/${list.length} first-move match (${startTimer ? "depth 14" : "depth 10"})`,
+);
 process.exit(mismatches === 0 ? 0 : 1);

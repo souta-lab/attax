@@ -1,6 +1,7 @@
 // Hoiko solo benchmark: does the replica survive on its own (no attacker)?
-import { createRustHoiko } from "/home/s0u7a/browser-tetris/tools/hoiko-rust/loader.js";
+
 import { createEngine } from "/home/s0u7a/browser-tetris/src/core/engine.js";
+import { createRustHoiko } from "/home/s0u7a/browser-tetris/tools/hoiko-rust/loader.js";
 
 function lcg(seed: number): () => number {
   let s = seed;

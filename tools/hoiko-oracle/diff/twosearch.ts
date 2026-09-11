@@ -9,17 +9,26 @@
  *   bun ./twosearch.ts [positionName ...]
  */
 
-import { writeFileSync } from "fs";
-import { POSITIONS, type Position } from "./positions.js";
-import { createRustHoiko } from "../../hoiko-rust/loader.js";
+import { writeFileSync } from "node:fs";
 import type { GameSnapshot, PieceKind } from "../../../src/ui/types.js";
+import { createRustHoiko } from "../../hoiko-rust/loader.js";
+import { POSITIONS, type Position } from "./positions.js";
 
 const ORACLE_INPUT = "/tmp/opencode/oracle/run/oracle_input.txt";
 const ORACLE_SCRIPT = "/tmp/opencode/oracle/run_oracle.sh";
 const KIND: Record<number, PieceKind> = { 0: "I", 1: "J", 2: "L", 3: "O", 4: "T", 5: "S", 6: "Z" };
 
 const CLEAR_DELAY: Readonly<Record<number, number>> = {
-  0: 0, 1: 36, 5: 36, 8: 36, 2: 41, 3: 41, 6: 41, 7: 41, 4: 46, 9: 1,
+  0: 0,
+  1: 36,
+  5: 36,
+  8: 36,
+  2: 41,
+  3: 41,
+  6: 41,
+  7: 41,
+  4: 46,
+  9: 1,
 };
 const TAKE_OVER_TIME = 5;
 const MAX_BEAM_SIZE = 50;
@@ -33,23 +42,46 @@ function snapshotFrom(p: Position): GameSnapshot {
   const grid: number[][] = Array.from({ length: rows }, () => Array.from({ length: 10 }, () => 0));
   for (let y = 0; y < p.board.length && y < rows; y += 1) {
     const native = p.board[y] ?? 0;
-    for (let c = 0; c < 10; c += 1) if ((native & (1 << (9 - c))) !== 0) grid[rows - 1 - y]![c] = 1;
+    const row = grid[rows - 1 - y];
+    if (row === undefined) continue;
+    for (let c = 0; c < 10; c += 1) if ((native & (1 << (9 - c))) !== 0) row[c] = 1;
   }
   return {
     board: { cols: 10, rows, grid },
     active: { kind: KIND[p.next[0] ?? 0] ?? "I", rotation: 0, cells: [], posX: 3, posY: 0 },
-    ghostY: null, hold: null, canHold: true, next: p.next.slice(1, 13).map((v) => KIND[v] ?? "I"),
-    score: 0, lines: 0, level: 1, gameOver: false, combo: 0, b2b: false,
-    nativeCombo: 0, nativeBtb: 0, lockId: 0, lastAction: "None", lastRawAttack: 0,
-    pendingGarbage: 0, lastAttack: 0, lastBlocked: 0,
+    ghostY: null,
+    hold: null,
+    canHold: true,
+    next: p.next.slice(1, 13).map((v) => KIND[v] ?? "I"),
+    score: 0,
+    lines: 0,
+    level: 1,
+    gameOver: false,
+    combo: 0,
+    b2b: false,
+    nativeCombo: 0,
+    nativeBtb: 0,
+    lockId: 0,
+    lastAction: "None",
+    lastRawAttack: 0,
+    pendingGarbage: 0,
+    lastAttack: 0,
+    lastBlocked: 0,
   };
 }
 
 function runOracleTwo(p: Position): { getDelay1: number; beam2: number } {
-  const boardHex = p.board.map((v) => "0x" + (v >>> 0).toString(16)).join(",");
-  writeFileSync(ORACLE_INPUT, `# ${p.name}\nboard=${boardHex}\nnext=${p.next.join(",")}\ntwosearch=1\n`);
-  const proc = Bun.spawnSync(["bash", ORACLE_SCRIPT], { stdout: "pipe", stderr: "pipe", timeout: 180000 });
-  const raw = proc.stdout.toString() + "\n" + proc.stderr.toString();
+  const boardHex = p.board.map((v) => `0x${(v >>> 0).toString(16)}`).join(",");
+  writeFileSync(
+    ORACLE_INPUT,
+    `# ${p.name}\nboard=${boardHex}\nnext=${p.next.join(",")}\ntwosearch=1\n`,
+  );
+  const proc = Bun.spawnSync(["bash", ORACLE_SCRIPT], {
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 180000,
+  });
+  const raw = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
   const md = raw.match(/GetDelay\s*=\s*(-?\d+)/);
   const b2 = raw.match(/search2 beamLimit @452\s*=\s*(-?\d+)/);
   return { getDelay1: md ? +md[1] : -1, beam2: b2 ? +b2[1] : -1 };

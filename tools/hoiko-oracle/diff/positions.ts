@@ -32,7 +32,9 @@ export function makeBoard(build: (line: number[]) => void): number[] {
 }
 
 /** Default 28-piece queue used by the proven repro: I O T S Z J L I O ... */
-export const REPRO_NEXT: number[] = [0, 3, 4, 5, 6, 1, 2, 0, 3, 4, 5, 6, 1, 2, 0, 3, 4, 5, 6, 1, 2, 0, 3, 4, 5, 6, 1, 2];
+export const REPRO_NEXT: number[] = [
+  0, 3, 4, 5, 6, 1, 2, 0, 3, 4, 5, 6, 1, 2, 0, 3, 4, 5, 6, 1, 2, 0, 3, 4, 5, 6, 1, 2,
+];
 
 export interface Position {
   readonly name: string;

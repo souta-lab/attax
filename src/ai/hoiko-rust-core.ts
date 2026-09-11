@@ -24,8 +24,8 @@ import type {
 } from "../ui/types.js";
 import { ROWS } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
-import { hoikoWeightList, type HoikoPreset, type HoikoWeights } from "./hoiko-weights.js";
-import { MINO_NONE, kindToMino, type MinoType } from "./mino-codes.js";
+import { type HoikoPreset, type HoikoWeights, hoikoWeightList } from "./hoiko-weights.js";
+import { kindToMino, MINO_NONE, type MinoType } from "./mino-codes.js";
 
 const HOIKO_DEFAULT_PRESET: HoikoPreset = "we";
 
@@ -50,7 +50,16 @@ const LOCK_ACTION_CODE: Readonly<Record<LockAction, number>> = {
 };
 
 const CLEAR_DELAY: Readonly<Record<number, number>> = {
-  0: 0, 1: 36, 5: 36, 8: 36, 2: 41, 3: 41, 6: 41, 7: 41, 4: 46, 9: 1,
+  0: 0,
+  1: 36,
+  5: 36,
+  8: 36,
+  2: 41,
+  3: 41,
+  6: 41,
+  7: 41,
+  4: 46,
+  9: 1,
 };
 
 function rGetDelay(moveDelay: number, act: number): number {
@@ -233,9 +242,12 @@ export class RustHoikoEngine {
     const dv = new DataView(this.ex.memory.buffer, this.inPtr, this.inSize);
     const w = new Writer(dv);
     for (let k = 0; k < MAX_WEIGHTS; k += 1) w.f64(this.weights[k]?.nexus ?? 0);
-    for (let k = 0; k < MAX_WEIGHTS; k += 1) w.i32s(this.weights[k]?.weight ?? new Array(50).fill(0));
-    for (let k = 0; k < MAX_WEIGHTS; k += 1) w.i32s(this.weights[k]?.column ?? new Array(10).fill(0));
-    for (let k = 0; k < MAX_WEIGHTS; k += 1) w.i32s(this.weights[k]?.comboTable ?? new Array(5).fill(0));
+    for (let k = 0; k < MAX_WEIGHTS; k += 1)
+      w.i32s(this.weights[k]?.weight ?? new Array(50).fill(0));
+    for (let k = 0; k < MAX_WEIGHTS; k += 1)
+      w.i32s(this.weights[k]?.column ?? new Array(10).fill(0));
+    for (let k = 0; k < MAX_WEIGHTS; k += 1)
+      w.i32s(this.weights[k]?.comboTable ?? new Array(5).fill(0));
     w.i32(MAX_WEIGHTS);
     const board = new Array<number>(32).fill(0);
     for (let y = 0; y < req.board.length && y < 32; y += 1) board[y] = req.board[y] ?? 0;
@@ -474,10 +486,15 @@ function cosmeticSteps(
 export interface RustHoikoFighter extends VersusFighter {
   readonly engine: RustHoikoEngine;
   /** Runs the adapter end-to-end and returns both the raw Rust output and the `AiMove`. */
-  searchSnapshot(s: GameSnapshot): { out: RustOut; move: AiMove | null; req: RawSearchRequest } | null;
+  searchSnapshot(
+    s: GameSnapshot,
+  ): { out: RustOut; move: AiMove | null; req: RawSearchRequest } | null;
 }
 
-export function rawRequestFromSnapshot(s: GameSnapshot, engine: RustHoikoEngine): RawSearchRequest | null {
+export function rawRequestFromSnapshot(
+  s: GameSnapshot,
+  engine: RustHoikoEngine,
+): RawSearchRequest | null {
   if (s.active === null) return null;
   const next: number[] = [];
   for (const k of s.next) next.push(kindToMino(k));
@@ -551,13 +568,20 @@ export function makeRustHoiko(
     name: "HOIKO-RUST",
     color: HOIKO_COLOR,
     engine,
-    searchSnapshot(s: GameSnapshot): { out: RustOut; move: AiMove | null; req: RawSearchRequest } | null {
+    searchSnapshot(
+      s: GameSnapshot,
+    ): { out: RustOut; move: AiMove | null; req: RawSearchRequest } | null {
       if (s.active === null || s.gameOver) return null;
       const req = rawRequestFromSnapshot(s, engine);
       if (req === null) return null;
       const t0 = performance.now();
       const out = engine.search(req, syncFromSnapshot(s), s.pendingGarbage);
-      debug = { score: out.score, depth: out.depth, nodes: out.node, thinkMs: performance.now() - t0 };
+      debug = {
+        score: out.score,
+        depth: out.depth,
+        nodes: out.node,
+        thinkMs: performance.now() - t0,
+      };
       return { out, move: moveFromOut(s, out), req };
     },
     findBestMove(s: GameSnapshot): AiMove | null {

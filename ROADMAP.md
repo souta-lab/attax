@@ -14,17 +14,17 @@ not a web app. So:
 One Rust core serves all three. The browser is a *viewing layer*, not where the research
 happens.
 
-## Current phase: finish the faithful Hoiko port (app-wide 1:1)
+## Current phase: honest re-baseline and strength work
 
-The **search is oracle-matched** (9/9 depth-10, 2/2 depth-14, 9/9 two-search beam) against
-the shipping binary via the Wine runtime oracle. Remaining gaps:
+The faithful Hoiko port is **done** and oracle-verified: search (9/9 depth-10, 2/2
+depth-14, 9/9 two-search beam), **OffsetAI garbage management** (all-methods md5-identical
+to the binary), and the Rust/WASM port (`rust/hoiko-core`) that now runs the app and beats
+the binary's ~101 ms/move on speed. What remains:
 
-1. **OffsetAI (garbage management)** — in progress. Without it HOIKO ignores incoming
-   garbage and gets buried. This is the dominant strength defect. See `SPEC_OffsetOffAI.md`.
-2. **Time budget / depth** — the binary reaches depth 14 within its ~107 ms in-match timer
-   (101 ms measured); the TS engine is ~4.3x slower and gets cut at the minDepth floor.
-   Interim fix: run to depth 14 deterministically (`timeLimitMs: Infinity`, `adapt: false`)
-   = the binary's "fast machine" behaviour (oracle-verified). Real fix: Rust/WASM speed.
+1. **Honest re-baseline (headless)**: faithful Hoiko vs current DeepSeek, many seeds, win
+   rate + survival metrics. The earlier "DeepSeek beats Hoiko" result measured the port's
+   defects, not DeepSeek (see below).
+2. **Then** decide DeepSeek's fate from that true baseline.
 
 ## Correcting an invalid earlier claim
 
@@ -34,13 +34,12 @@ strength. The true DeepSeek-vs-Hoiko baseline is unknown until the faithful Hoik
 
 ## Ordered plan
 
-1. **Finish OffsetAI integration** (in flight) and re-verify: tsc/test/build + oracle 9/9.
-2. **Depth-14 interim** (`Infinity` + `adapt:false`) to remove the speed-induced weakness.
-3. **Honest re-baseline (headless)**: faithful Hoiko vs current DeepSeek, many seeds, win
-   rate + survival metrics. Expect Hoiko to win now.
-4. **Rust core port**: move the oracle-matched engine (and later the rule primitives shared
-   with DeepSeek) into `rust/hoiko-core`; ship native addon (headless) + wasm (browser).
-   Verify with differential tests (TS vs Rust-native vs WASM) + the oracle.
+1. ~~Finish OffsetAI integration~~ — done (identical to the binary; Rust port verified).
+2. ~~Depth-14 interim~~ — done; the Rust engine reaches depth 14 within the binary's budget.
+3. ~~Rust core port~~ — done: one `rust/hoiko-core` serves native + wasm, differential-tested
+   against the oracle; it now beats the binary on speed (`rust/PERF.md`).
+4. **Honest re-baseline (headless)**: faithful Hoiko vs current DeepSeek, many seeds, win
+   rate + survival metrics.
 5. **Then** decide DeepSeek's fate (strengthen / port / rewrite) based on the true baseline
    — not before.
 

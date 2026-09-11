@@ -1,8 +1,9 @@
-# dependencies
-node_modules/
+# dependencies (no trailing slash: covers the symlinked node_modules in worktrees)
+node_modules
 
 # build output
 dist/
+*.tsbuildinfo
 
 # logs / scratch
 *.log
