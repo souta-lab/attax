@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "overnight/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  web:
+    name: TypeScript (tsc, test, build, lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
+      - run: bun test
+      - run: bun run build
+      - run: bun run lint
+
+  rust:
+    name: Rust (test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo test --manifest-path rust/Cargo.toml
