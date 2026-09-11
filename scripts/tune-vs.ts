@@ -26,6 +26,7 @@ import {
   winLossCap,
 } from "../src/tuner/match.js";
 import { createRng } from "../src/tuner/rng.js";
+import { seedGenomes } from "../src/tuner/seeds.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const WORKER = join(import.meta.dir, "tuner", "eval-worker.ts");
@@ -306,9 +307,7 @@ function candidateSummaryLine(label: string, record: FitnessRecord): string {
 }
 
 function isBetter(candidate: FitnessRecord, incumbent: FitnessRecord): boolean {
-  if (candidate.fitness > incumbent.fitness + 1e-9) return true;
-  if (candidate.fitness < incumbent.fitness - 1e-9) return false;
-  return candidate.heldWinRate > incumbent.heldWinRate + 1e-9;
+  return candidate.fitness > incumbent.fitness + 1e-9;
 }
 
 function sameSearch(a: SearchConfig, b: SearchConfig): boolean {
@@ -336,15 +335,20 @@ async function main(): Promise<void> {
   if (mutable.parent === null) {
     const base = mutable.baseline;
     if (base === null) throw new Error("tuner: baseline missing");
-    if (sameSearch(config.search, REAL_SEARCH)) {
-      // Proven equivalent (tests/tuner.test.ts): reuse the baseline gate result.
-      mutable.parent = { genome: BASELINE_GENOME, record: base.record };
-    } else {
-      const parent = await evaluateGenome(config, BASELINE_GENOME, config.search);
-      mutable.parent = { genome: BASELINE_GENOME, record: recordFromOutcomes(parent.outcomes) };
+    const seeds = seedGenomes();
+    const evaluations = await evaluateCandidates(config, [...seeds], config.search);
+    const records = evaluations.map((outcomes) => recordFromOutcomes(outcomes));
+    let best: CandidateState = { genome: BASELINE_GENOME, record: base.record };
+    for (let index = 0; index < seeds.length; index += 1) {
+      const genome = seeds[index];
+      const record = records[index];
+      if (genome === undefined || record === undefined) continue;
+      console.log(`[seed ${index}] ${candidateSummaryLine("screen", record)}`);
+      if (isBetter(record, best.record)) best = { genome, record };
     }
-    mutable.best = mutable.parent;
-    console.log(candidateSummaryLine("[parent=baseline genome]", mutable.parent.record));
+    mutable.parent = best;
+    mutable.best = best;
+    console.log(candidateSummaryLine("[parent after screen]", best.record));
   }
 
   let generation = mutable.generation;

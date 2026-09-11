@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { createDeepSeekTetris } from "../src/ai/deepseek.js";
 import { createEngine } from "../src/core/engine.js";
 import { mutate } from "../src/tuner/evolution.js";
-import { BASELINE_GENOME, decodeGenome, geneSpec, sanitizeGenome } from "../src/tuner/genome.js";
+import {
+  BASELINE_GENOME,
+  decodeGenome,
+  GENE_SPECS,
+  geneSpec,
+  sanitizeGenome,
+} from "../src/tuner/genome.js";
 import {
   fitnessOf,
   type MatchOutcome,
@@ -12,6 +18,7 @@ import {
   winLossCap,
 } from "../src/tuner/match.js";
 import { createRng } from "../src/tuner/rng.js";
+import { seedGenomes } from "../src/tuner/seeds.js";
 import { createTunedDeepSeek } from "../src/tuner/tuned-deepseek.js";
 import { seededRandom, type VersusFighter } from "../src/versus/controller.js";
 
@@ -109,6 +116,21 @@ describe("match runner", () => {
       outcome(4, "left"),
     ]);
     expect(fitnessOf(better)).toBeGreaterThan(fitnessOf(summary));
+  });
+});
+
+describe("seed population", () => {
+  test("curated screening seeds stay within gene bounds", () => {
+    const seeds = seedGenomes();
+    expect(seeds.length).toBeGreaterThanOrEqual(6);
+    for (const genome of seeds) {
+      for (const spec of GENE_SPECS) {
+        const value = genome[spec.key];
+        expect(value).toBeGreaterThanOrEqual(spec.min);
+        expect(value).toBeLessThanOrEqual(spec.max);
+      }
+      expect(genome).not.toEqual(BASELINE_GENOME);
+    }
   });
 });
 
