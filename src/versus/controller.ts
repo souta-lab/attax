@@ -26,6 +26,8 @@ export interface VersusFighter {
   readonly color: string;
   findBestMove(snapshot: GameSnapshot): AiMove | null;
   getDebug?(): AiDebug | null;
+  /** Optional per-match state reset, invoked by the controller on match reset. */
+  reset?(): void;
 }
 
 export interface SideState {
@@ -320,6 +322,7 @@ export function createVersusController(
 
 function resetSide(side: SideState, seed: number, engineOptions: EngineOptions = {}): void {
   side.core = createEngine({ random: seededRandom(seed), ...engineOptions });
+  side.fighter.reset?.();
   side.thinkMs = 0;
   side.thinkCount = 0;
   side.pendingThink = true;

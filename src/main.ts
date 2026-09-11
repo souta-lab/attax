@@ -310,6 +310,7 @@ function boot(): void {
       name: "DEEPSEEK",
       color: DEEPSEEK_COLOR,
       findBestMove: (snap) => deepseek.findBestMove(snap),
+      reset: () => deepseek.reset(),
     },
     nextSeed(),
     { garbageAligned: true },
