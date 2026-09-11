@@ -1,4 +1,5 @@
 import { createEngine, type EngineOptions } from "../core/engine.js";
+import { COLS } from "../ui/types.js";
 import type {
   AiDebug,
   AiExecutionPlan,
@@ -7,6 +8,16 @@ import type {
   CorePort,
   GameSnapshot,
 } from "../ui/types.js";
+
+/**
+ * Upper bound for a single tick. The app already clamps rAF deltas to 250ms;
+ * clamping here keeps one call from spinning unboundedly when a pathological
+ * dt is passed directly (tests, other callers).
+ */
+const MAX_TICK_MS = 250;
+
+/** Safety cap on catch-up iterations per tick so a huge dt cannot busy-loop. */
+const MAX_CATCHUP_ITERATIONS = 256;
 
 export type VersusSide = "left" | "right";
 
@@ -34,6 +45,8 @@ export interface SideState {
   processedLockId: number;
   executionSourceMismatches: number;
   executionExpectedBoardFailures: number;
+  lastError: string | null;
+  errorCount: number;
   wins: number;
 }
 
@@ -47,6 +60,8 @@ export interface VersusResult {
   readonly linesRight: number;
   readonly sentLeft: number;
   readonly sentRight: number;
+  readonly leftError: string | null;
+  readonly rightError: string | null;
 }
 
 export interface VersusControllerOptions {
@@ -112,7 +127,15 @@ function think(side: SideState, opponent: SideState): void {
   let move: AiMove | null = null;
   try {
     move = side.fighter.findBestMove(decisionSnapshot);
-  } catch {
+  } catch (error) {
+    side.lastError = error instanceof Error ? error.message : String(error);
+    if (side.errorCount === 0) {
+      console.error(
+        `[versus] ${side.side} fighter "${side.fighter.name}" threw in findBestMove:`,
+        error,
+      );
+    }
+    side.errorCount += 1;
     move = null;
   }
   side.thinkMs += performance.now() - t0;
@@ -148,12 +171,12 @@ function boardMatches(actual: readonly number[], expected: readonly number[]): b
   return true;
 }
 
-function boardFingerprint(snapshot: GameSnapshot): string {
+export function boardFingerprint(snapshot: GameSnapshot): string {
   const rows: number[] = [];
   for (let y = 0; y < snapshot.board.rows; y += 1) {
     const row = snapshot.board.grid[snapshot.board.rows - 1 - y];
     let bits = 0;
-    for (let x = 0; x < 10; x += 1) {
+    for (let x = 0; x < COLS; x += 1) {
       if ((row?.[x] ?? 0) !== 0) bits |= 1 << x;
     }
     rows.push(bits);
@@ -269,6 +292,8 @@ export function createVersusController(
     processedLockId: 0,
     executionSourceMismatches: 0,
     executionExpectedBoardFailures: 0,
+    lastError: null,
+    errorCount: 0,
     wins: 0,
   });
   const left = mkSide("left", leftFighter);
@@ -308,6 +333,8 @@ function resetSide(side: SideState, seed: number, engineOptions: EngineOptions =
   side.processedLockId = 0;
   side.executionSourceMismatches = 0;
   side.executionExpectedBoardFailures = 0;
+  side.lastError = null;
+  side.errorCount = 0;
 }
 
 function seededRandom(seed: number): () => number {
@@ -318,7 +345,7 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function stepSide(
+export function stepSide(
   side: SideState,
   opponent: SideState,
   dt: number,
@@ -332,8 +359,17 @@ function stepSide(
     think(side, opponent);
   }
   side.acc += dt;
-  if (side.queue.length > 0 && side.acc >= options.stepIntervalMs) {
-    side.acc = 0;
+  let locked = 0;
+  let iterations = 0;
+  while (
+    side.queue.length > 0 &&
+    options.stepIntervalMs > 0 &&
+    side.acc >= options.stepIntervalMs &&
+    locked === 0 &&
+    iterations < MAX_CATCHUP_ITERATIONS
+  ) {
+    iterations += 1;
+    side.acc -= options.stepIntervalMs;
     const [head, ...rest] = side.queue;
     if (head !== undefined) {
       if (locksPiece(head.kind)) side.core.setGarbageWait?.(side.garbageWait);
@@ -358,21 +394,31 @@ function stepSide(
       }
     }
     side.queue = rest;
-    const lockedPiece = head !== undefined && locksPiece(head.kind) && hadActive;
-    return lockedPiece ? 1 : 0;
-  } else if (side.queue.length === 0) {
-    side.gravityAcc = (side.gravityAcc ?? 0) + dt;
-    if (side.gravityAcc >= options.gravityMs) {
-      side.gravityAcc = 0;
-      const locked = side.core.gravityTick();
-      if (locked) {
-        side.pendingThink = true;
-        return 1;
-      }
-    }
-    return 0;
+    if (head !== undefined && locksPiece(head.kind) && hadActive) locked = 1;
   }
+  if (locked > 0) return locked;
+  if (side.queue.length === 0) return runGravity(side, dt, options);
   return 0;
+}
+
+function runGravity(side: SideState, dt: number, options: VersusControllerOptions): number {
+  if (options.gravityMs <= 0) return 0;
+  side.gravityAcc += dt;
+  let locked = 0;
+  let iterations = 0;
+  while (
+    side.gravityAcc >= options.gravityMs &&
+    locked === 0 &&
+    iterations < MAX_CATCHUP_ITERATIONS
+  ) {
+    iterations += 1;
+    side.gravityAcc -= options.gravityMs;
+    if (side.core.gravityTick()) {
+      side.pendingThink = true;
+      locked = 1;
+    }
+  }
+  return locked;
 }
 
 function exchangeGarbage(left: SideState, right: SideState): void {
@@ -398,12 +444,17 @@ function exchangeGarbage(left: SideState, right: SideState): void {
   }
 }
 
-function tickVersus(ctrl: VersusController, dt: number, options: VersusControllerOptions): void {
+export function tickVersus(
+  ctrl: VersusController,
+  dt: number,
+  options: VersusControllerOptions,
+): void {
+  const stepDt = dt > MAX_TICK_MS ? MAX_TICK_MS : dt > 0 ? dt : 0;
   if (ctrl.result !== null) {
     if (ctrl.rematchIn === null) {
       ctrl.rematchIn = options.autoRematchMs;
     } else {
-      ctrl.rematchIn -= dt;
+      ctrl.rematchIn -= stepDt;
       if (ctrl.rematchIn <= 0) {
         const seed = (Date.now() ^ (Math.random() * 1e9)) | 0;
         ctrl.resetMatch(seed);
@@ -411,8 +462,8 @@ function tickVersus(ctrl: VersusController, dt: number, options: VersusControlle
     }
     return;
   }
-  const lockedL = stepSide(ctrl.left, ctrl.right, dt, options);
-  const lockedR = stepSide(ctrl.right, ctrl.left, dt, options);
+  const lockedL = stepSide(ctrl.left, ctrl.right, stepDt, options);
+  const lockedR = stepSide(ctrl.right, ctrl.left, stepDt, options);
   exchangeGarbage(ctrl.left, ctrl.right);
   ctrl.pieces += lockedL + lockedR;
   const snapL = ctrl.left.core.getSnapshot();
@@ -443,6 +494,8 @@ function tickVersus(ctrl: VersusController, dt: number, options: VersusControlle
       linesRight: snapR.lines,
       sentLeft: ctrl.left.sentTotal,
       sentRight: ctrl.right.sentTotal,
+      leftError: ctrl.left.lastError,
+      rightError: ctrl.right.lastError,
     };
     ctrl.rematchIn = options.autoRematchMs;
     return;
