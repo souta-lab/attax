@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { COLS, ROWS, type CellValue, type CorePort, type GameSnapshot } from "../src/ui/types.js";
+import { type CellValue, COLS, type CorePort, type GameSnapshot, ROWS } from "../src/ui/types.js";
 import {
   boardFingerprint,
   type SideState,
@@ -102,9 +102,7 @@ const longMoveFighter: VersusFighter = {
   name: "long-move",
   color: "#000",
   findBestMove: (snapshot) =>
-    snapshot.active === null
-      ? null
-      : { targetX: 5000, targetRotation: 0, useHold: false },
+    snapshot.active === null ? null : { targetX: 5000, targetRotation: 0, useHold: false },
 };
 
 function makeSide(
@@ -287,7 +285,11 @@ describe("versus controller AI failures", () => {
       };
       let over = false;
       const grid = emptyGrid();
-      const left = makeSide("left", makeCore(counter, true, grid, () => over), throwing);
+      const left = makeSide(
+        "left",
+        makeCore(counter, true, grid, () => over),
+        throwing,
+      );
       const right = makeSide(
         "right",
         makeCore(counter, true, grid, () => over),

@@ -1,5 +1,4 @@
 import { createEngine, type EngineOptions } from "../core/engine.js";
-import { COLS } from "../ui/types.js";
 import type {
   AiDebug,
   AiExecutionPlan,
@@ -8,6 +7,7 @@ import type {
   CorePort,
   GameSnapshot,
 } from "../ui/types.js";
+import { COLS } from "../ui/types.js";
 
 /**
  * Upper bound for a single tick. The app already clamps rAF deltas to 250ms;

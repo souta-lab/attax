@@ -278,7 +278,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     prevGarbageHole = gen.prevHole;
     for (let i = 0; i < count; i += 1) {
       const removed = grid[0];
-      if (removed !== undefined && removed.some((v) => v !== 0)) {
+      if (removed?.some((v) => v !== 0)) {
         gameOver = true;
         return;
       }

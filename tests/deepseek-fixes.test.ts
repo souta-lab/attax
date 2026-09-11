@@ -1,21 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { beamBestMove } from "../src/ai/beam.js";
 import { createDeepSeekTetris } from "../src/ai/deepseek.js";
+import type { AiDebug, AiMove, CellValue, GameSnapshot, PieceKind } from "../src/ui/types.js";
 import { createVersusController } from "../src/versus/controller.js";
-import type {
-  AiDebug,
-  AiMove,
-  CellValue,
-  GameSnapshot,
-  PieceKind,
-} from "../src/ui/types.js";
 
 const ROWS = 20;
 
 function boardGrid(bottomUpRows: readonly number[]): CellValue[][] {
-  const grid: CellValue[][] = Array.from({ length: ROWS }, () =>
-    new Array<CellValue>(10).fill(0),
-  );
+  const grid: CellValue[][] = Array.from({ length: ROWS }, () => new Array<CellValue>(10).fill(0));
   for (let y = 0; y < bottomUpRows.length && y < ROWS; y += 1) {
     const bits = bottomUpRows[y] ?? 0;
     const gridY = ROWS - 1 - y;

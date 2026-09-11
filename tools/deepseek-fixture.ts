@@ -12,10 +12,7 @@ import type { CellValue, GameSnapshot, PieceKind } from "../src/ui/types.js";
 
 const ROWS = 20;
 const COLS = 10;
-const OUT = new URL(
-  "../rust/hoiko-deepseek/tests/fixtures/deepseek_parity.json",
-  import.meta.url,
-);
+const OUT = new URL("../rust/hoiko-deepseek/tests/fixtures/deepseek_parity.json", import.meta.url);
 
 interface CaseSpec {
   readonly name: string;
@@ -125,7 +122,7 @@ function buildCases(): CaseSpec[] {
   };
 
   for (let i = 0; i < 34; i += 1) {
-    const rand = lcg(0x9e3779b9 ^ (i + 1) * 2654435761);
+    const rand = lcg(0x9e3779b9 ^ ((i + 1) * 2654435761));
     const kinds = shuffledKinds(rand);
     const board = i % 7 === 0 ? EMPTY_BOARD : randomBoard(rand);
     add({
