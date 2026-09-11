@@ -161,13 +161,32 @@ impl Board {
     /// `Board.CollisionDistance` — rows the piece can still fall.
     pub fn collision_distance(&self, mino: &FallMino) -> i32 {
         let sh = shape_for(mino.m, mino.r);
+        let mut masks = [0i32; 4];
+        for cell in sh.cells() {
+            let col = mino.x + cell.x;
+            if (col as u32) < BOARD_WIDTH as u32 {
+                masks[cell.y as usize] |= 1 << (9 - col);
+            }
+        }
         let limit = mino.y.min(self.stack_height + 40) + 4;
         let mut s = 1i32;
         while s <= limit {
-            if self.hit_at(sh, mino.x, mino.y - s) != 0 {
+            let top = mino.y - s;
+            let mut hit = false;
+            for (cy, &m) in masks.iter().enumerate() {
+                if m == 0 {
+                    continue;
+                }
+                let row = top - cy as i32;
+                if (row as u32) < BOARD_HEIGHT as u32 && (self.line[row as usize] & m) != 0 {
+                    hit = true;
+                    break;
+                }
+            }
+            if hit {
                 break;
             }
-            if mino.y - s - sh.max_y < 0 {
+            if top - sh.max_y < 0 {
                 break;
             }
             s += 1;
@@ -436,6 +455,58 @@ mod tests {
         let g = b.get_column_height(&mut ch);
         assert_eq!(g, 0);
         assert_eq!(ch, [0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn collision_distance_matches_reference() {
+        fn reference(b: &Board, mino: &FallMino) -> i32 {
+            let sh = shape_for(mino.m, mino.r);
+            let limit = mino.y.min(b.stack_height + 40) + 4;
+            let mut s = 1i32;
+            while s <= limit {
+                let mut hit = false;
+                for cell in sh.cells() {
+                    let col = mino.x + cell.x;
+                    let row = mino.y - s - cell.y;
+                    if col < 0 || col >= 10 || row < 0 || row >= 32 {
+                        continue;
+                    }
+                    if (b.line[row as usize] & (1 << (9 - col))) != 0 {
+                        hit = true;
+                        break;
+                    }
+                }
+                if hit {
+                    break;
+                }
+                if mino.y - s - sh.max_y < 0 {
+                    break;
+                }
+                s += 1;
+            }
+            let drop = s - 1;
+            if drop > 0 { drop } else { 0 }
+        }
+        let mut seed = 0x9e37_79b9u32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for _ in 0..50_000 {
+            let mut b = Board::default();
+            for y in 0..12 {
+                b.line[y] = (rnd() & 0x3ff) as i32;
+            }
+            b.update_max_height();
+            let mut f = FallMino::default();
+            f.m = (rnd() % 7) as i32;
+            f.r = (rnd() % 8) as i32 - 1;
+            f.x = (rnd() % 16) as i32 - 3;
+            f.y = (rnd() % 30) as i32 - 2;
+            assert_eq!(b.collision_distance(&f), reference(&b, &f), "m={} r={} x={} y={}", f.m, f.r, f.x, f.y);
+        }
     }
 
     #[test]
