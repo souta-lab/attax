@@ -6,14 +6,12 @@ import { asRotation, kickTable } from "../core/srs.js";
 import type { AiExecutionPlan, AiExecutionStep } from "../ui/types.js";
 import { beamBestMove } from "./beam.js";
 import { extractFeatures, type FeatureVector } from "./features.js";
-import { FULL_ROW, ROWS } from "./types.js";
+import { ROWS } from "./types.js";
 import { DU_WEIGHTS, scorePlacement, type Weights } from "./weights.js";
 
 export function bottomCells(kind: PieceKind, rotation: number): ReturnType<typeof bottomCellsOf> {
   return bottomCellsOf(kind, rotation);
 }
-
-export const DEFAULT_WEIGHTS: Weights = DU_WEIGHTS;
 
 export interface ScoredPlacement {
   readonly rotation: number;
@@ -29,17 +27,6 @@ export interface ScoredPlacement {
 }
 
 export type PlacementGenerator = (board: Board, kind: PieceKind) => readonly ScoredPlacement[];
-
-export interface SearchOptions {
-  readonly weights?: Weights | undefined;
-  readonly next?: PieceKind | null | undefined;
-  readonly nextWeight?: number | undefined;
-}
-
-export function enumeratePlacements(board: Board, kind: PieceKind): ScoredPlacement[] {
-  void FULL_ROW;
-  return enumerateWithScore(board, kind, DU_WEIGHTS);
-}
 
 function enumerateWithScore(board: Board, kind: PieceKind, w: Weights): ScoredPlacement[] {
   const out: ScoredPlacement[] = [];
@@ -272,40 +259,6 @@ export function enumerateScored(board: Board, kind: PieceKind, w: Weights): Scor
   return enumerateWithScore(board, kind, w);
 }
 
-export function findBestPlacement(
-  board: Board,
-  current: PieceKind,
-  options: SearchOptions = {},
-): ScoredPlacement | null {
-  const next = options.next ?? null;
-  const weights = options.weights ?? DU_WEIGHTS;
-  const list = enumerateWithScore(board, current, weights);
-  if (list.length === 0) return null;
-  if (next === null) {
-    let best = list[0] as ScoredPlacement;
-    for (const p of list) if (p.score > best.score) best = p;
-    return best;
-  }
-  let best: ScoredPlacement | null = null;
-  let bestTotal = Number.NEGATIVE_INFINITY;
-  for (const p of list) {
-    const cells = bottomCells(current, p.rotation);
-    const y = dropY(board, cells, p.x, board.length + 4);
-    if (collides(board, cells, p.x, y)) continue;
-    const transition = computeLockAfterstate(board, cells, p.x, y);
-    const replies = enumerateWithScore(transition.after, next, weights);
-    let replyBest = Number.NEGATIVE_INFINITY;
-    for (const r2 of replies) if (r2.score > replyBest) replyBest = r2.score;
-    if (replyBest === Number.NEGATIVE_INFINITY) continue;
-    const total = p.score + replyBest;
-    if (total > bestTotal) {
-      bestTotal = total;
-      best = p;
-    }
-  }
-  return best ?? list[0] ?? null;
-}
-
 export interface ScoreAiResult {
   readonly targetX: number;
   readonly targetRotation: number;
@@ -407,34 +360,5 @@ export function searchBestMoveDetailed(snapshot: {
     holes: bestRanked.features.holes,
     maxHeight: bestRanked.features.maxHeight,
     thinkMs,
-  };
-}
-
-export function createAi(): {
-  readonly name: string;
-  findBestMove(snapshot: Parameters<typeof searchBestMove>[0]): ReturnType<typeof searchBestMove>;
-  getDebug(): import("../ui/types.js").AiDebug | null;
-} {
-  let last: ScoreAiResult | null = null;
-  return {
-    name: "beam24-hold",
-    findBestMove: (s) => {
-      const r = searchBestMoveDetailed(s);
-      last = r;
-      return r;
-    },
-    getDebug: () =>
-      last === null
-        ? null
-        : {
-            score: last.score,
-            fireScore: last.fireScore,
-            linesCleared: last.linesCleared,
-            isTspin: false,
-            opener: null,
-            topHoles: last.holes,
-            topMaxHeight: last.maxHeight,
-            thinkMs: last.thinkMs,
-          },
   };
 }

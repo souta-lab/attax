@@ -162,22 +162,3 @@ export interface CorePort {
   setGarbageWait?(wait: boolean): void;
   reset(): void;
 }
-
-export function pieceToCell(kind: PieceKind): CellValue {
-  switch (kind) {
-    case "I":
-      return 1;
-    case "O":
-      return 2;
-    case "T":
-      return 3;
-    case "S":
-      return 4;
-    case "Z":
-      return 5;
-    case "J":
-      return 6;
-    case "L":
-      return 7;
-  }
-}
