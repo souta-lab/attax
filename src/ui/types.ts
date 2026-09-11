@@ -88,7 +88,13 @@ export type AiExecutionStep =
   | { readonly kind: "right" }
   | { readonly kind: "softDrop" }
   | { readonly kind: "drop" }
-  | { readonly kind: "placeAt"; readonly rotation: number; readonly x: number };
+  | {
+      readonly kind: "placeAt";
+      readonly rotation: number;
+      readonly x: number;
+      readonly topRow?: number;
+      readonly lastSrs?: number;
+    };
 
 export interface AiExecutionPlan {
   readonly targetX: number;
@@ -145,6 +151,8 @@ export interface CorePort {
    * Returns false when the placement is invalid (caller falls back to stepwise replay).
    */
   hardDropAt?(rotation: number, x: number): boolean;
+  /** Lock the piece at exact grid (rotation, x, topRow); lastSrs feeds T-spin detection. */
+  placeMinoAt?(rotation: number, x: number, topRow: number, lastSrs: number): boolean;
   /** Advance gravity by one row tick. Returns true when the active piece locked/spawned. */
   gravityTick(): boolean;
   /** Outgoing garbage rows waiting to be delivered to the opponent. Drains the outbox. */

@@ -215,7 +215,10 @@ function applyStep(
         : { kind: "expected-board-failure" };
     }
     case "placeAt": {
-      const placed = core.hardDropAt?.(step.rotation, step.x) ?? false;
+      const placed =
+        step.topRow !== undefined && core.placeMinoAt !== undefined
+          ? core.placeMinoAt(step.rotation, step.x, step.topRow, step.lastSrs ?? 0)
+          : (core.hardDropAt?.(step.rotation, step.x) ?? false);
       if (!placed) core.hardDrop();
       return { kind: "applied" };
     }

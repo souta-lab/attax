@@ -53,6 +53,8 @@ interface NodeState {
   firstHold: boolean;
   firstAct: ClearAct;
   firstMoveDelay: number;
+  firstY: number;
+  firstLastSrs: number;
 }
 
 export interface SearchOutcome {
@@ -66,9 +68,16 @@ export interface SearchOutcome {
   readonly node: number;
   readonly overTime: number;
   readonly moveDelay: number;
+  readonly firstPlacement: {
+    readonly rotation: number;
+    readonly x: number;
+    readonly y: number;
+    readonly lastSrs: number;
+  };
 }
 
 function makeNode(child: ExpandedChild, parent: NodeState | null, genOne: boolean): NodeState {
+  const lm = child.game.lockedMino;
   return {
     game: child.game,
     score: 0,
@@ -81,6 +90,8 @@ function makeNode(child: ExpandedChild, parent: NodeState | null, genOne: boolea
     firstAct: genOne || parent === null ? child.act : parent.firstAct,
     firstMoveDelay:
       genOne || parent === null ? child.game.commands.moveDelay : parent.firstMoveDelay,
+    firstY: genOne || parent === null ? lm.y : parent.firstY,
+    firstLastSrs: genOne || parent === null ? lm.lastSrs : parent.firstLastSrs,
   };
 }
 
@@ -167,6 +178,12 @@ export function runSearch(
     node: total,
     overTime,
     moveDelay: best.firstMoveDelay,
+    firstPlacement: {
+      rotation: ((best.firstR % 4) + 4) % 4,
+      x: best.firstX,
+      y: best.firstY,
+      lastSrs: best.firstLastSrs,
+    },
   };
 }
 

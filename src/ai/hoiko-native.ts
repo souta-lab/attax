@@ -8,6 +8,7 @@
  */
 
 import type { AiDebug, AiMove, GameSnapshot } from "../ui/types.js";
+import { ROWS } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
 import type { PieceKind } from "../core/pieces.js";
 import { HOIKO_DEFAULT_PRESET, type HoikoPreset, type HoikoWeights } from "./hoiko-weights.js";
@@ -108,7 +109,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         searchState: state,
         ...(weightList === undefined ? {} : { weights: weightList }),
         ...(weightList === undefined ? { weightPreset } : {}),
-        timeLimitMs: timeLimitMs ?? Number.POSITIVE_INFINITY,
+        ...(timeLimitMs === undefined ? {} : { timeLimitMs }),
         ...(viewNext === undefined ? {} : { viewNext }),
         allowHold: s.canHold,
         adapt: true,
@@ -121,6 +122,14 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
       if (o.firstHold) {
         return { targetX: o.firstX, targetRotation: rotation, useHold: true };
       }
+      const landing = o.firstPlacement;
+      const placeStep = {
+        kind: "placeAt",
+        rotation,
+        x: o.firstX,
+        topRow: ROWS - 1 - landing.y,
+        lastSrs: landing.lastSrs,
+      } as const;
       return {
         targetX: o.firstX,
         targetRotation: rotation,
@@ -128,7 +137,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         execution: {
           targetX: o.firstX,
           targetRotation: rotation,
-          steps: [{ kind: "placeAt", rotation, x: o.firstX }],
+          steps: [placeStep],
           expectedBoard: [],
           expectedLinesCleared: 0,
           sourceActiveKind: active.kind,

@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   MINO_I,
   MINO_J,
+  defaultSearchState,
   nativeBestMove,
+  searchNative,
   NextMino,
   type NativeInput,
 } from "../src/ai/native/index.js";
@@ -64,5 +66,43 @@ describe("nativeBestMove sanity", () => {
       adapt: false,
     });
     expect(move).toBeNull();
+  });
+});
+
+describe("first-move delay (oracle: wine Hoiko.exe GetDelay / 2nd-search beam @452)", () => {
+  const repro: NativeInput = {
+    board: [],
+    current: "I",
+    queue: ["O", "T", "S", "Z", "J", "L", "I", "O"],
+    hold: null,
+    combo: 0,
+    btb: 0,
+  };
+
+  test("moveDelay is the gen-1 node's delay, not the leaf's (IL 15774 walks depth-1 parents)", () => {
+    const state = defaultSearchState();
+    state.minDepth = 10;
+    const run = searchNative(repro, {
+      searchState: state,
+      timeLimitMs: 0,
+      adapt: false,
+      feedQueue: false,
+    });
+    expect(run).not.toBeNull();
+    // Oracle GetDelay=112, root+400 moveDelay=112 (empty board, root-spawn hard drop).
+    expect(run?.outcome.moveDelay).toBe(112);
+  });
+
+  test("SetNextOption derives beamSizeLimit=47 from that delay (IL 15892; oracle 2nd search @452=47)", () => {
+    const state = defaultSearchState();
+    state.minDepth = 10;
+    searchNative(repro, {
+      searchState: state,
+      timeLimitMs: 0,
+      adapt: true,
+      feedQueue: false,
+    });
+    expect(state.timerLimitMs).toBe(107);
+    expect(state.beamSizeLimit).toBe(47);
   });
 });

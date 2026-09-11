@@ -279,6 +279,24 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     }
   }
 
+  function lockAt(rotation: number, x: number, topRow: number, lastSrs: number): boolean {
+    if (active === null || gameOver) return false;
+    const rot = ((rotation % 4) + 4) % 4;
+    const cells = cellsFor(active.kind, rot);
+    for (const c of cells) {
+      const cx = x + c.x;
+      const cy = topRow + c.y;
+      if (cx < 0 || cx >= COLS || cy >= ROWS) return false;
+      if (cy >= 0) {
+        const row = grid[cy];
+        if (row !== undefined && (row[cx] ?? 0) !== 0) return false;
+      }
+    }
+    active = { ...active, rotation: rot, x, y: topRow, lastSrs };
+    lockAndSpawn();
+    return true;
+  }
+
   function hardDropAt(rotation: number, x: number): boolean {
     if (active === null || gameOver) return false;
     const rot = ((rotation % 4) + 4) % 4;
@@ -465,6 +483,9 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     },
     hardDropAt(rotation: number, x: number): boolean {
       return hardDropAt(rotation, x);
+    },
+    placeMinoAt(rotation: number, x: number, topRow: number, lastSrs: number): boolean {
+      return lockAt(rotation, x, topRow, lastSrs);
     },
     hold(): void {
       if (active === null || gameOver || !canHold) return;
