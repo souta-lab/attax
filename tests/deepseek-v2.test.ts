@@ -78,13 +78,13 @@ describe("deepseek v2 fighter contract", () => {
     expect(fighter.name).toBe("DEEPSEEK_V2");
     const move = fighter.findBestMove(snapshot([], QUEUE));
     expect(move).not.toBeNull();
-    expect(fighter.getDebug()?.searchDepth).toBe(6);
+    expect(fighter.getDebug()?.searchDepth).toBe(7);
   });
 
   test("depth option is honoured through debug telemetry", () => {
-    const fighter = createDeepSeekV2({ depth: 7 });
+    const fighter = createDeepSeekV2({ depth: 8 });
     fighter.findBestMove(snapshot([], QUEUE));
-    expect(fighter.getDebug()?.searchDepth).toBe(7);
+    expect(fighter.getDebug()?.searchDepth).toBe(8);
   });
 
   test("reset() clears per-match state", () => {

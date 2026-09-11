@@ -112,7 +112,7 @@ const MESSY_HOLES = 6;
 const DOWNSTACK_STEP = 34;
 const TSPIN_SETUP_BONUS = 34;
 
-const DEFAULT_DEPTH = 6;
+const DEFAULT_DEPTH = 7;
 const DEFAULT_WIDTH = 24;
 const DEFAULT_TOP_K = 16;
 

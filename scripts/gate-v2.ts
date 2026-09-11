@@ -46,7 +46,7 @@ function readFlag(raw: string | undefined, fallback: boolean): boolean {
 
 function readV2Options(): DeepSeekV2Options {
   return {
-    depth: readInteger("DSV2_DEPTH", process.env.DSV2_DEPTH, 6),
+    depth: readInteger("DSV2_DEPTH", process.env.DSV2_DEPTH, 7),
     width: readInteger("DSV2_WIDTH", process.env.DSV2_WIDTH, 24),
     topK: readInteger("DSV2_TOP_K", process.env.DSV2_TOP_K, 16),
     useKicks: readFlag(process.env.DSV2_KICKS, true),
