@@ -284,12 +284,17 @@ impl Board {
         }
     }
 
-    /// `Board.GetColumnHeight` — fills `ch` and returns the garbage height.
-    ///
-    /// Mirrors `buildColumnHeight` + `GetColumnHeight` (the caller-side `-1` fill
-    /// is folded in, matching every reference call site).
+    /// `Board.GetColumnHeight` — fills `ch` with -1 first, then accumulates, and
+    /// returns the garbage height (the `buildColumnHeight` call site).
     pub fn get_column_height(&self, ch: &mut [i32; BOARD_WIDTH]) -> i32 {
         ch.fill(-1);
+        self.get_column_height_zeroed(ch)
+    }
+
+    /// `Board.GetColumnHeight` with a caller-supplied starting array — the raw
+    /// native method. The offset driver passes a zero-filled `Int32Array`, so
+    /// the result is absolute column heights (not garbage-relative).
+    pub fn get_column_height_zeroed(&self, ch: &mut [i32; BOARD_WIDTH]) -> i32 {
         let mut bit = 0i32;
         let mut min = 0i32;
         let mut y = self.stack_height;

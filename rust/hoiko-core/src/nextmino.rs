@@ -145,6 +145,12 @@ impl NextIterator {
         self.base = other.base;
         self.trust_end = other.trust_end;
     }
+
+    /// Owned clone of the shared `NextMino` (for callers that need the raw
+    /// array, e.g. `OffsetOffAI::compute_decision`).
+    pub fn snapshot(&self) -> Option<NextMino> {
+        self.source.as_ref().map(|s| s.borrow().clone())
+    }
 }
 
 impl NextSource for NextIterator {

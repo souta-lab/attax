@@ -4,6 +4,7 @@
 //! binary (`cargo test`) and only compiled to wasm for shipping. FFI is one call
 //! per move (`search`) plus zero-copy board handoff via linear memory.
 
+use hoiko_core::ffi::{run_search_ffi, HSearchInput, HSearchOutput};
 use hoiko_core::{Board, BOARD_HEIGHT, BOARD_WIDTH, log2, popcount};
 
 /// Allocate `size` bytes in linear memory for the host to write into.
@@ -36,6 +37,35 @@ pub extern "C" fn h_popcount(v: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn h_log2(bit: i32) -> i32 {
     log2(bit)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn h_search_input_size() -> usize {
+    core::mem::size_of::<HSearchInput>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn h_search_output_size() -> usize {
+    core::mem::size_of::<HSearchOutput>()
+}
+
+/// One search per move. `in_ptr`/`out_ptr` point at linear-memory blocks of
+/// `h_search_input_size()` / `h_search_output_size()` bytes laid out exactly as
+/// `hoiko_core::ffi::HSearchInput` / `HSearchOutput` (documented there).
+///
+/// Returns 1 when a first move was produced (and `out` is filled), else 0.
+///
+/// # Safety
+/// `in_ptr` must point to a valid, initialised `HSearchInput` and `out_ptr` to a
+/// writable `HSearchOutput`; neither may overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn h_search(in_ptr: *const HSearchInput, out_ptr: *mut HSearchOutput) -> i32 {
+    if in_ptr.is_null() || out_ptr.is_null() {
+        return 0;
+    }
+    let input = unsafe { &*in_ptr };
+    let out = unsafe { &mut *out_ptr };
+    run_search_ffi(input, out)
 }
 
 /// Read `BOARD_HEIGHT` row masks + `stack_height` from linear memory, write

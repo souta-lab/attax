@@ -28,6 +28,8 @@ export interface HoikoNativeOptions {
   readonly offset?: boolean | undefined;
   /** Binary `SetNextOption` beam adaptation. Default false = fixed depth-14 beam. */
   readonly adapt?: boolean | undefined;
+  /** Per-generation parent cap (binary `beamSizeLimit`; default 150). */
+  readonly beamSizeLimit?: number | undefined;
 }
 
 interface DebugState {
@@ -121,6 +123,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
   const isEvenBoard = options.isEvenBoard ?? true;
   const offsetEnabled = options.offset ?? true;
   const offsetDriver = new HoikoOffsetDriver(offsetEnabled);
+  if (options.beamSizeLimit !== undefined) state.beamSizeLimit = options.beamSizeLimit;
   let debug: DebugState | null = null;
   let lastSnapshot: GameSnapshot | null = null;
 
