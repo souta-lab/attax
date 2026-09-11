@@ -76,6 +76,28 @@ pub const DEEPSEEK_FIRE: FireWeights = FireWeights {
     ..FIRE_WEIGHTS
 };
 
+/// DeepSeek v2 weights: `{ ...DU_WEIGHTS, holes: -15, wells: -11,
+/// rowsWithHoles: -27, maxHeight: -3.8 }`.
+pub const DEEPSEEK_V2_WEIGHTS: Weights = Weights {
+    landing_height: -4.5,
+    eroded_cells: 3.4,
+    row_transitions: -3.2,
+    col_transitions: -9.35,
+    holes: -15.0,
+    wells: -11.0,
+    hole_depth: -2.0,
+    rows_with_holes: -27.0,
+    bumpiness: -1.5,
+    max_height: -3.8,
+    lines_cleared: 200.0,
+};
+
+pub const DEEPSEEK_V2_FIRE: FireWeights = FireWeights {
+    well_step: Some(7.0),
+    tslot_step: Some(42.0),
+    ..FIRE_WEIGHTS
+};
+
 pub fn score_features(f: &FeatureVector, w: &Weights) -> f64 {
     f.landing_height * w.landing_height
         + f.eroded_cells * w.eroded_cells

@@ -1,15 +1,21 @@
 use std::collections::HashSet;
 
 use crate::board::{
-    Board, COLS, ROWS, collides, compute_lock_afterstate, count_filled_rows, drop_y, is_empty,
+    Board, COLS, ROWS, collides, compute_lock_afterstate, count_filled_rows, is_empty,
 };
 use crate::deepseek_score::ds_heights;
 use crate::evaluation::{Evaluation, PlyContext};
 use crate::features::extract_features;
 use crate::pieces::{PieceKind, bottom_cells};
 use crate::scorer::fire_score;
+use crate::kick::enumerate_kick_placements;
 use crate::search::{ScoredPlacement, enumerate_scored};
 use crate::weights::{FireWeights, Weights, score_placement};
+
+/// Pluggable ply-0 placement generator (the TS v2 `placementGenerator`).
+pub trait PlacementGenerator {
+    fn generate(&self, board: &Board, kind: PieceKind, weights: &Weights) -> Vec<ScoredPlacement>;
+}
 
 pub const SETUP_GAMMA: f64 = 0.55;
 pub const SETUP_WELL_STEP: f64 = 0.0;
@@ -44,6 +50,8 @@ pub struct BeamOptions<'a> {
     pub use_hold: bool,
     pub pending: i32,
     pub evaluation: &'a dyn Evaluation,
+    pub placement_generator: Option<&'a dyn PlacementGenerator>,
+    pub use_kick: bool,
 }
 
 pub fn beam_best_move(
@@ -141,6 +149,8 @@ fn expand_with_hold(
         node.hold,
         next_piece,
         options,
+        options.use_kick,
+        ply,
     );
     for s in &scored {
         if let Some(child) = apply_placement(
@@ -165,6 +175,8 @@ fn expand_with_hold(
                     Some(held),
                     next_piece,
                     options,
+                    options.use_kick,
+                    ply,
                 );
                 for s in &scored_hold {
                     if let Some(child) = apply_placement(
@@ -189,6 +201,8 @@ fn expand_with_hold(
                         node.hold,
                         next_piece,
                         options,
+                        options.use_kick,
+                        ply,
                     );
                     for s in &scored_next {
                         if let Some(child) = apply_placement(
@@ -219,8 +233,21 @@ fn rank_with_evaluation(
     ctx_hold: Option<PieceKind>,
     next_piece: Option<PieceKind>,
     options: &BeamOptions,
+    use_kick: bool,
+    rank_ply: i32,
 ) -> Vec<ScoredPlacement> {
-    let list = enumerate_scored(&node.board, piece, options.weights);
+    let kick_here = use_kick && rank_ply == 0;
+    let list = if rank_ply == 0 {
+        if let Some(generator) = options.placement_generator {
+            generator.generate(&node.board, piece, options.weights)
+        } else if kick_here {
+            enumerate_kick_placements(&node.board, piece, options.weights)
+        } else {
+            enumerate_scored(&node.board, piece, options.weights)
+        }
+    } else {
+        enumerate_scored(&node.board, piece, options.weights)
+    };
     let mut rescored: Vec<(ScoredPlacement, f64)> = Vec::with_capacity(list.len());
     for s in list {
         let tspin = piece == PieceKind::T
@@ -263,7 +290,7 @@ fn apply_placement(
     options: &BeamOptions,
 ) -> Option<BeamNode> {
     let cells = bottom_cells(piece, s.rotation);
-    let y = drop_y(&node.board, &cells, s.x, ROWS as i32 + 4);
+    let y = s.y;
     if collides(&node.board, &cells, s.x, y) {
         return None;
     }

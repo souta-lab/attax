@@ -39,6 +39,8 @@ pub fn best_move(input: &BestMoveInput) -> Option<Move> {
             use_hold: true,
             pending: input.pending_garbage,
             evaluation: &evaluation,
+            placement_generator: None,
+            use_kick: false,
         };
         let (rotation, x, use_hold) = beam_best_move(
             input.board,
@@ -74,6 +76,8 @@ pub fn best_move(input: &BestMoveInput) -> Option<Move> {
         use_hold: true,
         pending: input.pending_garbage,
         evaluation: &evaluation,
+        placement_generator: None,
+        use_kick: false,
     };
     let (rotation, x, use_hold) = beam_best_move(
         input.board,
