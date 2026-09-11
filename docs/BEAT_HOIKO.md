@@ -86,5 +86,7 @@ result with `bun scripts/gate-v2.ts`.
 
 DeepSeek v2 is also ported to Rust (`rust/hoiko-deepseek`, `src/v2.rs` + `v2_score.rs` +
 `kick.rs` + `tspin.rs`) with a differential parity test against the TS v2 and a bench
-(`examples/bench_deepseek_v2.rs`, ~18 ms/move). The Rust port exists so future deeper or
-broader search is affordable; it makes the same decisions as the TS v2.
+(`examples/bench_deepseek_v2.rs`). It is compiled to wasm (`rust/deepseek-wasm` ->
+`src/ai/wasm/deepseek_v2.wasm`) and the app/gate run it (`src/main.ts`, `DSV2_RUST=1`).
+It makes the same decisions as the TS v2 at **2.4x** the speed (24.6 vs 58.6 ms/move),
+so future deeper/broader search is affordable.
