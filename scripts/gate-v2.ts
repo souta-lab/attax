@@ -69,6 +69,8 @@ interface SideMetrics {
   readonly holes: number;
   readonly executionSourceMismatches: number;
   readonly executionExpectedBoardFailures: number;
+  readonly thinkMs: number;
+  readonly thinkCount: number;
 }
 
 interface Row {
@@ -111,6 +113,8 @@ interface MutableMetrics {
   holes: number;
   executionSourceMismatches: number;
   executionExpectedBoardFailures: number;
+  thinkMs: number;
+  thinkCount: number;
   previousLines: number;
 }
 
@@ -123,6 +127,8 @@ function sampleSide(side: SideState, metrics: MutableMetrics): void {
   metrics.holes = Math.max(metrics.holes, countHoles(snapshot.board.grid));
   metrics.executionSourceMismatches = side.executionSourceMismatches;
   metrics.executionExpectedBoardFailures = side.executionExpectedBoardFailures;
+  metrics.thinkMs = side.thinkMs;
+  metrics.thinkCount = side.thinkCount;
   // Count clears from the engine's own native lock action (accurate for placeAt
   // T-spins, unlike the fighter debug heuristic).
   if (snapshot.lines > metrics.previousLines) {
@@ -145,6 +151,8 @@ function finishMetrics(side: SideState, metrics: MutableMetrics): SideMetrics {
     holes: metrics.holes,
     executionSourceMismatches: side.executionSourceMismatches,
     executionExpectedBoardFailures: side.executionExpectedBoardFailures,
+    thinkMs: side.thinkMs,
+    thinkCount: side.thinkCount,
   };
 }
 
@@ -182,6 +190,8 @@ function freshMetrics(): MutableMetrics {
     holes: 0,
     executionSourceMismatches: 0,
     executionExpectedBoardFailures: 0,
+    thinkMs: 0,
+    thinkCount: 0,
     previousLines: 0,
   };
 }
@@ -211,6 +221,8 @@ function sumSide(rows: readonly Row[], key: "left" | "right"): SideMetrics {
     total.holes += side.holes;
     total.executionSourceMismatches += side.executionSourceMismatches;
     total.executionExpectedBoardFailures += side.executionExpectedBoardFailures;
+    total.thinkMs += side.thinkMs;
+    total.thinkCount += side.thinkCount;
   }
   return {
     lines: total.lines,
@@ -222,6 +234,8 @@ function sumSide(rows: readonly Row[], key: "left" | "right"): SideMetrics {
     holes: total.holes,
     executionSourceMismatches: total.executionSourceMismatches,
     executionExpectedBoardFailures: total.executionExpectedBoardFailures,
+    thinkMs: total.thinkMs,
+    thinkCount: total.thinkCount,
   };
 }
 
@@ -314,6 +328,10 @@ function main(): void {
       aggregate: agg,
       fingerprint: fingerprint(rows),
       winLossCap: `${agg.leftWins}-${agg.rightWins}-${agg.draws}/${agg.caps}`,
+      avgMsPerDecision: {
+        left: agg.left.thinkCount > 0 ? agg.left.thinkMs / agg.left.thinkCount : 0,
+        right: agg.right.thinkCount > 0 ? agg.right.thinkMs / agg.right.thinkCount : 0,
+      },
     }),
   );
 }
