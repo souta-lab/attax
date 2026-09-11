@@ -1,6 +1,6 @@
 import "./style.css";
 import { createDeepSeekTetris } from "./ai/deepseek.js";
-import { createHoikoNative } from "./ai/hoiko-native.js";
+import { createRustHoiko } from "./ai/hoiko-rust.js";
 import { type BoardRenderer, createBoardOnlyRenderer } from "./ui/renderer.js";
 import type { GameSnapshot } from "./ui/types.js";
 import {
@@ -293,7 +293,7 @@ function boot(): void {
   if (root === null) throw new Error("missing #app");
   const shell = buildShell(root);
 
-  const hoiko = createHoikoNative({ weightPreset: "we" });
+  const hoiko = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
   const deepseek = createDeepSeekTetris();
   const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas);
   const renderR: BoardRenderer = createBoardOnlyRenderer(shell.sideR.canvas);

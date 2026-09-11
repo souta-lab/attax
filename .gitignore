@@ -21,6 +21,5 @@ tools/hoiko-oracle/run/
 tools/hoiko-oracle/prefix/
 tools/hoiko-oracle/ScpDriverInterface.dll
 
-# Rust / wasm build artifacts
+# Rust build artifacts (the built wasm is checked in: the app ships it)
 rust/target/
-src/ai/wasm/
