@@ -65,6 +65,7 @@ export interface BeamMove {
   readonly linesCleared: number;
   readonly fireScore: number;
   readonly isTspin: boolean;
+  readonly searchDepth: number;
   readonly execution?: AiExecutionPlan;
 }
 
@@ -198,7 +199,9 @@ export function beamBestMove(
   const weights = options.weights ?? DU_WEIGHTS;
   const fire: BeamFireWeights = { ...FIRE_WEIGHTS, ...(options.fireWeights ?? {}) };
   const width = options.width ?? DEFAULTS.width;
-  const depth = Math.min(options.depth ?? DEFAULTS.depth, queue.length);
+  // A depth-D search places the current piece plus D-1 lookahead pieces, so the
+  // clamp must allow queue.length + 1 (previous code capped at queue.length).
+  const depth = Math.min(options.depth ?? DEFAULTS.depth, queue.length + 1);
   const topK = options.topK ?? DEFAULTS.topK;
   const useHold = options.useHold ?? true;
   const evaluation =
@@ -279,6 +282,7 @@ export function beamBestMove(
             linesCleared: child.linesCleared,
             fireScore: child.fireScore,
             isTspin: child.isTspin,
+            searchDepth: PLIES,
             ...(child.firstExecution === null ? {} : { execution: child.firstExecution }),
           });
         }
@@ -324,6 +328,7 @@ export function beamBestMove(
       linesCleared: bestLeaf.linesCleared,
       fireScore: bestLeaf.fireScore,
       isTspin: bestLeaf.isTspin,
+      searchDepth: PLIES,
       ...(bestLeaf.firstExecution === null ? {} : { execution: bestLeaf.firstExecution }),
     },
     board,

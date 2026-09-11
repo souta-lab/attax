@@ -86,6 +86,7 @@ const B2B_WEAK_EXTRA = 60;
 const B2B_TSLOT_EXTRA = 50;
 const WELL_REBUILD_STEP = 22;
 const REN_CALM_KEEP = 30;
+const SEARCH_DEPTH = 6;
 
 function hasI(hold: PieceKind | null, canHold: boolean, queue: readonly PieceKind[]): boolean {
   if (hold === "I" && canHold) return true;
@@ -235,6 +236,7 @@ export function toBoard(s: GameSnapshot): Board {
 interface DeepSeekDebug {
   readonly mv: BeamMove;
   readonly thinkMs: number;
+  readonly pieces: number;
 }
 
 /**
@@ -249,6 +251,8 @@ export interface DeepSeekTetris {
   readonly name: string;
   findBestMove(snapshot: GameSnapshot): AiMove | null;
   getDebug(): AiDebug | null;
+  /** Clear per-match state (piece counter). Called by the controller on match reset. */
+  reset(): void;
 }
 
 export function createDeepSeekTetris(options: DeepSeekOptions = {}): DeepSeekTetris {
@@ -257,6 +261,10 @@ export function createDeepSeekTetris(options: DeepSeekOptions = {}): DeepSeekTet
   let pieces = 0;
   return {
     name: DEEPSEEK_NAME,
+    reset: () => {
+      last = null;
+      pieces = 0;
+    },
     findBestMove: (s) => {
       const t0 = performance.now();
       if (s.active === null || s.gameOver) return null;
@@ -264,17 +272,19 @@ export function createDeepSeekTetris(options: DeepSeekOptions = {}): DeepSeekTet
       const seen = pieces;
       const board = toBoard(s);
       const cur: PieceKind = s.active.kind;
-      const queue: readonly PieceKind[] = s.next.slice(0, 5);
+      // Depth `SEARCH_DEPTH` consumes the current piece plus `SEARCH_DEPTH - 1`
+      // lookahead pieces, so slice enough of the queue for the configured depth.
+      const queue: readonly PieceKind[] = s.next.slice(0, SEARCH_DEPTH);
       const empty = board.every((v) => v === 0);
       if (empty) {
         // Intentional: openings use default DU beam (no personality scorer/veto).
         // Cheap, diverse, and personality shaping starts once a stack exists.
         const mv0 = beamBestMove(board, cur, queue, s.hold, s.canHold, s.b2b, s.combo, {
-          depth: 6,
+          depth: SEARCH_DEPTH,
           pending: s.pendingGarbage,
         });
         if (mv0 === null) return null;
-        last = { mv: mv0, thinkMs: performance.now() - t0 };
+        last = { mv: mv0, thinkMs: performance.now() - t0, pieces: seen };
         return {
           targetX: mv0.x,
           targetRotation: mv0.rotation,
@@ -293,7 +303,7 @@ export function createDeepSeekTetris(options: DeepSeekOptions = {}): DeepSeekTet
       const mv = beamBestMove(board, cur, queue, s.hold, s.canHold, s.b2b, s.combo, {
         weights: DEEPSEEK_WEIGHTS,
         fireWeights: DEEPSEEK_FIRE,
-        depth: 6,
+        depth: SEARCH_DEPTH,
         width: 24,
         topK: 16,
         useHold: true,
@@ -305,7 +315,7 @@ export function createDeepSeekTetris(options: DeepSeekOptions = {}): DeepSeekTet
         }),
       });
       if (mv === null) return null;
-      last = { mv, thinkMs: performance.now() - t0 };
+      last = { mv, thinkMs: performance.now() - t0, pieces: seen };
       return {
         targetX: mv.x,
         targetRotation: mv.rotation,
@@ -325,6 +335,8 @@ export function createDeepSeekTetris(options: DeepSeekOptions = {}): DeepSeekTet
         topHoles: dsCountHoles(last.mv.after, h),
         topMaxHeight: h.reduce((m, v) => (v > m ? v : m), 0),
         thinkMs: last.thinkMs,
+        pieceIndex: last.pieces,
+        searchDepth: last.mv.searchDepth,
       };
     },
   };

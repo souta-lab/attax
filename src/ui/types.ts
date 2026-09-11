@@ -127,6 +127,10 @@ export interface AiDebug {
   readonly topHoles: number;
   readonly topMaxHeight: number;
   readonly thinkMs: number;
+  /** DeepSeek piece counter (1-based AI call index within the current match). */
+  readonly pieceIndex?: number | undefined;
+  /** Actual number of plies the beam search ran (clamped by available lookahead). */
+  readonly searchDepth?: number | undefined;
 }
 
 export interface AiPort {
