@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["hoiko-core", "hoiko-wasm"]
+members = ["hoiko-core", "hoiko-wasm", "hoiko-deepseek"]
 
 [profile.release]
 opt-level = 3
