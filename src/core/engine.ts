@@ -73,6 +73,8 @@ interface SpawnState {
 
 export interface EngineOptions {
   readonly random?: () => number;
+  /** Locks a pending garbage chunk waits before spawning (default GARBAGE_DELAY). */
+  readonly garbageDelay?: number | undefined;
 }
 
 function shuffledBag(rand: () => number): PieceKind[] {
@@ -524,7 +526,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     },
     receiveGarbage(rows: number): void {
       if (gameOver || rows <= 0) return;
-      pushIncoming(pending, rows);
+      pushIncoming(pending, rows, options.garbageDelay);
     },
     setGarbageWait(wait: boolean): void {
       waitGarbage = wait;

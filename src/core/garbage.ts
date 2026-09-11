@@ -68,14 +68,14 @@ export interface PendingChunk {
 
 export const GARBAGE_DELAY = 1;
 
-export function pushIncoming(queue: PendingChunk[], rows: number): void {
+export function pushIncoming(queue: PendingChunk[], rows: number, delay = GARBAGE_DELAY): void {
   if (rows <= 0) return;
   const last = queue[queue.length - 1];
   if (last !== undefined && last.timer > 0) {
     last.rows += rows;
     return;
   }
-  queue.push({ rows, timer: GARBAGE_DELAY });
+  queue.push({ rows, timer: delay });
 }
 
 export function pendingTotal(queue: readonly PendingChunk[]): number {
