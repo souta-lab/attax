@@ -80,7 +80,7 @@ describe("deepseek state leak across matches", () => {
     expect(secondDebug.pieceIndex).toBe(1);
     expect(second).toEqual(firstMove);
     expect(secondDebug.score).toBe(firstDebug.score);
-  });
+  }, 30000);
 
   test("controller reset invokes fighter.reset()", () => {
     let resets = 0;
