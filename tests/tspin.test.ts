@@ -2,29 +2,70 @@ import { describe, expect, test } from "bun:test";
 import { createBoard } from "../src/core/board.js";
 import { classifyTspin } from "../src/core/tspin.js";
 
-const T_CELLS = [
-  { x: 1, y: 0 },
-  { x: 0, y: 1 },
-  { x: 1, y: 1 },
-  { x: 2, y: 1 },
+const PX = 3;
+const NY = 6;
+
+// Bottom-up corners of the T's 3x3 box: [BL, BR, TR, TL].
+const CORNERS = [
+  { x: PX, y: NY },
+  { x: PX + 2, y: NY },
+  { x: PX + 2, y: NY - 2 },
+  { x: PX, y: NY - 2 },
 ] as const;
 
-function boardWithCorners(corners: readonly number[]): Uint16Array {
+const T_CELLS = [{ x: 1, y: 0 }] as const;
+
+function boardWithCorners(indices: readonly number[]): Uint16Array {
   const board = createBoard(20);
-  for (const x of corners) board[1] = (board[1] ?? 0) | (1 << x);
+  for (const index of indices) {
+    const corner = CORNERS[index];
+    if (corner === undefined) continue;
+    board[corner.y] = (board[corner.y] ?? 0) | (1 << corner.x);
+  }
   return board;
+}
+
+function classify(indices: readonly number[], rotation: number, lastSrs: number) {
+  return classifyTspin(boardWithCorners(indices), T_CELLS, PX, NY, rotation, lastSrs);
 }
 
 describe("T-spin classification", () => {
   test("requires a nonzero SRS result", () => {
-    expect(classifyTspin(boardWithCorners([0]), T_CELLS, 0, 0, 0, 0)).toBe("none");
+    expect(classify([0, 2, 3], 0, 0)).toBe("none");
   });
 
-  test("classifies three corners as mini when adjacent corners differ", () => {
-    expect(classifyTspin(boardWithCorners([0]), T_CELLS, 0, 0, 0, 1)).toBe("mini");
+  test("none when fewer than three corners are occupied", () => {
+    expect(classify([0, 2], 0, 1)).toBe("none");
   });
 
-  test("classifies matching adjacent corners as full", () => {
-    expect(classifyTspin(boardWithCorners([0, 2]), T_CELLS, 0, 0, 0, 5)).toBe("full");
+  test("full when matching front corners face up (rot0)", () => {
+    expect(classify([0, 2, 3], 0, 1)).toBe("full");
+  });
+
+  test("full when matching front corners face down (rot2)", () => {
+    expect(classify([0, 1, 2], 2, 1)).toBe("full");
+  });
+
+  test("full for matching front corners on rot1 and rot3", () => {
+    expect(classify([0, 1, 2], 1, 1)).toBe("full");
+    expect(classify([0, 2, 3], 3, 1)).toBe("full");
+  });
+
+  test("mini when front corners differ while facing up (rot0)", () => {
+    expect(classify([0, 1, 2], 0, 1)).toBe("mini");
+  });
+
+  test("mini when front corners differ while facing down (rot2)", () => {
+    expect(classify([0, 2, 3], 2, 1)).toBe("mini");
+  });
+
+  test("mini when front corners differ on rot1 and rot3", () => {
+    expect(classify([0, 2, 3], 1, 1)).toBe("mini");
+    expect(classify([0, 1, 2], 3, 1)).toBe("mini");
+  });
+
+  test("the last SRS kick promotes a differing front pair to full (TST)", () => {
+    expect(classify([0, 1, 2], 0, 5)).toBe("full");
+    expect(classify([0, 2, 3], 2, 5)).toBe("full");
   });
 });
