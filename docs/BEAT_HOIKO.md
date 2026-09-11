@@ -63,3 +63,15 @@ PPT garbage changes hole column within an attack ~30% of the time.
 `bun scripts/hoiko-gate.ts` — 32 fixed seeds, DeepSeek (left) vs Rust Hoiko (right),
 `TICK_MS=16`, `MAX_TICKS=12000`, JSONL `HOIKO-match` / `HOIKO-summary`. This is the
 scoreboard; a change is only "an improvement" if it raises the win count here.
+
+## Results (verified)
+
+| Fighter | Gate | Result |
+|---|---|---|
+| DeepSeek v1 | 32 seeds, Hoiko `we` beam500 | **23-9-0/0**, 1534 vs 1261 lines |
+| DeepSeek v2 | 32 seeds, Hoiko `we` beam500 | **32-0-0/0**, 0 execution mismatches, 1075 vs 254 lines |
+| DeepSeek v2 | presets `wo`/`wd` (6 seeds) | 6-0, 6-0 |
+| DeepSeek v2 | presets `wr`/`ultra2`/`sprint` (4 seeds) | 4-0, 4-0, 4-0 |
+
+DeepSeek v2 is wired as the app's versus fighter (`src/main.ts`). Reproduce the main
+result with `bun scripts/gate-v2.ts`.
