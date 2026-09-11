@@ -1,5 +1,5 @@
 import "./style.css";
-import { createDeepSeekV2 } from "./ai/deepseek-v2.js";
+import { createDeepSeekV2, type DeepSeekV2 } from "./ai/deepseek-v2.js";
 import { createRustHoiko } from "./ai/hoiko-rust.js";
 import { type BoardRenderer, createBoardOnlyRenderer } from "./ui/renderer.js";
 import { COLS, type GameSnapshot, ROWS } from "./ui/types.js";
@@ -408,13 +408,23 @@ function nextSeed(): number {
   return (Date.now() ^ (Math.random() * 1e9)) | 0;
 }
 
-function boot(): void {
+async function createDeepSeekFighter(): Promise<DeepSeekV2> {
+  try {
+    const { createRustDeepSeekV2 } = await import("./ai/deepseek-rust.js");
+    return createRustDeepSeekV2();
+  } catch (error) {
+    console.warn("[main] Rust DeepSeek wasm unavailable; falling back to TS v2", error);
+    return createDeepSeekV2();
+  }
+}
+
+async function boot(): Promise<void> {
   const root = document.getElementById("app");
   if (root === null) throw new Error("missing #app");
   const shell = buildShell(root);
 
   const hoiko = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
-  const deepseek = createDeepSeekV2();
+  const deepseek = await createDeepSeekFighter();
   const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas, {
     holdCanvas: shell.sideL.holdCanvas,
     nextCanvas: shell.sideL.nextCanvas,

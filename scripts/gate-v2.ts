@@ -2,7 +2,7 @@
 // fixed 32-seed corpus. Mirror of scripts/hoiko-gate.ts, but selects the v2
 // fighter and allows ablation knobs via env:
 //   DSV2_DEPTH, DSV2_WIDTH, DSV2_TOP_K, DSV2_KICKS=0|1,
-//   DSV2_OPPONENT=0|1, DSV2_GARBAGE=0|1, DSV2_DOWNSTACK=0|1
+//   DSV2_OPPONENT=0|1, DSV2_GARBAGE=0|1, DSV2_DOWNSTACK=0|1, DSV2_RUST=0|1
 // Emits JSONL records via stdout (HOIKO-config / HOIKO-match / HOIKO-summary).
 import { createDeepSeekV2, type DeepSeekV2Options } from "../src/ai/deepseek-v2.js";
 import type { HoikoPreset } from "../src/ai/hoiko-weights.js";
@@ -13,6 +13,7 @@ import {
   VERSUS_DEFAULTS,
   type VersusFighter,
 } from "../src/versus/controller.js";
+import { createRustDeepSeekV2 } from "../tools/deepseek-rust/loader.js";
 import { createRustHoiko } from "../tools/hoiko-rust/loader.js";
 
 const FIXED_SEEDS = [
@@ -43,6 +44,8 @@ function readFlag(raw: string | undefined, fallback: boolean): boolean {
   if (raw === undefined || raw.trim() === "") return fallback;
   return raw !== "0";
 }
+
+const USE_RUST = readFlag(process.env.DSV2_RUST, false);
 
 function readV2Options(): DeepSeekV2Options {
   return {
@@ -249,7 +252,8 @@ function fingerprint(rows: readonly Row[]): string {
 }
 
 function makeOurFighter(v2: DeepSeekV2Options): VersusFighter {
-  return { ...createDeepSeekV2(v2), color: "#3aa0ff" };
+  const core = USE_RUST ? createRustDeepSeekV2(v2) : createDeepSeekV2(v2);
+  return { ...core, color: "#3aa0ff" };
 }
 
 function main(): void {
@@ -279,6 +283,7 @@ function main(): void {
       seeds,
       maxTicks: MAX_TICKS,
       tickMs: TICK_MS,
+      engine: USE_RUST ? "rust-wasm" : "ts",
       v2,
       hoiko: { width: 50, depth: 10, topK: 50, useHold: true, useKick: true },
     }),
@@ -305,6 +310,7 @@ function main(): void {
       seeds,
       maxTicks: MAX_TICKS,
       v2,
+      engine: USE_RUST ? "rust-wasm" : "ts",
       aggregate: agg,
       fingerprint: fingerprint(rows),
       winLossCap: `${agg.leftWins}-${agg.rightWins}-${agg.draws}/${agg.caps}`,
