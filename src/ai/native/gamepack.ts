@@ -73,6 +73,7 @@ export function totaling(others: Others, mino: FallMino, bd: Board, cleared: num
 
 export class GamePack {
   readonly nextIt = new NextIterator();
+  next: NextMino | null = null;
   readonly hold = new HoldMino();
   fallingMino = new FallMino();
   lockedMino = new FallMino();
@@ -96,11 +97,13 @@ export class GamePack {
   }
 
   setNewCurrent(next: NextMino): void {
+    this.next = next;
     this.nextIt.setSource(next);
     this.fallingMino.spawn(this.nextIt.get(), this.board);
   }
 
   advanceMino(next: NextMino): void {
+    this.next = next;
     this.nextIt.setSource(next);
     this.fallingMino.spawn(this.nextIt.get(), this.board);
   }

@@ -12,6 +12,7 @@ import { ROWS } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
 import type { PieceKind } from "../core/pieces.js";
 import { HOIKO_DEFAULT_PRESET, type HoikoPreset, type HoikoWeights } from "./hoiko-weights.js";
+import { HoikoOffsetDriver } from "./hoiko-offset-driver.js";
 import { searchNative, type NativeInput, type SearchState } from "./native/index.js";
 import { defaultSearchState } from "./native/search.js";
 
@@ -22,6 +23,9 @@ export interface HoikoNativeOptions {
   readonly weights?: readonly HoikoWeights[] | undefined;
   readonly timeLimitMs?: number | undefined;
   readonly viewNext?: number | undefined;
+  readonly isEvenBoard?: boolean | undefined;
+  /** OffsetOffAI garbage management (binary enables it for a real VS match). */
+  readonly offset?: boolean | undefined;
 }
 
 interface DebugState {
@@ -112,6 +116,9 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
   const weightPreset = options.weightPreset ?? HOIKO_DEFAULT_PRESET;
   const timeLimitMs = options.timeLimitMs;
   const viewNext = options.viewNext;
+  const isEvenBoard = options.isEvenBoard ?? true;
+  const offsetEnabled = options.offset ?? true;
+  const offsetDriver = new HoikoOffsetDriver(offsetEnabled);
   let debug: DebugState | null = null;
   let lastSnapshot: GameSnapshot | null = null;
 
@@ -122,6 +129,8 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
       const t0 = performance.now();
       const active = s.active;
       if (active === null || s.gameOver) return null;
+      offsetDriver.sync(s, t0);
+
       const input = toNativeInput(s);
       if (input === null) return null;
       const run = searchNative(input, {
@@ -130,6 +139,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         ...(weightList === undefined ? { weightPreset } : {}),
         ...(timeLimitMs === undefined ? {} : { timeLimitMs }),
         ...(viewNext === undefined ? {} : { viewNext }),
+        isEvenBoard,
         allowHold: s.canHold,
         adapt: true,
       });
@@ -138,8 +148,23 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
       const rotation = ((o.firstR % 4) + 4) % 4;
       debug = { score: o.score, depth: o.depth, nodes: o.node, thinkMs: performance.now() - t0 };
       lastSnapshot = s;
+
+      const garbageWait = offsetDriver.decide(
+        {
+          planActs: o.planActs,
+          depth: o.depth,
+          hold: run.root.hold.m,
+          next: run.root.next,
+          btb: s.nativeBtb,
+          isEvenBoard,
+          board: run.root.board,
+          pendingGarbage: s.pendingGarbage,
+        },
+        performance.now(),
+      );
+
       if (o.firstHold) {
-        return { targetX: o.firstX, targetRotation: rotation, useHold: true };
+        return { targetX: o.firstX, targetRotation: rotation, useHold: true, garbageWait };
       }
       const landing = o.firstPlacement;
       const moveSteps = cosmeticSteps(active.rotation, active.posX, rotation, o.firstX);
@@ -154,6 +179,7 @@ export function createHoikoNative(options: HoikoNativeOptions = {}): VersusFight
         targetX: o.firstX,
         targetRotation: rotation,
         useHold: false,
+        garbageWait,
         execution: {
           targetX: o.firstX,
           targetRotation: rotation,

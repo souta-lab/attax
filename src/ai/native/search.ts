@@ -55,6 +55,8 @@ interface NodeState {
   firstMoveDelay: number;
   firstY: number;
   firstLastSrs: number;
+  /** Path clear acts from gen-1 to this node (binary WriteResult plans.act[0..]). */
+  acts: readonly ClearAct[];
 }
 
 export interface SearchOutcome {
@@ -63,6 +65,7 @@ export interface SearchOutcome {
   readonly firstM: number;
   readonly firstHold: boolean;
   readonly firstAct: ClearAct;
+  readonly planActs: readonly ClearAct[];
   readonly score: number;
   readonly depth: number;
   readonly node: number;
@@ -92,6 +95,7 @@ function makeNode(child: ExpandedChild, parent: NodeState | null, genOne: boolea
       genOne || parent === null ? child.game.commands.moveDelay : parent.firstMoveDelay,
     firstY: genOne || parent === null ? lm.y : parent.firstY,
     firstLastSrs: genOne || parent === null ? lm.lastSrs : parent.firstLastSrs,
+    acts: genOne || parent === null ? [child.act] : [...parent.acts, child.act],
   };
 }
 
@@ -173,6 +177,7 @@ export function runSearch(
     firstM: best.firstM,
     firstHold: best.firstHold,
     firstAct: best.firstAct,
+    planActs: best.acts,
     score: best.score,
     depth,
     node: total,

@@ -147,6 +147,8 @@ export function nativeBestMove(
 
 export { defaultSearchState, setNextOption } from "./search.js";
 export type { SearchState, SearchOutcome } from "./search.js";
+export { OffsetOffAI } from "./offset.js";
+export type { OffsetData, GarbageData } from "./offset.js";
 export { GamePack } from "./gamepack.js";
 export { Board, popCount, log2, FULL_ROW } from "./board.js";
 export { FallMino, Command, HoldMino } from "./mino.js";
