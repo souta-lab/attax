@@ -77,5 +77,8 @@ Held-out robustness: v2 beat Hoiko **16-0** (541 vs 128 lines, 0 mismatches) on 
 seeds that are **not** in the tuning/gate corpus, confirming the result is not
 overfit to the 32 fixed seeds.
 
+Beam robustness: v2 beat Hoiko at **beam 1500** (3x the default) **12-0** (422 vs 101
+lines). The gate accepts `HOIKO_BEAM` to sweep this.
+
 DeepSeek v2 is wired as the app's versus fighter (`src/main.ts`). Reproduce the main
 result with `bun scripts/gate-v2.ts`.

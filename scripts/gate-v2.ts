@@ -284,12 +284,13 @@ function main(): void {
     }),
   );
 
+  const beam = readInteger("HOIKO_BEAM", process.env.HOIKO_BEAM, 500);
   const rows: Row[] = [];
   for (const seed of seeds) {
     const row = runMatch(
       seed,
       makeOurFighter(v2),
-      createRustHoiko({ weightPreset: preset, beamSizeLimit: 500 }),
+      createRustHoiko({ weightPreset: preset, beamSizeLimit: beam }),
     );
     rows.push(row);
     console.log(JSON.stringify({ type: "HOIKO-match", preset, ours, ...row }));
