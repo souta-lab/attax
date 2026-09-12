@@ -7,24 +7,15 @@ import { resolveVersusConfig } from "./versus/config.js";
 import {
   createVersusController,
   type SideState,
-  VERSUS_DEFAULTS,
   type VersusController,
-  type VersusControllerOptions,
   type VersusResult,
 } from "./versus/controller.js";
+import { isSpeed, SPEEDS, type SpeedMultiplier, speedOptions } from "./versus/speed.js";
 
-/** Spectator speed multipliers; 1x is the calibrated default. */
-const SPEEDS = [0.5, 1, 2, 4] as const;
 const MAX_LOG_ROWS = 6;
 const GARBAGE_METER_MAX = 12;
 const NEXT_PREVIEW_COUNT = 5;
 const DEEPSEEK_COLOR = "#38bdf8";
-
-type SpeedMultiplier = (typeof SPEEDS)[number];
-
-function isSpeed(value: number): value is SpeedMultiplier {
-  return (SPEEDS as readonly number[]).includes(value);
-}
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -394,15 +385,6 @@ function renderLog(list: HTMLElement, rows: readonly BattleRow[]): void {
     );
     list.append(node);
   }
-}
-
-/** 1x is the untouched default; other speeds scale both AI step and gravity intervals. */
-function speedOptions(multiplier: number): VersusControllerOptions {
-  return {
-    ...VERSUS_DEFAULTS,
-    stepIntervalMs: VERSUS_DEFAULTS.stepIntervalMs / multiplier,
-    gravityMs: VERSUS_DEFAULTS.gravityMs / multiplier,
-  };
 }
 
 function nextSeed(): number {

@@ -363,4 +363,7 @@ function main(): void {
   );
 }
 
-main();
+// Run only when executed as the gate entrypoint; importable by parity tests/tools.
+if (import.meta.main) main();
+
+export { FIXED_SEEDS, makeOurFighter, readPreset, readV2Options };
