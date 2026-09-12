@@ -156,6 +156,32 @@ wall-clock/machine dependent (on this machine it reproduced: two 4-seed probes a
 re-run agreed). The wasm engine also cannot model the binary's ~107 ms early-abort, so the
 adaptive path is not oracle-verified (`tools/hoiko-oracle/diff/REPORT.md` §6).
 
+## End-to-end exe equivalence (the real fidelity proof)
+
+Two faithful-but-wrong behaviors made the replica pick different moves than the shipping
+exe in long games, so the earlier first-move oracle checks were not enough:
+
+1. **Beam-cutoff tie-breaking** — `run_search` used `select_nth_unstable_by` + a
+   score-desc/index-asc sort, while the binary uses MSVC `std::partial_sort` (score-only).
+   Ported the exact heap permutation (`std_partial_sort`, from the IL-transcribed
+   `probe_trace` reference).
+2. **`Board::is_tspin` mini classification** — the mino's own row was read only when
+   `y - 2 >= 0`, so T-spins near the floor were read as plain singles (wrong `act`/`btb`/
+   score). Now read unconditionally, per `SPEC_CalcAtk_IsTspin`.
+
+Verified with the exe-driven solo differential (`tools/hoiko-oracle/diff/fullgame.ts`):
+seed 1 **500/500** moves, seed 2 **200/200**, seed 7 **200/200**, zero divergences; the
+turn-196 search arena matches the exe byte-for-byte for all 13 generations. Raw evidence:
+`evidence/hoiko-fullgame/`.
+
+| Gate (32 seeds, faithful opponent) | DeepSeek v2 | Hoiko |
+|---|---|---|
+| `HOIKO_ADAPT=1` (binary adaptation) | **24-8** | 8 |
+| `HOIKO_ADAPT=0` (fixed beam 150) | **26-6** | 6 |
+
+The earlier 32-0/80-0 were an APM artifact of the unfair step model (#24); the
+intermediate 21-11/25-7/27-5 were measured before the replica was exe-equivalent.
+
 ## Strength vs search budget (fresh seeds)
 
 `bun scripts/strength-sweep.ts` runs v2 (Rust wasm) against Rust Hoiko over a fixed
