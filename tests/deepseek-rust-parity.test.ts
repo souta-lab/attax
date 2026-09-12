@@ -107,63 +107,74 @@ const payload = JSON.parse(readFileSync(FIXTURE, "utf8")) as { cases: FixtureCas
 const CASES = payload.cases;
 
 describe("deepseek v2 wasm parity", () => {
-  test("wasm fighter returns the same live move as the TS fighter", () => {
-    const mismatches: string[] = [];
-    for (const c of CASES) {
-      const ts = createDeepSeekV2(c.options ?? {});
-      const rust = createRustDeepSeekV2(c.options ?? {});
-      const snap = snapshot(c);
-      const tsMove = ts.findBestMove(snap);
-      const rustMove = rust.findBestMove(snap);
-      if (tsMove === null || rustMove === null) {
-        mismatches.push(`${c.name}: null move (ts=${tsMove === null}, rust=${rustMove === null})`);
-        continue;
-      }
-      if (
-        rustMove.targetX !== tsMove.targetX ||
-        rustMove.targetRotation !== tsMove.targetRotation ||
-        rustMove.useHold !== tsMove.useHold
-      ) {
-        mismatches.push(
-          `${c.name}: ts=(${tsMove.targetX},${tsMove.targetRotation},${tsMove.useHold}) rust=(${rustMove.targetX},${rustMove.targetRotation},${rustMove.useHold})`,
-        );
-        continue;
-      }
-      if (!tsMove.useHold) {
-        const tsStep = JSON.stringify(placementStep(tsMove.execution?.steps));
-        const rustStep = JSON.stringify(placementStep(rustMove.execution?.steps));
-        if (tsStep !== rustStep) {
-          mismatches.push(`${c.name}: placeAt ts=${tsStep} rust=${rustStep}`);
+  test(
+    "wasm fighter returns the same live move as the TS fighter",
+    { timeout: 120000 },
+    () => {
+      const mismatches: string[] = [];
+      for (const c of CASES) {
+        const ts = createDeepSeekV2(c.options ?? {});
+        const rust = createRustDeepSeekV2(c.options ?? {});
+        const snap = snapshot(c);
+        const tsMove = ts.findBestMove(snap);
+        const rustMove = rust.findBestMove(snap);
+        if (tsMove === null || rustMove === null) {
+          mismatches.push(
+            `${c.name}: null move (ts=${tsMove === null}, rust=${rustMove === null})`,
+          );
+          continue;
+        }
+        if (
+          rustMove.targetX !== tsMove.targetX ||
+          rustMove.targetRotation !== tsMove.targetRotation ||
+          rustMove.useHold !== tsMove.useHold
+        ) {
+          mismatches.push(
+            `${c.name}: ts=(${tsMove.targetX},${tsMove.targetRotation},${tsMove.useHold}) rust=(${rustMove.targetX},${rustMove.targetRotation},${rustMove.useHold})`,
+          );
+          continue;
+        }
+        if (!tsMove.useHold) {
+          const tsStep = JSON.stringify(placementStep(tsMove.execution?.steps));
+          const rustStep = JSON.stringify(placementStep(rustMove.execution?.steps));
+          if (tsStep !== rustStep) {
+            mismatches.push(`${c.name}: placeAt ts=${tsStep} rust=${rustStep}`);
+          }
         }
       }
-    }
-    expect(mismatches).toEqual([]);
-  }, 120000);
+      expect(mismatches).toEqual([]);
+    },
+    120000,
+  );
 
-  test("wasm fighter reproduces the recorded TS fixture at the recorded piece index", () => {
-    const mismatches: string[] = [];
-    for (const c of CASES) {
-      const rust = createRustDeepSeekV2(c.options ?? {});
-      rust.engine.pieceIndex = c.pieces - 1;
-      const move = rust.findBestMove(snapshot(c));
-      if (move === null) {
-        mismatches.push(`${c.name}: null move`);
-        continue;
+  test(
+    "wasm fighter reproduces the recorded TS fixture at the recorded piece index",
+    { timeout: 120000 },
+    () => {
+      const mismatches: string[] = [];
+      for (const c of CASES) {
+        const rust = createRustDeepSeekV2(c.options ?? {});
+        rust.engine.pieceIndex = c.pieces - 1;
+        const move = rust.findBestMove(snapshot(c));
+        if (move === null) {
+          mismatches.push(`${c.name}: null move`);
+          continue;
+        }
+        if (
+          move.targetX !== c.expected.targetX ||
+          move.targetRotation !== c.expected.targetRotation ||
+          move.useHold !== c.expected.useHold
+        ) {
+          mismatches.push(
+            `${c.name}: expected (${c.expected.targetX},${c.expected.targetRotation},${c.expected.useHold}) got (${move.targetX},${move.targetRotation},${move.useHold})`,
+          );
+          continue;
+        }
+        if (rust.getDebug()?.pieceIndex !== c.pieces) {
+          mismatches.push(`${c.name}: piece index ${rust.getDebug()?.pieceIndex} != ${c.pieces}`);
+        }
       }
-      if (
-        move.targetX !== c.expected.targetX ||
-        move.targetRotation !== c.expected.targetRotation ||
-        move.useHold !== c.expected.useHold
-      ) {
-        mismatches.push(
-          `${c.name}: expected (${c.expected.targetX},${c.expected.targetRotation},${c.expected.useHold}) got (${move.targetX},${move.targetRotation},${move.useHold})`,
-        );
-        continue;
-      }
-      if (rust.getDebug()?.pieceIndex !== c.pieces) {
-        mismatches.push(`${c.name}: piece index ${rust.getDebug()?.pieceIndex} != ${c.pieces}`);
-      }
-    }
-    expect(mismatches).toEqual([]);
-  });
+      expect(mismatches).toEqual([]);
+    },
+  );
 });

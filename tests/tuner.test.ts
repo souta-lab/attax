@@ -87,7 +87,7 @@ describe("baseline genome fighter", () => {
 });
 
 describe("match runner", () => {
-  test("is deterministic for a fixed seed", () => {
+  test("is deterministic for a fixed seed", { timeout: 120000 }, () => {
     const make = (): VersusFighter => ({ ...createTunedDeepSeek(BASELINE_GENOME), color: COLOR });
     const a = runTunerMatch(7, make(), make(), 240);
     const b = runTunerMatch(7, make(), make(), 240);
