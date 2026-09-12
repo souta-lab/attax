@@ -31,7 +31,9 @@ the binary's ~101 ms/move on speed. What remains:
 A prior "DeepSeek beats Hoiko 7-0-1" result was **not evidence**: that Hoiko was broken
 (no OffsetAI, 4x-slow depth cutoff). It measured the port's defects, not DeepSeek's
 strength. Now that the faithful Hoiko is oracle-verified, the measured baseline is
-DeepSeek v1 **23-9**, and DeepSeek v2 **32-0** on the fixed 32-seed gate.
+DeepSeek v1 **23-9** (pre-fix), and DeepSeek v2 **32-0** on the fixed 32-seed gate — a
+number later invalidated by a harness fairness bug (#24). Under the fair step model the
+honest result is **21-11** (`evidence/fair-harness/`, `docs/BEAT_HOIKO.md`).
 
 ## Ordered plan
 
@@ -42,12 +44,18 @@ DeepSeek v1 **23-9**, and DeepSeek v2 **32-0** on the fixed 32-seed gate.
 4. ~~Honest re-baseline (headless)~~ — done: on the fixed 32-seed gate vs the faithful
    Hoiko (beam 500), DeepSeek v1 won **23-9**.
 5. ~~Strengthen DeepSeek~~ — done: **DeepSeek v2** (SRS kicks/tucks, incoming-garbage
-   defense, opponent-aware attack timing, downstack/burst selection, deeper beam) wins
-   **32-0-0/0** with 0 execution mismatches, and is now the app's versus fighter.
-   See `docs/BEAT_HOIKO.md` and `src/ai/deepseek-v2.ts`.
+   defense, opponent-aware attack timing, downstack/burst selection, deeper beam) is now
+   the app's versus fighter. Under the **fair** step model (#24) it wins **21-11** on the
+   32-seed gate (and 21-11 at Hoiko beam 1500), 0 execution mismatches.
+   See `docs/BEAT_HOIKO.md`, `evidence/fair-harness/`, `src/ai/deepseek-v2.ts`.
 
 ## Next
 
+- **Fair-harness re-baseline of the held-out corpora**: the 16-0/64-0/80-0 fresh-seed
+  claims are pre-#24 (unfair step model); re-measure them with `bun scripts/gate-v2.ts`.
+- **Higher-fidelity Hoiko**: model the binary's in-match adaptive beam (`SetNextOption`)
+  and its ~107 ms wall-clock budget; oracle-diff at high beam (500/1500) and preset `we`
+  beyond the 9 synthetic positions (`tools/hoiko-oracle/diff/REPORT.md` §6).
 - Wider robustness testing: Hoiko across all weight presets (`we/wo/wd/wr/ultra2/sprint`),
   longer corpora, and non-aligned garbage, to confirm the margin is not configuration-specific.
 - Versus self-play weight tuning on top of v2 (`overnight/tuner` harness).

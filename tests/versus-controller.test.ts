@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type CellValue, COLS, type CorePort, type GameSnapshot, ROWS } from "../src/ui/types.js";
 import {
+  type AiStep,
   boardFingerprint,
   type SideState,
   tickVersus,
@@ -11,6 +12,7 @@ import {
 
 interface Counter {
   steps: number;
+  locks: number;
   gravity: number;
 }
 
@@ -80,6 +82,12 @@ function makeCore(
     },
     hardDrop: () => {
       counter.steps += 1;
+      counter.locks += 1;
+    },
+    placeMinoAt: () => {
+      counter.steps += 1;
+      counter.locks += 1;
+      return true;
     },
     hold: () => {
       counter.steps += 1;
@@ -104,6 +112,42 @@ const longMoveFighter: VersusFighter = {
   findBestMove: (snapshot) =>
     snapshot.active === null ? null : { targetX: 5000, targetRotation: 0, useHold: false },
 };
+
+const immediateDropFighter: VersusFighter = {
+  name: "immediate-drop",
+  color: "#000",
+  findBestMove: (snapshot) =>
+    snapshot.active === null ? null : { targetX: 0, targetRotation: 0, useHold: false },
+};
+
+function executionPlanFighter(prefix: readonly AiStep[]): VersusFighter {
+  return {
+    name: `execution-plan-${prefix.length}`,
+    color: "#000",
+    findBestMove: (snapshot) => {
+      if (snapshot.active === null) return null;
+      const terminal: AiStep = { kind: "placeAt", rotation: 0, x: 0, topRow: 0, lastSrs: 0 };
+      return {
+        targetX: 0,
+        targetRotation: 0,
+        useHold: false,
+        execution: {
+          targetX: 0,
+          targetRotation: 0,
+          steps: [...prefix, terminal],
+          expectedBoard: [],
+          expectedLinesCleared: 0,
+          sourceActiveKind: snapshot.active.kind,
+          sourceRotation: snapshot.active.rotation,
+          sourceX: snapshot.active.posX,
+          sourceBoardFingerprint: boardFingerprint(snapshot),
+          sourceHold: snapshot.hold,
+          sourceCanHold: snapshot.canHold,
+        },
+      };
+    },
+  };
+}
 
 function makeSide(
   side: "left" | "right",
@@ -150,17 +194,17 @@ function makeController(left: SideState, right: SideState): VersusController {
   return ctrl;
 }
 
-function runAiSteps(dts: readonly number[]): number {
-  const counter: Counter = { steps: 0, gravity: 0 };
-  const left = makeSide("left", makeCore(counter, true), longMoveFighter);
-  const right = makeSide("right", makeCore(counter, true), longMoveFighter);
+function runLocks(dts: readonly number[]): number {
+  const counter: Counter = { steps: 0, locks: 0, gravity: 0 };
+  const left = makeSide("left", makeCore(counter, true), immediateDropFighter);
+  const right = makeSide("right", makeCore(counter, true), immediateDropFighter);
   const ctrl = makeController(left, right);
   for (const dt of dts) tickVersus(ctrl, dt, OPTIONS);
-  return counter.steps;
+  return counter.locks;
 }
 
 function runGravityDrops(dts: readonly number[]): number {
-  const counter: Counter = { steps: 0, gravity: 0 };
+  const counter: Counter = { steps: 0, locks: 0, gravity: 0 };
   const left = makeSide("left", makeCore(counter, false), idleFighter, { pendingThink: false });
   const right = makeSide("right", makeCore(counter, false), idleFighter, { pendingThink: false });
   const ctrl = makeController(left, right);
@@ -183,15 +227,15 @@ function irregularDts(total: number): number[] {
 }
 
 describe("versus controller accumulator", () => {
-  test("irregular dt applies the same AI step count as uniform small ticks", () => {
+  test("irregular dt locks the same number of pieces as uniform small ticks", () => {
     const total = 2530;
     const irregular = irregularDts(total);
     const irregularTotal = irregular.reduce((sum, dt) => sum + dt, 0);
     const uniform = new Array<number>(irregularTotal).fill(1);
 
     expect(irregularTotal).toBe(total);
-    expect(runAiSteps(irregular)).toBe(runAiSteps(uniform));
-    expect(runAiSteps(irregular)).toBe(2 * Math.floor(total / OPTIONS.stepIntervalMs));
+    expect(runLocks(irregular)).toBe(runLocks(uniform));
+    expect(runLocks(irregular)).toBe(2 * Math.floor(total / OPTIONS.stepIntervalMs));
   });
 
   test("irregular dt drops gravity the same number of times as uniform small ticks", () => {
@@ -205,9 +249,9 @@ describe("versus controller accumulator", () => {
   });
 
   test("step accumulator keeps the leftover instead of dropping it", () => {
-    const counter: Counter = { steps: 0, gravity: 0 };
-    const left = makeSide("left", makeCore(counter, true), longMoveFighter);
-    const right = makeSide("right", makeCore(counter, true), longMoveFighter);
+    const counter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const left = makeSide("left", makeCore(counter, true), immediateDropFighter);
+    const right = makeSide("right", makeCore(counter, true), immediateDropFighter);
     const ctrl = makeController(left, right);
 
     tickVersus(ctrl, 200, OPTIONS);
@@ -217,7 +261,7 @@ describe("versus controller accumulator", () => {
   });
 
   test("gravity accumulator keeps the leftover instead of dropping it", () => {
-    const counter: Counter = { steps: 0, gravity: 0 };
+    const counter: Counter = { steps: 0, locks: 0, gravity: 0 };
     const options = { ...OPTIONS, gravityMs: 100 };
     const left = makeSide("left", makeCore(counter, false), idleFighter, { pendingThink: false });
     const right = makeSide("right", makeCore(counter, false), idleFighter, { pendingThink: false });
@@ -231,6 +275,30 @@ describe("versus controller accumulator", () => {
   });
 });
 
+describe("versus controller lock fairness (issue #24)", () => {
+  test("cosmetic execution steps do not delay locks relative to a bare placeAt", () => {
+    const bareCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const cosmeticCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const bare = makeSide("left", makeCore(bareCounter, true), executionPlanFighter([]));
+    const cosmetic = makeSide(
+      "right",
+      makeCore(cosmeticCounter, true),
+      executionPlanFighter([{ kind: "left" }, { kind: "left" }]),
+    );
+    const ctrl = makeController(bare, cosmetic);
+
+    const ticks = 8;
+    for (let tick = 1; tick <= ticks; tick += 1) {
+      tickVersus(ctrl, OPTIONS.stepIntervalMs, OPTIONS);
+      expect(bareCounter.locks).toBe(tick);
+      expect(cosmeticCounter.locks).toBe(tick);
+    }
+
+    expect(bareCounter.steps).toBe(ticks);
+    expect(cosmeticCounter.steps).toBe(3 * ticks);
+  });
+});
+
 describe("versus controller AI failures", () => {
   test("throwing fighter is surfaced and never crashes the loop", () => {
     const logged: unknown[][] = [];
@@ -239,7 +307,7 @@ describe("versus controller AI failures", () => {
       logged.push(args);
     };
     try {
-      const counter: Counter = { steps: 0, gravity: 0 };
+      const counter: Counter = { steps: 0, locks: 0, gravity: 0 };
       const throwing: VersusFighter = {
         name: "throwing",
         color: "#f00",
@@ -275,7 +343,7 @@ describe("versus controller AI failures", () => {
     const originalError = console.error;
     console.error = () => {};
     try {
-      const counter: Counter = { steps: 0, gravity: 0 };
+      const counter: Counter = { steps: 0, locks: 0, gravity: 0 };
       const throwing: VersusFighter = {
         name: "throwing",
         color: "#f00",

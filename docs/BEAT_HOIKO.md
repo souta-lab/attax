@@ -60,11 +60,26 @@ PPT garbage changes hole column within an attack ~30% of the time.
 
 ## Current gate
 
-`bun scripts/hoiko-gate.ts` — 32 fixed seeds, DeepSeek (left) vs Rust Hoiko (right),
-`TICK_MS=16`, `MAX_TICKS=12000`, JSONL `HOIKO-match` / `HOIKO-summary`. This is the
-scoreboard; a change is only "an improvement" if it raises the win count here.
+`bun scripts/gate-v2.ts` — 32 fixed seeds, DeepSeek v2 (left) vs Rust Hoiko (right),
+`TICK_MS=16`, `MAX_TICKS=12000`, JSONL `HOIKO-match` / `HOIKO-summary` (env `HOIKO_BEAM`,
+`DSV2_RUST`, `DSV2_DEPTH`, `DSV2_BOOK`). This is the scoreboard; a change is only "an
+improvement" if it raises the win count here. `bun scripts/hoiko-gate.ts` is the older
+DeepSeek-v1 harness.
 
-## Results (verified)
+**Fair step model (issue #24).** The controller charges one `stepIntervalMs` per
+**terminal** action (piece lock or hold); intermediate plan steps (rotate/move) are free.
+Before this fix, DeepSeek's single `placeAt` locked in 1 interval while Hoiko's
+`|Δx|+1`-step plan locked 3–7× slower, so the old win counts were an APM artifact. See
+`evidence/fair-harness/README.md`.
+
+## Results
+
+> **Warning — the pre-#24 rows below are harness artifacts.** They were measured before
+> the fair step model was fixed (issue #24): Hoiko locked 3–7× slower than DeepSeek, so
+> the win counts reflect an APM handicap, not decision quality. The fair numbers are in
+> "Fair-harness re-baseline (#24)" below.
+
+### Pre-fix (unfair step model, historical)
 
 | Fighter | Gate | Result |
 |---|---|---|
@@ -76,7 +91,8 @@ scoreboard; a change is only "an improvement" if it raises the win count here.
 Held-out robustness: v2 beat Hoiko **16-0** (541 vs 128 lines, 0 mismatches) on 16
 seeds that are **not** in the tuning/gate corpus, and **64-0** (2302 vs 548 lines,
 0 mismatches) on a further 64 unseen seeds — **80-0 on fresh seeds total**,
-confirming the result is not overfit to the 32 fixed seeds.
+confirming the result is not overfit to the 32 fixed seeds. (All pre-#24/unfair; not yet
+re-measured under the fair step model — treat these as an upper bound.)
 
 Beam robustness: v2 beat Hoiko at **beam 1500** (3x the default) **12-0** (422 vs 101
 lines). The gate accepts `HOIKO_BEAM` to sweep this.
@@ -91,12 +107,32 @@ DeepSeek v2 is also ported to Rust (`rust/deepseek-rust`, `src/v2.rs` + `v2_scor
 It makes the same decisions as the TS v2 at **2.4x** the speed (24.6 vs 58.6 ms/move),
 so future deeper/broader search is affordable.
 
+## Fair-harness re-baseline (#24)
+
+`src/versus/controller.ts` now charges one `stepIntervalMs` per terminal action (piece
+lock or hold); intermediate plan steps are free. Every fighter therefore locks exactly one
+piece per interval, removing the APM handicap that inflated the pre-fix numbers.
+Regression test: `tests/versus-controller.test.ts` ("cosmetic execution steps do not delay
+locks relative to a bare placeAt"). Raw records: `evidence/fair-harness/`.
+
+| Fighter | Gate | Result | Hoiko lines / locks | Mismatches |
+|---|---|---|---|---|
+| DeepSeek v2 | TS, 32 seeds, `we` beam500 | **21-11-0/0** | 1073 / 2421 | 0 |
+| DeepSeek v2 | Rust wasm, 32 seeds, `we` beam1500 | **21-11-0/0** | 1092 / 2417 | 0 |
+| (pre-fix) DeepSeek v2 | TS, 32 seeds, `we` beam500 | 32-0-0/0 | 254 / 730 | 0 |
+
+Beam 1500 is the shipping binary's adaptive ceiling, so the fair result is robust to beam
+width. Hoiko's engine decisions are unchanged; only the harness step accounting was fixed.
+**Caveat:** the binary's in-match adaptive beam (`SetNextOption`) and its ~107 ms
+wall-clock search budget are not modeled by the wasm oracle and remain unverified (see
+`evidence/scan/findings.md` F1/F6 and `tools/hoiko-oracle/diff/REPORT.md` §6).
+
 ## Strength vs search budget (fresh seeds)
 
 `bun scripts/strength-sweep.ts` runs v2 (Rust wasm) against Rust Hoiko over a fixed
 fresh seed set (`301,307,311,313,317,331,337,347,349,353,359,367`), sweeping v2
 depth/width against Hoiko beam. Every configuration won **12-0**, so the tiebreak is
-the margin (F = for, A = against). Full record in `evidence/strength/sweep.json`.
+the margin (F = for, A = against). Full record in `evidence/strength/sweep.jsonl`.
 
 | v2 depth | width | Hoiko beam | W-L-D/cap | lines F-A | sent F-A | v2 ms/mv | Hoiko ms/mv |
 |---|---|---|---|---|---|---|---|

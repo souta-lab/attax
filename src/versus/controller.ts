@@ -372,9 +372,13 @@ export function stepSide(
     iterations < MAX_CATCHUP_ITERATIONS
   ) {
     iterations += 1;
-    side.acc -= options.stepIntervalMs;
     const [head, ...rest] = side.queue;
     if (head !== undefined) {
+      // Fairness (issue #24): only a terminal action (lock or hold) consumes the
+      // step budget. Cosmetic plan steps (rotate/move/softDrop) are applied for
+      // free so two fighters with different plan lengths lock at the same rate.
+      const terminal = locksPiece(head.kind) || head.kind === "hold";
+      if (terminal) side.acc -= options.stepIntervalMs;
       if (locksPiece(head.kind)) side.core.setGarbageWait?.(side.garbageWait);
       const stepResult = applyStep(side.core, head, side.execution);
       switch (stepResult.kind) {
@@ -387,7 +391,7 @@ export function stepSide(
           side.pendingThink = true;
           return 0;
       }
-      if (locksPiece(head.kind) || head.kind === "hold") {
+      if (terminal) {
         side.pendingThink = side.queue.length <= 1;
       }
       if (locksPiece(head.kind)) side.execution = null;
