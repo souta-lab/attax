@@ -11,8 +11,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
 import type { GameSnapshot, PieceKind } from "../../../src/ui/types.js";
+import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
 
 const ORACLE_ROOT = Bun.env.HOIKO_ORACLE_ROOT ?? "/tmp/opencode/oracle";
 const ORACLE_RUN = Bun.env.HOIKO_ORACLE_RUN ?? `${ORACLE_ROOT}/run`;
@@ -32,11 +32,6 @@ const OPTION: "pcstack" | "s4w" | "tdopeners" = args.includes("--s4w")
 const N = Number.parseInt(argValue("--n") ?? "16", 10);
 const SEARCH = args.includes("--search");
 const VIEW_NEXT = Number.parseInt(argValue("--viewnext") ?? "2", 10);
-const ORACLE_KEYS: Readonly<Record<typeof OPTION, string>> = {
-  pcstack: "usepcstack",
-  s4w: "uses4w",
-  tdopeners: "usetdopeners",
-};
 const REPLICA_ENV: Readonly<Record<typeof OPTION, string>> = {
   pcstack: "HOIKO_USE_PCSTACK",
   s4w: "HOIKO_USE_S4W",
@@ -45,7 +40,9 @@ const REPLICA_ENV: Readonly<Record<typeof OPTION, string>> = {
 const EVIDENCE = new URL(`../../../evidence/hoiko-config/${OPTION}/`, import.meta.url);
 
 if (!existsSync(REPLICA_BIN)) {
-  throw new Error(`replica probe missing: ${REPLICA_BIN}\nrun: cargo build --release --example eval_dump --manifest-path rust/Cargo.toml`);
+  throw new Error(
+    `replica probe missing: ${REPLICA_BIN}\nrun: cargo build --release --example eval_dump --manifest-path rust/Cargo.toml`,
+  );
 }
 if (VIEW_NEXT !== 2 || OPTION === "tdopeners") {
   if (VIEW_NEXT < 5) throw new Error(`viewNext=${VIEW_NEXT} < 5 disables ConfigAI.UseTDOpeners()`);
@@ -231,7 +228,16 @@ function snapshotFrom(p: Position): GameSnapshot {
 }
 
 const CLEAR_DELAY: Readonly<Record<number, number>> = {
-  0: 0, 1: 36, 5: 36, 8: 36, 2: 41, 3: 41, 6: 41, 7: 41, 4: 46, 9: 1,
+  0: 0,
+  1: 36,
+  5: 36,
+  8: 36,
+  2: 41,
+  3: 41,
+  6: 41,
+  7: 41,
+  4: 46,
+  9: 1,
 };
 const getDelay = (moveDelay: number, act: number): number =>
   (CLEAR_DELAY[act] ?? 0) * 16 + moveDelay;
@@ -285,9 +291,35 @@ function runReplicaSearch(fighter: RustHoikoFighter, p: Position): SearchResult 
 }
 
 const FIELDS = [
-  "x", "y", "rot", "m", "act", "delay", "combo", "btb", "stack", "nextBase", "trustEnd", "win",
-  "minH", "height", "well", "wellCol", "wellDepth", "updown", "under", "ground", "res", "tsd",
-  "tst", "pc", "cont", "action", "board", "fscore", "score",
+  "x",
+  "y",
+  "rot",
+  "m",
+  "act",
+  "delay",
+  "combo",
+  "btb",
+  "stack",
+  "nextBase",
+  "trustEnd",
+  "win",
+  "minH",
+  "height",
+  "well",
+  "wellCol",
+  "wellDepth",
+  "updown",
+  "under",
+  "ground",
+  "res",
+  "tsd",
+  "tst",
+  "pc",
+  "cont",
+  "action",
+  "board",
+  "fscore",
+  "score",
 ] as const;
 type Field = (typeof FIELDS)[number];
 
@@ -301,9 +333,8 @@ interface Container {
   readonly nodes: NodeDump[];
 }
 
-const NODE_RE = new RegExp(
-  `^E(?:B)?\\s+(\\d+)\\s+(\\d+)\\s+hold=\\d+\\s+x=(-?\\d+)\\s+y=(-?\\d+)\\s+rot=(-?\\d+)\\s+m=(-?\\d+)\\s+act=(-?\\d+)\\s+delay=(-?\\d+)\\s+combo=(-?\\d+)\\s+btb=(-?\\d+)\\s+stack=(-?\\d+)\\s+nextBase=(-?\\d+)\\s+trustEnd=(-?\\d+)\\s+win=(-?\\d+).*?minH=(-?\\d+)\\s+height=(-?\\d+)\\s+well=(-?\\d+)\\s+wellCol=(-?\\d+)\\s+wellDepth=(-?\\d+)\\s+updown=(-?\\d+)\\s+under=(-?\\d+)\\s+ground=(-?\\d+)\\s+res=(-?\\d+)\\s+tsd=(-?\\d+)\\s+tst=(-?\\d+)\\s+pc=(-?\\d+)\\s+cont=(-?\\d+)\\s+action=(-?\\d+)\\s+board=(-?\\d+)\\s+fscore=(-?\\d+)\\s+score=(-?\\d+)\\s+rows=(.*)$`,
-);
+const NODE_RE =
+  /^E(?:B)?\s+(\d+)\s+(\d+)\s+hold=\d+\s+x=(-?\d+)\s+y=(-?\d+)\s+rot=(-?\d+)\s+m=(-?\d+)\s+act=(-?\d+)\s+delay=(-?\d+)\s+combo=(-?\d+)\s+btb=(-?\d+)\s+stack=(-?\d+)\s+nextBase=(-?\d+)\s+trustEnd=(-?\d+)\s+win=(-?\d+).*?minH=(-?\d+)\s+height=(-?\d+)\s+well=(-?\d+)\s+wellCol=(-?\d+)\s+wellDepth=(-?\d+)\s+updown=(-?\d+)\s+under=(-?\d+)\s+ground=(-?\d+)\s+res=(-?\d+)\s+tsd=(-?\d+)\s+tst=(-?\d+)\s+pc=(-?\d+)\s+cont=(-?\d+)\s+action=(-?\d+)\s+board=(-?\d+)\s+fscore=(-?\d+)\s+score=(-?\d+)\s+rows=(.*)$/;
 const GEN_RE = /^GEN (\d+) /;
 const B_RE = /^B (\d+) /;
 
@@ -333,7 +364,10 @@ function parseDump(text: string): Container[] {
     const label = line.startsWith("EB") ? `B ${m[1]}` : "GEN 0";
     const values: Record<string, number> = {};
     for (let i = 0; i < FIELDS.length; i += 1) values[FIELDS[i] as string] = Number(m[i + 3]);
-    ensure(label).nodes.push({ values: values as Record<Field, number>, rows: m[m.length - 1] ?? "" });
+    ensure(label).nodes.push({
+      values: values as Record<Field, number>,
+      rows: m[m.length - 1] ?? "",
+    });
   }
   return [...byLabel.values()];
 }
@@ -344,7 +378,10 @@ interface NodeDiff {
   readonly diffs: readonly string[];
 }
 
-function diffDumps(exe: Container[], rep: Container[]): { diffs: NodeDiff[]; pcNonzero: number; resNonzero: number } {
+function diffDumps(
+  exe: Container[],
+  rep: Container[],
+): { diffs: NodeDiff[]; pcNonzero: number; resNonzero: number } {
   const diffs: NodeDiff[] = [];
   let pcNonzero = 0;
   let resNonzero = 0;
@@ -390,17 +427,16 @@ function optionArgs(): string[] {
 
 mkdirSync(EVIDENCE, { recursive: true });
 const list = corpus();
-const fighter =
-  !SEARCH
-    ? null
-    : createRustHoiko({
-        weightPreset: "we",
-        depthLimit: 10,
-        offset: false,
-        adapt: false,
-        usePCstack: OPTION === "pcstack",
-        useS4W: OPTION === "s4w",
-      });
+const fighter = !SEARCH
+  ? null
+  : createRustHoiko({
+      weightPreset: "we",
+      depthLimit: 10,
+      offset: false,
+      adapt: false,
+      usePCstack: OPTION === "pcstack",
+      useS4W: OPTION === "s4w",
+    });
 
 interface CaseResult {
   readonly name: string;
@@ -431,17 +467,20 @@ for (const p of list) {
   const { diffs, pcNonzero, resNonzero } = diffDumps(on, rep);
   const exeNodes = on.reduce((n, c) => n + c.nodes.length, 0);
   const repNodes = rep.reduce((n, c) => n + c.nodes.length, 0);
-  const offDiff = diffDumps(off, rep).diffs.length;
-  let search:
-    | { exe: SearchResult; rep: SearchResult | null; ok: boolean }
-    | undefined;
+  let search: { exe: SearchResult; rep: SearchResult | null; ok: boolean } | undefined;
   if (SEARCH && fighter !== null) {
     const exe = runExeSearch(p);
     const r = runReplicaSearch(fighter, p);
     search = {
       exe,
       rep: r,
-      ok: r !== null && exe.x === r.x && exe.rot === r.rot && exe.m === r.m && exe.depth === r.depth && exe.delay === r.delay,
+      ok:
+        r !== null &&
+        exe.x === r.x &&
+        exe.rot === r.rot &&
+        exe.m === r.m &&
+        exe.depth === r.depth &&
+        exe.delay === r.delay,
     };
   }
   const ok = diffs.length === 0 && (search === undefined || search.ok);
@@ -451,7 +490,8 @@ for (const p of list) {
     `${ok ? "OK  " : "FAIL"} ${p.name.padEnd(16)} nodes=${exeNodes}/${repNodes} diffs=${diffs.length} optionChangedNodes=${changed} pc!=0:${pcNonzero} search=${search === undefined ? "-" : search.ok ? "OK" : "FAIL"}`,
   );
   if (diffs.length > 0) {
-    for (const d of diffs.slice(0, 3)) console.log(`     ${d.container}[${d.idx}]: ${d.diffs.join("; ")}`);
+    for (const d of diffs.slice(0, 3))
+      console.log(`     ${d.container}[${d.idx}]: ${d.diffs.join("; ")}`);
   }
 }
 
@@ -468,5 +508,7 @@ const report = {
   timestamp: new Date().toISOString(),
 };
 writeFileSync(new URL("report.json", EVIDENCE), `${JSON.stringify(report, null, 2)}\n`);
-console.log(`\n${passed}/${results.length} cases match (option=${OPTION}, viewNext=${VIEW_NEXT}, search=${SEARCH})`);
+console.log(
+  `\n${passed}/${results.length} cases match (option=${OPTION}, viewNext=${VIEW_NEXT}, search=${SEARCH})`,
+);
 process.exit(passed === results.length ? 0 : 1);
