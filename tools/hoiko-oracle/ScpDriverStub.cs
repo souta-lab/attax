@@ -136,6 +136,31 @@ internal static class OracleHost
     private static int _pcStackOverride = -1;
     private static int _s4wOverride = -1;
     private static int _tdOpenersOverride = -1;
+    private static int _loopTemplateOverride = -1;
+    // Direct TemplateAI phase overrides (`optype=`, `opdropcount=`): let a single
+    // Search observe a later template phase without replaying the whole game.
+    private static int _opTypeOverride = -1;
+    private static int _opDropCountOverride = int.MinValue;
+    // Stepwise OpExpand probe (`opexpand=1`): calls ExpandTemplateNode →
+    // OpExpandDeriveNode → OpExpandNode → RegistChildNode on the root and logs
+    // the baby arena, to localize template-path failures without a full search.
+    private static int _opExpandProbe;
+    // `ecbig=1`: re-point ExpandAI.expandedChild at a zeroed 256-bucket table
+    // (the shipping table is 40 buckets x 20 slots and can overflow).
+    private static int _ecBig;
+    // `tmpl=1`: call the pure TemplateAI decision/scoring functions directly on
+    // the root GamePack, in a fixed order, logging each result and the statics.
+    private static int _tmplProbe;
+    // Synthetic locked-mino / carry state for the tmpl probe (`lockx=` etc.).
+    private static int _lockX = int.MinValue;
+    private static int _lockY = int.MinValue;
+    private static int _lockR = int.MinValue;
+    private static int _lockM = int.MinValue;
+    private static int _fallX = int.MinValue;
+    private static int _fallR = int.MinValue;
+    private static int _fallM = int.MinValue;
+    private static int _prevOpOverride = int.MinValue;
+    private static int _remainsOverride = int.MinValue;
     // Hold slot mino (opt-in via `hold=`): default 7 == MinoType.NONE, which is
     // exactly what HoldMino.Init writes, so omitting the key is behavior-preserving.
     private static int _hold = 7;
@@ -225,6 +250,21 @@ internal static class OracleHost
     private const int RvaConfigUseS4W = 0x6633A;
     private const int RvaEvalUseS4W = 0x66381;
     private const int RvaTemplateUseTDOpeners = 0x663FC;
+    // ExpandAI / TemplateAI statics (monodis: `.field ... at D_xxxx`).
+    private const int RvaExpandBabyNode = 0x663B8;
+    private const int RvaExpandExpandedBaby = 0x663C0;
+    private const int RvaExpandExpandedChild = 0x663C8;
+    private const int RvaSearchTree = 0x663D8;
+    private const int RvaTemplateUseTemplate = 0x663FD;
+    private const int RvaTemplateOpType = 0x66400;
+    private const int RvaTemplateFailTDOpeners = 0x66404;
+    private const int RvaTemplateOpDropCount = 0x66408;
+    private const int RvaTemplateUseDPC = 0x6640C;
+    private const int RvaTemplateLoopTemplate = 0x6640D;
+    private const int RvaTemplatePrevOpDropCount = 0x66410;
+    private const int RvaConfigLoopTemplate = 0x6633C;
+    // Method token of TemplateAI.ReadConfig (monodis --method index 542 -> 0x06000000+542).
+    private const int TokenTemplateReadConfig = 0x0600021E;
     private static FieldInfo _isEvenBoardField;
     private static bool _fieldScanDone;
     private static string _logPath;
@@ -290,6 +330,9 @@ internal static class OracleHost
             ApplyConfigOverrides();
             Log("[2] SearchAI.Init"); Invoke(miSearchInit);
             Log("[3] SearchAI.ReadConfig"); Invoke(miSearchReadConfig);
+            // ReadConfig (re)derives TemplateAI/ExpandAI statics, so apply the
+            // harness overrides again to keep them effective for the search.
+            ApplyConfigOverrides();
             _initDone = true;
         }
         else
@@ -312,6 +355,14 @@ internal static class OracleHost
         }
         Invoke(miUpdateMaxHeight, new IntPtr(buf.ToInt64() + OffBoard));
         if (_fallY >= 0) Marshal.WriteInt32(buf, OffFalling + 4, _fallY);
+        if (_fallX != int.MinValue) Marshal.WriteInt32(buf, OffFalling, _fallX);
+        if (_fallR != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 8, _fallR);
+        if (_fallM != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 12, _fallM);
+        if (_lockX != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 32, _lockX);
+        if (_lockY != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 36, _lockY);
+        if (_lockR != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 40, _lockR);
+        if (_lockM != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 44, _lockM);
+        if (_remainsOverride != int.MinValue) Marshal.WriteInt32(buf, 116, _remainsOverride);
         Marshal.WriteInt32(buf, OffHold, _hold);
         Marshal.WriteInt32(buf, OffCombo, _combo);
         Marshal.WriteInt32(buf, OffBtb, _btb);
@@ -329,6 +380,24 @@ internal static class OracleHost
             SetEvenBoard(_isEvenBoard != 0);
         }
         if (_weightIndex >= 0) ApplyWeightIndex();
+
+        if (_tmplProbe != 0)
+        {
+            Log("[5] template decision probe (SearchAI.Search skipped)");
+            RunTemplateProbe(buf);
+            Marshal.FreeHGlobal(buf);
+            Marshal.FreeHGlobal(nx);
+            return true;
+        }
+
+        if (_opExpandProbe != 0)
+        {
+            Log("[5] op-expand stepwise probe (SearchAI.Search skipped)");
+            RunOpExpandProbe(buf);
+            Marshal.FreeHGlobal(buf);
+            Marshal.FreeHGlobal(nx);
+            return true;
+        }
 
         if (_expandMode != 0)
         {
@@ -374,7 +443,17 @@ internal static class OracleHost
             Log("[4d] SearchAI.IsSearching(true)  (starts timer, limit=1000ms)");
             Invoke(miIsSearching, true);
         }
+        if (_ecBig != 0)
+        {
+            IntPtr ecNew = Marshal.AllocHGlobal(168 * 256);
+            for (int i = 0; i < 168 * 256; i += 8) Marshal.WriteInt64(ecNew, i, 0L);
+            Marshal.WriteIntPtr(new IntPtr(ModuleBase().ToInt64() + RvaExpandExpandedChild), ecNew);
+            Log("[ecbig] expandedChild -> 0x" + ecNew.ToInt64().ToString("x") + " (256 zeroed buckets)");
+        }
+
+        DumpTemplateStatics("pre");
         Invoke(miSearch, buf);
+        DumpTemplateStatics("post");
         Log("[5] returned in " + (DateTime.UtcNow - t0).TotalMilliseconds.ToString("0.0", CultureInfo.InvariantCulture) + " ms");
         if (_weightIndex >= 0) ReadWeightIndex();
         if (_offsetEnabled >= 0) RunOffsetDecision(buf);
@@ -590,6 +669,39 @@ internal static class OracleHost
             {
                 _tdOpenersOverride = val != "0" ? 1 : 0;
             }
+            else if (key == "looptemplate")
+            {
+                _loopTemplateOverride = val != "0" ? 1 : 0;
+            }
+            else if (key == "optype")
+            {
+                _opTypeOverride = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "opdropcount")
+            {
+                _opDropCountOverride = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "opexpand")
+            {
+                _opExpandProbe = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "ecbig")
+            {
+                _ecBig = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "tmpl")
+            {
+                _tmplProbe = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "lockx") _lockX = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "locky") _lockY = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lockr") _lockR = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lockm") _lockM = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "fallx") _fallX = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "fallr") _fallR = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "fallm") _fallM = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "prevop") _prevOpOverride = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "remains") _remainsOverride = int.Parse(val, CultureInfo.InvariantCulture);
             else if (key == "hold")
             {
                 _hold = int.Parse(val, CultureInfo.InvariantCulture);
@@ -714,7 +826,8 @@ internal static class OracleHost
     private static void ApplyConfigOverrides()
     {
         if (_viewNextOverride < 0 && _pcStackOverride < 0 && _s4wOverride < 0
-            && _tdOpenersOverride < 0) return;
+            && _tdOpenersOverride < 0 && _loopTemplateOverride < 0
+            && _opTypeOverride < 0 && _opDropCountOverride < 0) return;
         IntPtr h = ModuleBase();
         if (_viewNextOverride >= 0)
             Marshal.WriteInt32(new IntPtr(h.ToInt64() + RvaConfigViewNext), _viewNextOverride);
@@ -734,14 +847,60 @@ internal static class OracleHost
                 (byte)(_tdOpenersOverride != 0 ? 1 : 0));
             Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaTemplateUseTDOpeners),
                 (byte)(_tdOpenersOverride != 0 ? 1 : 0));
-            MethodInfo miTemplateReadConfig = Resolve(0, "TemplateAI.ReadConfig", 0);
-            if (miTemplateReadConfig != null) Invoke(miTemplateReadConfig);
+            InvokeTemplateReadConfig();
+        }
+        if (_loopTemplateOverride >= 0)
+        {
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaConfigLoopTemplate),
+                (byte)(_loopTemplateOverride != 0 ? 1 : 0));
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaTemplateLoopTemplate),
+                (byte)(_loopTemplateOverride != 0 ? 1 : 0));
+            InvokeTemplateReadConfig();
+        }
+        // Phase overrides go last: they deliberately bypass TemplateAI.ReadConfig.
+        if (_opTypeOverride >= 0)
+        {
+            Marshal.WriteInt32(new IntPtr(h.ToInt64() + RvaTemplateOpType), _opTypeOverride);
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaTemplateUseTemplate),
+                (byte)(_opTypeOverride != 0 ? 1 : 0));
+        }
+        if (_opDropCountOverride != int.MinValue)
+        {
+            Marshal.WriteInt32(new IntPtr(h.ToInt64() + RvaTemplateOpDropCount), _opDropCountOverride);
+            Marshal.WriteInt32(new IntPtr(h.ToInt64() + RvaTemplatePrevOpDropCount), _opDropCountOverride);
         }
         Log("[config] overrides: viewNext=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaConfigViewNext))
             + " usePCstack=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUsePCstack))
             + " configS4W=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUseS4W))
             + " evalS4W=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaEvalUseS4W))
-            + " useTDOpeners=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUseTDOpeners)));
+            + " useTDOpeners=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUseTDOpeners))
+            + " loopTemplate=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigLoopTemplate)));
+    }
+
+    private static void InvokeTemplateReadConfig()
+    {
+        MethodInfo mi = Resolve(TokenTemplateReadConfig, "TemplateAI.ReadConfig", 0);
+        if (mi != null) Invoke(mi);
+    }
+
+    // Observability for the TemplateAI state machine (SPEC_Search §9): pointers and
+    // phase counters around a search, so a single oracle run can be tied to the
+    // replica's state without a full game replay.
+    private static void DumpTemplateStatics(string tag)
+    {
+        IntPtr h = ModuleBase();
+        Log("[tmpl " + tag + "] babyNode=0x" + Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaExpandBabyNode)).ToInt64().ToString("x")
+            + " expandedBaby=0x" + Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaExpandExpandedBaby)).ToInt64().ToString("x")
+            + " expandedChild=0x" + Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaExpandExpandedChild)).ToInt64().ToString("x")
+            + " tree=0x" + Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaSearchTree)).ToInt64().ToString("x"));
+        Log("[tmpl " + tag + "] useTDOpeners=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateUseTDOpeners))
+            + " useTemplate=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateUseTemplate))
+            + " opType=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplateOpType))
+            + " opDropCount=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplateOpDropCount))
+            + " prevOpDropCount=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplatePrevOpDropCount))
+            + " failTDOpeners=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateFailTDOpeners))
+            + " useDPC=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateUseDPC))
+            + " loopTemplate=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateLoopTemplate)));
     }
 
     private const int RvaWeightList = 0x66368;
@@ -1079,6 +1238,332 @@ internal static class OracleHost
             };
         }
         return path;
+    }
+
+    private static void RunTemplateProbe(IntPtr root)
+    {
+        MethodInfo miTdCmp = Resolve(0x06000234, "TemplateAI.TDOpenersCmp", 1);
+        MethodInfo miOrigin = Resolve(0x06000235, "TemplateAI.OriginNextCmp", 1);
+        MethodInfo miDecision = Resolve(0x06000236, "TemplateAI.DecisionTemplate", 1);
+        MethodInfo miDecisionLoop = Resolve(0x06000237, "TemplateAI.DecisionLoopTemplate", 1);
+        MethodInfo miSearchTd = Resolve(0x06000221, "TemplateAI.SearchTDOpeners", 1);
+        MethodInfo miOpEvalFirst = Resolve(0x06000220, "TemplateAI.OpEvaluateFirst", 2);
+        MethodInfo miOpEval = Resolve(0x0600021F, "TemplateAI.OpEvaluate", 3);
+        IntPtr h = ModuleBase();
+        IntPtr game = new IntPtr(root.ToInt64() + 120);
+        IntPtr fsPtr = Marshal.AllocHGlobal(4);
+        IntPtr scorePtr = Marshal.AllocHGlobal(4);
+
+        if (_prevOpOverride != int.MinValue)
+            Marshal.WriteInt32(new IntPtr(h.ToInt64() + RvaTemplatePrevOpDropCount), _prevOpOverride);
+
+        Log("");
+        Log("=============== TEMPLATE PROBE ===============");
+        Log("[tmpl] state0 " + TemplateStaticsLine(h));
+        if (miTdCmp != null)
+            Log("[tmpl] TDOpenersCmp=" + Convert.ToInt32(Invoke(miTdCmp, game), CultureInfo.InvariantCulture)
+                + " | " + TemplateStaticsLine(h));
+        if (miOrigin != null)
+            Log("[tmpl] OriginNextCmp=" + Convert.ToInt32(Invoke(miOrigin, game), CultureInfo.InvariantCulture)
+                + " | " + TemplateStaticsLine(h));
+        if (miDecision != null)
+            Log("[tmpl] DecisionTemplate=" + Convert.ToInt32(Invoke(miDecision, game), CultureInfo.InvariantCulture)
+                + " | " + TemplateStaticsLine(h));
+        if (miDecisionLoop != null)
+            Log("[tmpl] DecisionLoopTemplate=" + Convert.ToInt32(Invoke(miDecisionLoop, root), CultureInfo.InvariantCulture)
+                + " | " + TemplateStaticsLine(h));
+        if (miSearchTd != null)
+            Log("[tmpl] SearchTDOpeners=" + Convert.ToInt32(Invoke(miSearchTd, game), CultureInfo.InvariantCulture)
+                + " | " + TemplateStaticsLine(h));
+        if (miOpEvalFirst != null)
+        {
+            Marshal.WriteInt32(fsPtr, 0);
+            Invoke(miOpEvalFirst, game, fsPtr);
+            Log("[tmpl] OpEvaluateFirst fs=" + Marshal.ReadInt32(fsPtr) + " | " + TemplateStaticsLine(h));
+        }
+        if (miOpEval != null)
+        {
+            Marshal.WriteInt32(fsPtr, 0);
+            Marshal.WriteInt32(scorePtr, 0);
+            Invoke(miOpEval, game, scorePtr, fsPtr);
+            Log("[tmpl] OpEvaluate score=" + Marshal.ReadInt32(scorePtr)
+                + " fs=" + Marshal.ReadInt32(fsPtr) + " | " + TemplateStaticsLine(h));
+        }
+
+        Log("[tmpl] input lock=(" + Marshal.ReadInt32(game, 64) + "," + Marshal.ReadInt32(game, 68)
+            + "," + Marshal.ReadInt32(game, 72) + "," + Marshal.ReadInt32(game, 76) + ")"
+            + " fall=(" + Marshal.ReadInt32(game, 32) + "," + Marshal.ReadInt32(game, 36)
+            + "," + Marshal.ReadInt32(game, 40) + "," + Marshal.ReadInt32(game, 44) + ")"
+            + " hold=" + Marshal.ReadInt32(game, 16)
+            + " remains=" + Marshal.ReadInt32(root, 116)
+            + " stack=" + Marshal.ReadInt32(game, 224)
+            + " rows=" + BoardRowsOf(new IntPtr(root.ToInt64() + 120)));
+        Marshal.FreeHGlobal(scorePtr);
+        Marshal.FreeHGlobal(fsPtr);
+    }
+
+    private static string TemplateStaticsLine(IntPtr h)
+    {
+        return "useTemplate=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateUseTemplate))
+            + " opType=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplateOpType))
+            + " opDropCount=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplateOpDropCount))
+            + " prev=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplatePrevOpDropCount))
+            + " fail=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateFailTDOpeners))
+            + " useDPC=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateUseDPC))
+            + " loop=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateLoopTemplate));
+    }
+
+    private static void RunOpExpandProbe(IntPtr root)
+    {
+        MethodInfo miTemplate = Resolve(0x060001F8, "ExpandAI.ExpandTemplateNode", 2);
+        MethodInfo miOpDerive = Resolve(0x060001FA, "ExpandAI.OpExpandDeriveNode", 4);
+        MethodInfo miOpExpand = Resolve(0x060001F9, "ExpandAI.OpExpandNode", 3);
+        MethodInfo miRegist = Resolve(0x060001ED, "ExpandAI.RegistChildNode", 4);
+        MethodInfo miColHeight = Resolve(0x0600025C, "Board.GetColumnHeight", 2);
+        IntPtr h = ModuleBase();
+        IntPtr babyNode = Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaExpandBabyNode));
+        IntPtr game = new IntPtr(root.ToInt64() + 120);
+        IntPtr outBuf = Marshal.AllocHGlobal(NodeStride * NodeCap);
+        IntPtr countPtr = Marshal.AllocHGlobal(4);
+        IntPtr chPtr = Marshal.AllocHGlobal(40);
+        byte[] scratch = new byte[136];
+
+        Log("");
+        Log("=============== OP EXPAND PROBE ===============");
+        Log("[opexpand] babyNode=0x" + babyNode.ToInt64().ToString("x")
+            + " useTDOpeners=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaTemplateUseTDOpeners))
+            + " opType=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplateOpType))
+            + " opDropCount=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaTemplateOpDropCount)));
+        if (babyNode == IntPtr.Zero) { Log("[opexpand] babyNode null"); return; }
+
+        // Prepare slot 0 exactly like ExpandNode: fallingMino(32) @+0, hold(12) @+88,
+        // nextIt(16) @+104, Command.Init @+32.
+        Marshal.Copy(new IntPtr(game.ToInt64() + 32), scratch, 0, 32);
+        Marshal.Copy(scratch, 0, babyNode, 32);
+        Marshal.Copy(new IntPtr(game.ToInt64() + 16), scratch, 0, 12);
+        Marshal.Copy(scratch, 0, new IntPtr(babyNode.ToInt64() + 88), 12);
+        Marshal.Copy(game, scratch, 0, 16);
+        Marshal.Copy(scratch, 0, new IntPtr(babyNode.ToInt64() + 104), 16);
+        for (int i = 0; i < 56; i += 4) Marshal.WriteInt32(new IntPtr(babyNode.ToInt64() + 32 + i), 0);
+
+        int count = Convert.ToInt32(Invoke(miTemplate, babyNode, 1), CultureInfo.InvariantCulture);
+        Log("[opexpand] ExpandTemplateNode -> count=" + count + " (m=" + Marshal.ReadInt32(game, 44) + ")");
+        DumpBabyArena(babyNode, Math.Min(count, 40));
+
+        for (int c = 0; c < 10; c++) Marshal.WriteInt32(chPtr, c * 4, -1);
+        Invoke(miColHeight, new IntPtr(game.ToInt64() + 96), chPtr);
+        count = Convert.ToInt32(Invoke(miOpDerive, babyNode, count,
+            new IntPtr(game.ToInt64() + 96), chPtr), CultureInfo.InvariantCulture);
+        Log("[opexpand] OpExpandDeriveNode -> count=" + count);
+        DumpBabyArena(babyNode, Math.Min(count, 60));
+
+        try
+        {
+            Marshal.WriteInt32(countPtr, 0);
+            Invoke(miOpExpand, game, outBuf, countPtr);
+            Log("[opexpand] OpExpandNode -> count=" + Marshal.ReadInt32(countPtr));
+        }
+        catch (Exception e) { Log("[opexpand] OpExpandNode threw: " + Describe(e)); }
+
+        if (miRegist != null)
+        {
+            try
+            {
+                int rc = Convert.ToInt32(Invoke(miRegist, babyNode, count, game, outBuf), CultureInfo.InvariantCulture);
+                Log("[opexpand] RegistChildNode -> count=" + rc);
+            }
+            catch (Exception e) { Log("[opexpand] RegistChildNode threw: " + Describe(e)); }
+        }
+
+        if (_opExpandProbe >= 2)
+        {
+            // Replicate the OpSearch generation loop: expand every gen-1 child and
+            // report which parent (if any) breaks the arena/dedup.
+            IntPtr out2 = Marshal.AllocHGlobal(NodeStride * NodeCap);
+            Marshal.WriteInt32(countPtr, 0);
+            Invoke(miOpExpand, game, outBuf, countPtr);
+            int c1 = Marshal.ReadInt32(countPtr);
+            if (c1 < 0) c1 = 0;
+            if (c1 > NodeCap) c1 = NodeCap;
+            Log("[opexpand] gen1 count=" + c1);
+            for (int i = 0; i < c1; i++)
+            {
+                IntPtr parent = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                try
+                {
+                    Marshal.WriteInt32(countPtr, 0);
+                    Invoke(miOpExpand, parent, out2, countPtr);
+                    Log("[opexpand] gen2[" + i + "] count=" + Marshal.ReadInt32(countPtr)
+                        + " fallM=" + Marshal.ReadInt32(parent, 44)
+                        + " lockM=" + Marshal.ReadInt32(parent, 76)
+                        + " lockX=" + Marshal.ReadInt32(parent, 64)
+                        + " lockY=" + Marshal.ReadInt32(parent, 68)
+                        + " lockR=" + Marshal.ReadInt32(parent, 72)
+                        + " stack=" + Marshal.ReadInt32(parent, 224)
+                        + " lb=" + Marshal.ReadInt32(parent, 228));
+                }
+                catch (Exception e)
+                {
+                    Log("[opexpand] gen2[" + i + "] THREW: " + Describe(e));
+                    IntPtr ec2 = Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaExpandExpandedChild));
+                    StringBuilder bs = new StringBuilder("[opexpand] child buckets after throw: ec=0x"
+                        + ec2.ToInt64().ToString("x") + " ");
+                    for (int k = 0; k < 40; k++)
+                    {
+                        int cnt = Marshal.ReadInt32(new IntPtr(ec2.ToInt64() + k * 168));
+                        if (cnt == 0) continue;
+                        long p0 = Marshal.ReadInt64(new IntPtr(ec2.ToInt64() + k * 168 + 8));
+                        bs.Append(k).Append(":c=").Append(cnt).Append(":p0=0x").Append(p0.ToString("x")).Append(' ');
+                    }
+                    Log(bs.ToString());
+                    Log("[opexpand] parent fallM=" + Marshal.ReadInt32(parent, 44)
+                        + " lockM=" + Marshal.ReadInt32(parent, 76)
+                        + " lockX=" + Marshal.ReadInt32(parent, 64)
+                        + " lockY=" + Marshal.ReadInt32(parent, 68)
+                        + " lockR=" + Marshal.ReadInt32(parent, 72)
+                        + " stack=" + Marshal.ReadInt32(parent, 224)
+                        + " lb=" + Marshal.ReadInt32(parent, 228));
+                    break;
+                }
+            }
+            Marshal.FreeHGlobal(out2);
+        }
+
+        if (_opExpandProbe >= 4)
+        {
+            IntPtr out2 = Marshal.AllocHGlobal(NodeStride * NodeCap);
+            Invoke(miOpExpand, game, outBuf, countPtr);
+            int c1 = Marshal.ReadInt32(countPtr);
+            if (c1 < 0) c1 = 0;
+            if (c1 > NodeCap) c1 = NodeCap;
+            IntPtr ec = Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaExpandExpandedChild));
+            for (int i = 0; i < c1; i++)
+            {
+                IntPtr parent = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                try
+                {
+                    Marshal.WriteInt32(countPtr, 0);
+                    Invoke(miOpExpand, parent, out2, countPtr);
+                }
+                catch (Exception e)
+                {
+                    Log("[buckets] parent " + i + " threw: " + e.Message);
+                    continue;
+                }
+                StringBuilder sb = new StringBuilder("[buckets] parent " + i + " counts=");
+                for (int k = 0; k < 40; k++)
+                {
+                    int cnt = Marshal.ReadInt32(new IntPtr(ec.ToInt64() + k * 168));
+                    if (cnt > 0) sb.Append(k).Append(':').Append(cnt).Append(' ');
+                }
+                Log(sb.ToString());
+            }
+            Marshal.FreeHGlobal(out2);
+        }
+
+        if (_opExpandProbe >= 3)
+        {
+            const int Big = 4096;
+            IntPtr gen2 = Marshal.AllocHGlobal(NodeStride * Big);
+            IntPtr gen3 = Marshal.AllocHGlobal(NodeStride * Big);
+            int c1 = 0;
+            {
+                Marshal.WriteInt32(countPtr, 0);
+                Invoke(miOpExpand, game, outBuf, countPtr);
+                c1 = Marshal.ReadInt32(countPtr);
+                if (c1 < 0) c1 = 0;
+                if (c1 > NodeCap) c1 = NodeCap;
+            }
+            int g2 = 0;
+            for (int i = 0; i < c1; i++)
+            {
+                IntPtr parent = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                Marshal.WriteInt32(countPtr, 0);
+                Invoke(miOpExpand, parent, new IntPtr(gen2.ToInt64() + (long)g2 * NodeStride), countPtr);
+                int n = Marshal.ReadInt32(countPtr);
+                if (n < 0) n = 0;
+                if (g2 + n > Big) n = Big - g2;
+                g2 += n;
+            }
+            Log("[opexpand] gen2 total=" + g2);
+            {
+                IntPtr mod0 = ModuleBase();
+                Log("[opexpand] statics before gen3: expandedChild=0x"
+                    + Marshal.ReadIntPtr(new IntPtr(mod0.ToInt64() + RvaExpandExpandedChild)).ToInt64().ToString("x"));
+            }
+            for (int j = 0; j < g2; j++)
+            {
+                IntPtr parent = new IntPtr(gen2.ToInt64() + j * NodeStride);
+                try
+                {
+                    Marshal.WriteInt32(countPtr, 0);
+                    Invoke(miOpExpand, parent, gen3, countPtr);
+                }
+                catch (Exception e)
+                {
+                    IntPtr mod = ModuleBase();
+                    Log("[opexpand] gen3[" + j + "/" + g2 + "] THREW: " + Describe(e));
+                    Log("[opexpand] statics after throw: expandedChild=0x"
+                        + Marshal.ReadIntPtr(new IntPtr(mod.ToInt64() + RvaExpandExpandedChild)).ToInt64().ToString("x")
+                        + " expandedBaby=0x"
+                        + Marshal.ReadIntPtr(new IntPtr(mod.ToInt64() + RvaExpandExpandedBaby)).ToInt64().ToString("x")
+                        + " babyNode=0x"
+                        + Marshal.ReadIntPtr(new IntPtr(mod.ToInt64() + RvaExpandBabyNode)).ToInt64().ToString("x"));
+                    Log("[opexpand] parent lock=(" + Marshal.ReadInt32(parent, 64) + ","
+                        + Marshal.ReadInt32(parent, 68) + "," + Marshal.ReadInt32(parent, 72) + ","
+                        + Marshal.ReadInt32(parent, 76) + ")"
+                        + " fall=(" + Marshal.ReadInt32(parent, 32) + ","
+                        + Marshal.ReadInt32(parent, 36) + "," + Marshal.ReadInt32(parent, 40) + ","
+                        + Marshal.ReadInt32(parent, 44) + ")"
+                        + " stack=" + Marshal.ReadInt32(parent, 224)
+                        + " lb=" + Marshal.ReadInt32(parent, 228)
+                        + " act=" + Marshal.ReadInt32(parent, 296)
+                        + " combo=" + Marshal.ReadInt32(parent, 288)
+                        + " btb=" + Marshal.ReadInt32(parent, 292)
+                        + " delay=" + Marshal.ReadInt32(parent, 280));
+                    Log("[opexpand] parent rows=" + BoardRowsOf(parent));
+                    break;
+                }
+            }
+            Marshal.FreeHGlobal(gen3);
+            Marshal.FreeHGlobal(gen2);
+        }
+
+        Marshal.FreeHGlobal(chPtr);
+        Marshal.FreeHGlobal(countPtr);
+        Marshal.FreeHGlobal(outBuf);
+    }
+
+    private static string BoardRowsOf(IntPtr node)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int r = 0; r < 32; r++)
+        {
+            if (r > 0) sb.Append(',');
+            sb.Append(Marshal.ReadInt32(node, 96 + r * 4));
+        }
+        return sb.ToString();
+    }
+
+    private static void DumpBabyArena(IntPtr babyNode, int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            IntPtr b = new IntPtr(babyNode.ToInt64() + i * 120);
+            Log("BABY " + i
+                + " x=" + Marshal.ReadInt32(b, 0)
+                + " y=" + Marshal.ReadInt32(b, 4)
+                + " r=" + Marshal.ReadInt32(b, 8)
+                + " m=" + Marshal.ReadInt32(b, 12)
+                + " lastSrs=" + Marshal.ReadInt32(b, 16)
+                + " bugG=" + Marshal.ReadInt32(b, 20)
+                + " delay=" + Marshal.ReadInt32(b, 80)
+                + " len=" + Marshal.ReadInt32(b, 84)
+                + " hold=" + Marshal.ReadInt32(b, 88)
+                + " swapped=" + Marshal.ReadInt32(b, 92)
+                + " nextM=0x" + Marshal.ReadIntPtr(b, 104).ToInt64().ToString("x")
+                + " fit=" + Marshal.ReadIntPtr(b, 112).ToInt64().ToString("x"));
+        }
     }
 
     private static void RunExpandProbes(IntPtr root)

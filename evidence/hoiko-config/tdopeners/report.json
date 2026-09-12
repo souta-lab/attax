@@ -1,0 +1,131 @@
+{
+  "cases": [
+    {
+      "name": "td-L-4",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-T-4",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-T-5",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-S-4",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-S-5",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-Z-4",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-Z-5",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-Z-6",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-S-7",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-L-2",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-J-5",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-J-3",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-0",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-6",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-7",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-8",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-16",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-22",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "phase-30",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "td-off-phase6",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "origin-all-hold4",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "origin-missing",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "loop-rearm-hold4-rem5",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "loop-nohold-rem6",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "loop-noflag",
+      "ok": true,
+      "diffs": []
+    }
+  ],
+  "passed": 25,
+  "total": 25
+}

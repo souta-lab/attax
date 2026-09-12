@@ -25,6 +25,7 @@ pub mod probe_trace;
 pub mod search;
 pub mod shapes;
 pub mod srs;
+pub mod template_ai;
 pub mod weight_index;
 pub mod weights;
 
