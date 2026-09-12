@@ -1,4 +1,5 @@
 import type { GameSnapshot } from "../ui/types.js";
+import { resolveVersusConfig } from "../versus/config.js";
 import {
   createVersusController,
   type SideState,
@@ -144,7 +145,12 @@ function runScenario(input: ScenarioRunInput): FitnessScenarioResult {
 function runMatch(input: MatchRunInput): FitnessMatchResult {
   const leftFighter = controllerFighter(input.factories.leftFactory(), "fitness-left");
   const rightFighter = controllerFighter(input.factories.rightFactory(), "fitness-right");
-  const controller = createVersusController(leftFighter, rightFighter, input.seed);
+  const controller = createVersusController(
+    leftFighter,
+    rightFighter,
+    input.seed,
+    resolveVersusConfig(),
+  );
   const leftMetrics = createMetrics();
   const rightMetrics = createMetrics();
   let ticks = 0;

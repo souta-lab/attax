@@ -5,6 +5,7 @@
 // can be imported by the worker without executing the gate's main().
 
 import type { GameSnapshot } from "../ui/types.js";
+import { resolveVersusConfig } from "../versus/config.js";
 import {
   createVersusController,
   type SideState,
@@ -126,7 +127,7 @@ export function runTunerMatch(
   right: VersusFighter,
   maxTicks: number = TUNER_MAX_TICKS,
 ): MatchOutcome {
-  const controller = createVersusController(left, right, seed);
+  const controller = createVersusController(left, right, seed, resolveVersusConfig());
   const leftMetrics = freshMetrics();
   const rightMetrics = freshMetrics();
   let ticks = 0;

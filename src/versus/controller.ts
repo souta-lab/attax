@@ -8,6 +8,7 @@ import type {
   GameSnapshot,
 } from "../ui/types.js";
 import { COLS } from "../ui/types.js";
+import { resolveVersusConfig, VERSUS_MATCH_CONFIG } from "./config.js";
 
 /**
  * Upper bound for a single tick. The app already clamps rAF deltas to 250ms;
@@ -271,11 +272,14 @@ export function createVersusController(
   leftFighter: VersusFighter,
   rightFighter: VersusFighter,
   seed: number,
-  config: VersusControllerConfig = {},
+  config: VersusControllerConfig = VERSUS_MATCH_CONFIG,
 ): VersusController {
+  // Resolve through the canonical config (issue #25): a partial override can
+  // never silently unset `garbageAligned`/`garbageDelay` back to engine defaults.
+  const resolved = resolveVersusConfig(config);
   const engineOptions: EngineOptions = {
-    ...(config.garbageDelay === undefined ? {} : { garbageDelay: config.garbageDelay }),
-    ...(config.garbageAligned === undefined ? {} : { garbageAligned: config.garbageAligned }),
+    garbageDelay: resolved.garbageDelay,
+    garbageAligned: resolved.garbageAligned,
   };
   const mkSide = (side: VersusSide, fighter: VersusFighter): SideState => ({
     side,

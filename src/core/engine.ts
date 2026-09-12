@@ -75,7 +75,7 @@ export interface EngineOptions {
   readonly random?: () => number;
   /** Locks a pending garbage chunk waits before spawning (default GARBAGE_DELAY). */
   readonly garbageDelay?: number | undefined;
-  /** Share one hole column across all rows of a garbage chunk (PPT-style). */
+  /** Share one hole column across all rows of a garbage chunk (strict; see versus/config.ts). */
   readonly garbageAligned?: boolean | undefined;
 }
 

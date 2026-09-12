@@ -16,6 +16,7 @@ const seeds = process.argv
 if (seeds.length === 0) seeds.push(1, 7);
 
 const { createVersusController, VERSUS_DEFAULTS } = await import(`${BASE}/versus/controller.js`);
+const { resolveVersusConfig } = await import(`${BASE}/versus/config.js`);
 const { createDeepSeekTetris } = await import(`${BASE}/ai/deepseek.js`);
 const { createRustHoiko } = await import(`${BASE}/../tools/hoiko-rust/loader.js`);
 
@@ -110,6 +111,7 @@ for (const seed of seeds) {
       getDebug: () => hoikoDebug(),
     },
     seed,
+    resolveVersusConfig(),
   );
   let ticks = 0;
   let sinceDump = 0;

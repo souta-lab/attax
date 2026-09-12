@@ -10,6 +10,7 @@ import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko-faithful.js";
 import type { RustHoikoEngine } from "../src/ai/hoiko-rust-core.js";
 import type { HoikoPreset } from "../src/ai/hoiko-weights.js";
 import type { GameSnapshot } from "../src/ui/types.js";
+import { resolveVersusConfig } from "../src/versus/config.js";
 import {
   createVersusController,
   type SideState,
@@ -174,7 +175,7 @@ function finishMetrics(side: SideState, metrics: MutableMetrics): SideMetrics {
 }
 
 function runMatch(seed: number, ourFighter: VersusFighter, hoikoFighter: RustHoikoFighter): Row {
-  const controller = createVersusController(ourFighter, hoikoFighter, seed);
+  const controller = createVersusController(ourFighter, hoikoFighter, seed, resolveVersusConfig());
   const left = freshMetrics();
   const right = freshMetrics();
   let ticks = 0;

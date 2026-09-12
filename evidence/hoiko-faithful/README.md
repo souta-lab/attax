@@ -71,3 +71,28 @@ Fingerprints: faithful `6170045b`, baseline `ffb04fe2`.
   confirming the result reproduces on this machine.
 - `gate-v2-beam150-noadapt.jsonl` — beam-150/no-adaptation baseline (22-10).
 - `probe-adapt-runA.jsonl`, `probe-adapt-runB.jsonl` — same-config repeatability probe.
+
+## Unified garbage config (issue #25)
+
+`src/main.ts` constructed the controller with `{ garbageAligned: true }` while every
+harness passed no config, so the gate measured per-row holes instead of the app's rules.
+`src/versus/config.ts` (`VERSUS_MATCH_CONFIG`, `resolveVersusConfig`) is now the single
+source of truth for `src/main.ts`, `gate-v2`, `hoiko-gate`, `fitness`, `tuner/match` and
+`render`; `tests/versus-config.test.ts` fails if a call site drifts. The aligned value is
+kept because the Hoiko binary never generates garbage (PPT does) and the oracle cannot
+observe holes, PPT's ~30% intra-attack hole change is not representable by the engine's
+two modes, and strict alignment is the closer approximation and the app's shipped rule
+(full rationale in the `src/versus/config.ts` docstring).
+
+```bash
+DSV2_RUST=1 bun scripts/gate-v2.ts > evidence/hoiko-faithful/gate-v2-faithful-unified-garbage.jsonl
+```
+
+| Run | Garbage config | DSv2 wins | Hoiko wins | Hoiko lines / locks | Hoiko avg ms/decision | Fingerprint |
+|---|---|---|---|---|---|---|
+| faithful (pre-#25) | per-row (`undefined`) | 25 | 7 | 1182 / 2576 | 239.7 | `6170045b` |
+| **faithful + unified (#25)** | **aligned** (`garbageAligned: true`) | **27** | 5 | 1113 / 2270 | 244.4 | `8b0aecb3` |
+
+Both runs reached the full 32 seeds with 0 caps, 0 draws, 0 execution mismatches and 0
+expected-board failures. The #25 fix makes the gate measure the app's rules and improves
+the margin from 25-7 to 27-5 — same direction, no regression. Wall-clock caveat as above.
