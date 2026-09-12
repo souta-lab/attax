@@ -75,13 +75,22 @@ namespace ScpDriverInterface
 internal static class OracleHost
 {
     private const int RootBufSize = 8192;
+    // RootNode layout (SPEC_Search §1.3/§1.4): next@0, game@120; game fields:
+    // hold@+16, fallingMino@+32, board@+96, combo@+288, btb@+292, act@+296.
+    private const int OffHold = 136;
+    private const int OffFalling = 152;
     private const int OffBoard = 216;
+    private const int OffMoveDelay = 400;
+    private const int OffCombo = 408;
+    private const int OffBtb = 412;
+    private const int OffAct = 416;
     private const int OffElapsed = 432;
     private const int OffNodeCount = 440;
     private const int OffDepth = 444;
     private const int OffClear = 448;
     private const int OffBeam = 452;
     private const int OffFirstMove = 456;
+    private const int OffFirstMoveSrs = 472;
     private const int OffMoveSeq = 468;
 
     private static int _started;
@@ -89,6 +98,12 @@ internal static class OracleHost
     private static bool _startTimer;
     private static bool _twoSearch;
     private static int _offsetMode;
+    // Hold slot mino (opt-in via `hold=`): default 7 == MinoType.NONE, which is
+    // exactly what HoldMino.Init writes, so omitting the key is behavior-preserving.
+    private static int _hold = 7;
+    // Carried `Others` state (opt-in via `combo=` / `b2b=`), default 0 like Others.Init.
+    private static int _combo;
+    private static int _btb;
     private static FieldInfo _isEvenBoardField;
     private static bool _fieldScanDone;
     private static string _logPath;
@@ -170,6 +185,10 @@ internal static class OracleHost
             Log("     board row " + r + " mask=0x" + board[r].ToString("x3", CultureInfo.InvariantCulture));
         }
         Invoke(miUpdateMaxHeight, new IntPtr(buf.ToInt64() + OffBoard));
+        Marshal.WriteInt32(buf, OffHold, _hold);
+        Marshal.WriteInt32(buf, OffCombo, _combo);
+        Marshal.WriteInt32(buf, OffBtb, _btb);
+        Log("  input hold @136 = " + _hold + ", combo @408 = " + _combo + ", btb @412 = " + _btb);
         Log("  board.stackHeight @344 = " + Marshal.ReadInt32(buf, 344));
         Log("  fallingMino @152: x=" + Marshal.ReadInt32(buf, 152) + " y=" + Marshal.ReadInt32(buf, 156) + " r=" + Marshal.ReadInt32(buf, 160) + " m=" + Marshal.ReadInt32(buf, 164));
 
@@ -191,9 +210,22 @@ internal static class OracleHost
         Log("  beamLimit  @452 = " + Marshal.ReadInt32(buf, OffBeam));
         Log("  elapsed    @432 = " + BitConverter.Int64BitsToDouble(Marshal.ReadInt64(buf, OffElapsed)).ToString("0.000", CultureInfo.InvariantCulture));
         if (miGetDelay != null) Log("  GetDelay        = " + Convert.ToString(Invoke(miGetDelay, buf), CultureInfo.InvariantCulture));
-        Log("  moveDelay @400  = " + Marshal.ReadInt32(buf, 400));
-        Log("  act       @416  = " + Marshal.ReadInt32(buf, 416));
+        Log("  moveDelay @400  = " + Marshal.ReadInt32(buf, OffMoveDelay));
+        Log("  act       @416  = " + Marshal.ReadInt32(buf, OffAct));
+        Log("  firstMoveSrs @472 = " + Marshal.ReadInt32(buf, OffFirstMoveSrs));
         Log("  root GamePack board @216 row0 = 0x" + Marshal.ReadInt32(buf, 216).ToString("x3", CultureInfo.InvariantCulture));
+
+        Log("");
+        Log("---------- POST-MOVE ROOT STATE (WriteResult gen-1) ----------");
+        Log("postmove: hold=" + Marshal.ReadInt32(buf, OffHold)
+            + " combo=" + Marshal.ReadInt32(buf, OffCombo)
+            + " btb=" + Marshal.ReadInt32(buf, OffBtb)
+            + " act=" + Marshal.ReadInt32(buf, OffAct)
+            + " moveDelay=" + Marshal.ReadInt32(buf, OffMoveDelay)
+            + " fallX=" + Marshal.ReadInt32(buf, OffFalling)
+            + " fallY=" + Marshal.ReadInt32(buf, OffFalling + 4)
+            + " fallRot=" + Marshal.ReadInt32(buf, OffFalling + 8)
+            + " fallM=" + Marshal.ReadInt32(buf, OffFalling + 12));
 
         Log("");
         Log("-------------- CHOSEN MOVE (decoded) --------------");
@@ -225,6 +257,9 @@ internal static class OracleHost
                 if (board[r] != 0) Marshal.WriteInt32(buf2, OffBoard + r * 4, board[r]);
             }
             Invoke(miUpdateMaxHeight, new IntPtr(buf2.ToInt64() + OffBoard));
+            Marshal.WriteInt32(buf2, OffHold, _hold);
+            Marshal.WriteInt32(buf2, OffCombo, _combo);
+            Marshal.WriteInt32(buf2, OffBtb, _btb);
             Invoke(miSearch, buf2);
             Log("  search2 depth @444     = " + Marshal.ReadInt32(buf2, OffDepth));
             Log("  search2 beamLimit @452 = " + Marshal.ReadInt32(buf2, OffBeam));
@@ -310,6 +345,18 @@ internal static class OracleHost
             else if (key == "offset")
             {
                 _offsetMode = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "hold")
+            {
+                _hold = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "combo")
+            {
+                _combo = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "b2b" || key == "btb")
+            {
+                _btb = int.Parse(val, CultureInfo.InvariantCulture);
             }
         }
         Log("[input] loaded oracle_input.txt (board rows=" + board.Length + ", next=" + seq.Length + ")");
