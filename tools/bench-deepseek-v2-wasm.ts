@@ -10,7 +10,7 @@ import { createRustDeepSeekV2 } from "./deepseek-rust/loader.js";
 const ROWS = 20;
 const COLS = 10;
 const FIXTURE = new URL(
-  "../rust/hoiko-deepseek/tests/fixtures/deepseek_v2_parity.json",
+  "../rust/deepseek-rust/tests/fixtures/deepseek_v2_parity.json",
   import.meta.url,
 );
 

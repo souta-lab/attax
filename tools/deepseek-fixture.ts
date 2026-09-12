@@ -1,5 +1,5 @@
 // Generates the DeepSeek parity fixture consumed by
-// rust/hoiko-deepseek/tests/parity.rs.
+// rust/deepseek-rust/tests/parity.rs.
 //
 // Usage: bun tools/deepseek-fixture.ts
 //
@@ -12,7 +12,7 @@ import type { CellValue, GameSnapshot, PieceKind } from "../src/ui/types.js";
 
 const ROWS = 20;
 const COLS = 10;
-const OUT = new URL("../rust/hoiko-deepseek/tests/fixtures/deepseek_parity.json", import.meta.url);
+const OUT = new URL("../rust/deepseek-rust/tests/fixtures/deepseek_parity.json", import.meta.url);
 
 interface CaseSpec {
   readonly name: string;

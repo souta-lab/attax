@@ -1,7 +1,7 @@
 /**
  * WASM-backed DeepSeek v2 `DeepSeekV2` fighter.
  *
- * Wraps the verified Rust port (`rust/hoiko-deepseek` + `rust/deepseek-wasm`)
+ * Wraps the verified Rust port (`rust/deepseek-rust` + `rust/deepseek-wasm`)
  * via its single-call-per-move `ds_best_move` ABI. The host marshals a
  * `GameSnapshot` into the `DsInput` `#[repr(C)]` layout, calls `ds_best_move`,
  * and rebuilds a faithful `placeAt` execution plan (landing row + T-spin

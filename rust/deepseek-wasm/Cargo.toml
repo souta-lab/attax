@@ -7,4 +7,4 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-hoiko-deepseek = { path = "../hoiko-deepseek" }
+deepseek-rust = { path = "../deepseek-rust" }

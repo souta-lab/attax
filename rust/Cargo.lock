@@ -3,22 +3,22 @@
 version = 4
 
 [[package]]
+name = "deepseek-rust"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "deepseek-wasm"
 version = "0.1.0"
 dependencies = [
- "hoiko-deepseek",
+ "deepseek-rust",
 ]
 
 [[package]]
 name = "hoiko-core"
 version = "0.1.0"
-
-[[package]]
-name = "hoiko-deepseek"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
 
 [[package]]
 name = "hoiko-wasm"

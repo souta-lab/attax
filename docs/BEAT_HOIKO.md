@@ -84,7 +84,7 @@ lines). The gate accepts `HOIKO_BEAM` to sweep this.
 DeepSeek v2 is wired as the app's versus fighter (`src/main.ts`). Reproduce the main
 result with `bun scripts/gate-v2.ts`.
 
-DeepSeek v2 is also ported to Rust (`rust/hoiko-deepseek`, `src/v2.rs` + `v2_score.rs` +
+DeepSeek v2 is also ported to Rust (`rust/deepseek-rust`, `src/v2.rs` + `v2_score.rs` +
 `kick.rs` + `tspin.rs`) with a differential parity test against the TS v2 and a bench
 (`examples/bench_deepseek_v2.rs`). It is compiled to wasm (`rust/deepseek-wasm` ->
 `src/ai/wasm/deepseek_v2.wasm`) and the app/gate run it (`src/main.ts`, `DSV2_RUST=1`).

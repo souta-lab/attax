@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use hoiko_deepseek::{
+use deepseek_rust::{
     Board, PieceKind, V2Input, V2Move, V2OpponentTelemetry, V2Options, find_best_move_v2,
 };
 use serde_json::Value;

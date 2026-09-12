@@ -1,4 +1,4 @@
-use hoiko_deepseek::{
+use deepseek_rust::{
     Board, PieceKind, V2Input, V2OpponentTelemetry, V2Options, find_best_move_v2_details,
 };
 

@@ -4,7 +4,7 @@
 
 use std::time::Instant;
 
-use hoiko_deepseek::{BestMoveInput, Board, PieceKind, best_move};
+use deepseek_rust::{BestMoveInput, Board, PieceKind, best_move};
 use serde_json::Value;
 
 fn parse_kind(s: &str) -> PieceKind {
@@ -59,7 +59,7 @@ fn load_positions() -> Vec<Position> {
         .collect()
 }
 
-fn run(position: &Position) -> Option<hoiko_deepseek::Move> {
+fn run(position: &Position) -> Option<deepseek_rust::Move> {
     best_move(&BestMoveInput {
         board: &position.board,
         active: position.active,

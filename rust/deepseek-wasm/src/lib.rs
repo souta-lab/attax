@@ -1,4 +1,4 @@
-//! wasm32 cdylib wrapper for the Rust DeepSeek v2 fighter (`hoiko-deepseek`).
+//! wasm32 cdylib wrapper for the Rust DeepSeek v2 fighter (`deepseek-rust`).
 //!
 //! Mirrors `rust/hoiko-wasm`: the engine is pure and deterministic, verified
 //! natively (`cargo test`), and only compiled to wasm for shipping. The host
