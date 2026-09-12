@@ -7,7 +7,9 @@ use std::rc::Rc;
 use crate::board::{Board, BOARD_HEIGHT};
 use crate::evaluate::{evaluate, evaluate_first};
 use crate::expand::expand_node;
+use crate::expand_derive::get_above_cell;
 use crate::gamepack::GamePack;
+use crate::mino::FallMino;
 use crate::nextmino::NextMino;
 use crate::shapes::{MinoType, ACT_NONE};
 use crate::weights::HoikoWeights;
@@ -104,4 +106,56 @@ pub fn expand_probe(input: &ProbeInput, allow_hold: bool) -> ProbeExpand {
         })
         .collect();
     ProbeExpand { count: children.len(), hold_used, children }
+}
+
+pub struct DumpChild {
+    pub hold_used: bool,
+    pub tuck: bool,
+    pub placed_x: i32,
+    pub placed_r: i32,
+    pub placed_m: MinoType,
+    pub act: i32,
+    pub stack_height: i32,
+    pub move_delay: i32,
+    pub falling_m: MinoType,
+    pub hold_m: MinoType,
+    pub combo: i32,
+    pub btb: i32,
+    pub board: [i32; BOARD_HEIGHT],
+}
+
+pub fn tuck_probe(board: &[i32], m: MinoType, r: i32, x: i32, y: i32) -> bool {
+    let mut b = Board::default();
+    for (i, row) in board.iter().enumerate().take(BOARD_HEIGHT) {
+        b.line[i] = *row;
+    }
+    b.update_max_height();
+    let mut ch = [-1i32; 10];
+    b.get_column_height(&mut ch);
+    let mino = FallMino { x, y, r, m, ..FallMino::default() };
+    get_above_cell(&ch, &mino) == 1
+}
+
+pub fn expand_dump_probe(input: &ProbeInput, allow_hold: bool) -> Vec<DumpChild> {
+    let g = build_root(input);
+    let mut ch = [-1i32; 10];
+    g.board.get_column_height(&mut ch);
+    expand_node(&g, allow_hold)
+        .into_iter()
+        .map(|c| DumpChild {
+            hold_used: c.hold_used,
+            tuck: get_above_cell(&ch, &c.game.locked_mino) == 1,
+            placed_x: c.placed_x,
+            placed_r: c.placed_r,
+            placed_m: c.placed_m,
+            act: c.act,
+            stack_height: c.game.board.stack_height,
+            move_delay: c.game.commands.move_delay,
+            falling_m: c.game.falling_mino.m,
+            hold_m: c.game.hold.m,
+            combo: c.game.combo,
+            btb: c.game.btb,
+            board: c.game.board.line,
+        })
+        .collect()
 }

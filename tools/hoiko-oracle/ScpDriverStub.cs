@@ -91,13 +91,27 @@ internal static class OracleHost
     private const int OffBeam = 452;
     private const int OffFirstMove = 456;
     private const int OffFirstMoveSrs = 472;
-    private const int OffMoveSeq = 468;
+    // SearchResult.plans.mino[i] starts at RootNode+456+32*i (SPEC_Search §1.6);
+    // mino[i].m is at +468+32*i. The old 468 base misaligned the seq[] dump by 12.
+    private const int OffMoveSeq = 456;
+    private const int OffPlanAct = 904;
 
     private static int _started;
     private static bool _initDone;
     private static bool _startTimer;
     private static bool _twoSearch;
     private static int _offsetMode;
+    // Expand-probe mode (`expand=1`): call ExpandAI.ExpandNode directly on the
+    // root, then follow `path=x:rot:m,...` through the chosen children.
+    private static int _expandMode;
+    private static string _expandPath = "";
+    // Batch expand mode (`expand_multi=1`): expand every `board|next|hold|combo|b2b`
+    // line of `positions_file` (default expand_positions.txt) in one process.
+    private static int _expandMulti;
+    private static string _expandMultiFile = "expand_positions.txt";
+    // Optional falling-piece spawn height (`fally=`), written after the board so
+    // the searched state matches the replica's `build_root` spawn. -1 = leave it.
+    private static int _fallY = -1;
     // Hold slot mino (opt-in via `hold=`): default 7 == MinoType.NONE, which is
     // exactly what HoldMino.Init writes, so omitting the key is behavior-preserving.
     private static int _hold = 7;
@@ -185,12 +199,31 @@ internal static class OracleHost
             Log("     board row " + r + " mask=0x" + board[r].ToString("x3", CultureInfo.InvariantCulture));
         }
         Invoke(miUpdateMaxHeight, new IntPtr(buf.ToInt64() + OffBoard));
+        if (_fallY >= 0) Marshal.WriteInt32(buf, OffFalling + 4, _fallY);
         Marshal.WriteInt32(buf, OffHold, _hold);
         Marshal.WriteInt32(buf, OffCombo, _combo);
         Marshal.WriteInt32(buf, OffBtb, _btb);
         Log("  input hold @136 = " + _hold + ", combo @408 = " + _combo + ", btb @412 = " + _btb);
         Log("  board.stackHeight @344 = " + Marshal.ReadInt32(buf, 344));
         Log("  fallingMino @152: x=" + Marshal.ReadInt32(buf, 152) + " y=" + Marshal.ReadInt32(buf, 156) + " r=" + Marshal.ReadInt32(buf, 160) + " m=" + Marshal.ReadInt32(buf, 164));
+
+        if (_expandMode != 0)
+        {
+            Log("[5] expand probe (SearchAI.Search skipped)");
+            RunExpandProbes(buf);
+            Marshal.FreeHGlobal(buf);
+            Marshal.FreeHGlobal(nx);
+            return true;
+        }
+
+        if (_expandMulti != 0)
+        {
+            Log("[5] batch expand probe (SearchAI.Search skipped)");
+            RunExpandMulti(miRootInit, miUpdateMaxHeight);
+            Marshal.FreeHGlobal(buf);
+            Marshal.FreeHGlobal(nx);
+            return true;
+        }
 
         DateTime t0 = DateTime.UtcNow;
         Log("[5] SearchAI.Search(root)");
@@ -230,11 +263,25 @@ internal static class OracleHost
         Log("");
         Log("-------------- CHOSEN MOVE (decoded) --------------");
         DumpFallMino("firstMove @456", buf, OffFirstMove);
-        for (int i = 0; i < 14; i++)
+        int planDepth = Marshal.ReadInt32(buf, OffDepth);
+        if (planDepth < 0) planDepth = 0;
+        if (planDepth > 14) planDepth = 14;
+        for (int i = 0; i < planDepth; i++)
         {
             int off = OffMoveSeq + i * 32;
-            if (Marshal.ReadInt32(buf, off) == 7 && i > 0) { Log("      seq[" + i + "] sentinel(7) - end"); break; }
-            DumpFallMino("seq[" + i + "] @" + off, buf, off);
+            int m = Marshal.ReadInt32(buf, off + 12);
+            int srs = Marshal.ReadInt32(buf, off + 16);
+            if (m == 7 && srs == 8)
+            {
+                Log("  seq[" + i + "] @" + off + ": drawingBreak (m=None lastSrs=8) raw " + Hex(buf, off, 32));
+                continue;
+            }
+            Log("  seq[" + i + "] @" + off + ": x=" + Marshal.ReadInt32(buf, off)
+                + " y=" + Marshal.ReadInt32(buf, off + 4)
+                + " rot=" + Marshal.ReadInt32(buf, off + 8)
+                + " m=" + m
+                + " act=" + Marshal.ReadInt32(buf, OffPlanAct + i * 4)
+                + " raw " + Hex(buf, off, 32));
         }
 
         Log("");
@@ -346,6 +393,26 @@ internal static class OracleHost
             {
                 _offsetMode = int.Parse(val, CultureInfo.InvariantCulture);
             }
+            else if (key == "expand")
+            {
+                _expandMode = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "path")
+            {
+                _expandPath = val;
+            }
+            else if (key == "expand_multi")
+            {
+                _expandMulti = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "positions_file")
+            {
+                _expandMultiFile = val;
+            }
+            else if (key == "fally")
+            {
+                _fallY = int.Parse(val, CultureInfo.InvariantCulture);
+            }
             else if (key == "hold")
             {
                 _hold = int.Parse(val, CultureInfo.InvariantCulture);
@@ -441,8 +508,7 @@ internal static class OracleHost
     }
 
     private static void RunOffsetProbes(IntPtr root, MethodInfo miUpdateMaxHeight)
-    {
-        _miUpdateMaxHeight = miUpdateMaxHeight;
+    {        _miUpdateMaxHeight = miUpdateMaxHeight;
         // Global (mixed-mode <Module>) methods are not enumerable via reflection;
         // resolve them by their verified metadata tokens (RID from monodis --method).
         Log("[gfind] manifest global methods = " + _asm.ManifestModule.GetMethods().Length + " (tokens used instead)");
@@ -553,6 +619,216 @@ internal static class OracleHost
             for (int g = 0; g <= 15; g++) sb.Append((bool)Invoke(canOff, g) ? 1 : 0);
             Log(sb.ToString());
         }
+    }
+
+    private const int NodeStride = 328;
+    private const int NodeCap = 300;
+
+    private static int[][] ParseExpandPath()
+    {
+        if (_expandPath.Length == 0) return new int[0][];
+        string[] items = _expandPath.Split(',');
+        int[][] path = new int[items.Length][];
+        for (int i = 0; i < items.Length; i++)
+        {
+            string[] p = items[i].Split(':');
+            if (p.Length < 3) { Log("[expand] bad path item: " + items[i]); return new int[0][]; }
+            path[i] = new int[] {
+                int.Parse(p[0].Trim(), CultureInfo.InvariantCulture),
+                int.Parse(p[1].Trim(), CultureInfo.InvariantCulture),
+                int.Parse(p[2].Trim(), CultureInfo.InvariantCulture),
+                p.Length > 3 ? int.Parse(p[3].Trim(), CultureInfo.InvariantCulture) : -1,
+            };
+        }
+        return path;
+    }
+
+    private static void RunExpandProbes(IntPtr root)
+    {
+        MethodInfo miExpand = Resolve(0x060001ea, "ExpandAI.ExpandNode", 3);
+        if (miExpand == null) { Log("[expand] ExpandAI.ExpandNode missing"); return; }
+
+        int[][] path = ParseExpandPath();
+        int bufSize = NodeStride * NodeCap;
+        IntPtr bufA = Marshal.AllocHGlobal(bufSize);
+        IntPtr bufB = Marshal.AllocHGlobal(bufSize);
+        IntPtr countPtr = Marshal.AllocHGlobal(4);
+
+        Log("");
+        Log("=============== EXPAND PROBES ===============");
+        Log("[expand] generations=" + (path.Length + 1));
+
+        IntPtr game = new IntPtr(root.ToInt64() + 120);
+        int gens = path.Length + 1;
+        for (int k = 0; k < gens; k++)
+        {
+            IntPtr outBuf = (k % 2 == 0) ? bufA : bufB;
+            Marshal.WriteInt32(countPtr, 0);
+            Invoke(miExpand, game, outBuf, countPtr);
+            int count = Marshal.ReadInt32(countPtr);
+            if (count < 0) count = 0;
+            if (count > NodeCap) count = NodeCap;
+            int safe = (Marshal.ReadInt32(game, 224) < Marshal.ReadInt32(game, 36) - 3) ? 1 : 0;
+            Log("GEN " + k + " count=" + count + " safe=" + safe
+                + " curM=" + Marshal.ReadInt32(game, 44)
+                + " holdM=" + Marshal.ReadInt32(game, 16)
+                + " combo=" + Marshal.ReadInt32(game, 288)
+                + " btb=" + Marshal.ReadInt32(game, 292));
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr child = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                DumpExpandChild(k, i, child, root);
+            }
+            if (k >= path.Length) break;
+            int sel = -1;
+            int matches = 0;
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr child = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                if (Marshal.ReadInt32(child, 64) == path[k][0]
+                    && (Marshal.ReadInt32(child, 72) & 3) == path[k][1]
+                    && (path[k][2] < 0 || Marshal.ReadInt32(child, 76) == path[k][2])
+                    && (path[k][3] < 0 || Marshal.ReadInt32(child, 296) == path[k][3]))
+                {
+                    if (sel < 0) sel = i;
+                    matches++;
+                }
+            }
+            if (sel < 0)
+            {
+                Log("PATH " + k + " NOT_FOUND x=" + path[k][0] + " rot=" + path[k][1] + " m=" + path[k][2]);
+                break;
+            }
+            Log("PATH " + k + " sel=" + sel + " matches=" + matches
+                + " x=" + path[k][0] + " rot=" + path[k][1] + " m=" + path[k][2]);
+            game = new IntPtr(outBuf.ToInt64() + sel * NodeStride);
+        }
+        Marshal.FreeHGlobal(countPtr);
+        Marshal.FreeHGlobal(bufA);
+        Marshal.FreeHGlobal(bufB);
+    }
+
+    private static void RunExpandMulti(MethodInfo miRootInit, MethodInfo miUpdateMaxHeight)
+    {
+        MethodInfo miExpand = Resolve(0x060001ea, "ExpandAI.ExpandNode", 3);
+        if (miExpand == null) { Log("[expand-multi] ExpandAI.ExpandNode missing"); return; }
+
+        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, _expandMultiFile);
+        if (!File.Exists(path)) { Log("[expand-multi] positions file not found: " + path); return; }
+
+        IntPtr root = Marshal.AllocHGlobal(RootBufSize);
+        IntPtr nx = Marshal.AllocHGlobal(28 * 4);
+        IntPtr outBuf = Marshal.AllocHGlobal(NodeStride * NodeCap);
+        IntPtr countPtr = Marshal.AllocHGlobal(4);
+
+        Log("");
+        Log("=============== EXPAND MULTI ===============");
+        int pos = 0;
+        foreach (string raw in File.ReadAllLines(path))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith("#")) continue;
+
+            int[] board = new int[32];
+            int[] seq = new int[28];
+            for (int i = 0; i < 28; i++) seq[i] = 7;
+            int hold = _hold;
+            int combo = _combo;
+            int btb = _btb;
+            int fallY = _fallY;
+            foreach (string field in line.Split('|'))
+            {
+                int eq = field.IndexOf('=');
+                if (eq <= 0) continue;
+                string key = field.Substring(0, eq).Trim().ToLowerInvariant();
+                string val = field.Substring(eq + 1).Trim();
+                string[] parts = val.Split(',');
+                if (key == "board")
+                {
+                    for (int i = 0; i < parts.Length && i < 32; i++)
+                        board[i] = (int)long.Parse(parts[i].Trim().Replace("0x", ""), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                }
+                else if (key == "next")
+                {
+                    for (int i = 0; i < parts.Length && i < 28; i++)
+                        seq[i] = int.Parse(parts[i].Trim(), CultureInfo.InvariantCulture);
+                }
+                else if (key == "hold") hold = int.Parse(val, CultureInfo.InvariantCulture);
+                else if (key == "combo") combo = int.Parse(val, CultureInfo.InvariantCulture);
+                else if (key == "b2b" || key == "btb") btb = int.Parse(val, CultureInfo.InvariantCulture);
+                else if (key == "fally") fallY = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+
+            for (int i = 0; i < RootBufSize; i += 8) Marshal.WriteInt64(root, i, 0L);
+            for (int i = 0; i < 28; i++) Marshal.WriteInt32(nx, i * 4, seq[i]);
+            Invoke(miRootInit, root, nx);
+            for (int r = 0; r < 32; r++) Marshal.WriteInt32(root, OffBoard + r * 4, board[r]);
+            Invoke(miUpdateMaxHeight, new IntPtr(root.ToInt64() + OffBoard));
+            if (fallY >= 0) Marshal.WriteInt32(root, OffFalling + 4, fallY);
+            Marshal.WriteInt32(root, OffHold, hold);
+            Marshal.WriteInt32(root, OffCombo, combo);
+            Marshal.WriteInt32(root, OffBtb, btb);
+
+            Marshal.WriteInt32(countPtr, 0);
+            IntPtr game = new IntPtr(root.ToInt64() + 120);
+            Invoke(miExpand, game, outBuf, countPtr);
+            int count = Marshal.ReadInt32(countPtr);
+            if (count < 0) count = 0;
+            if (count > NodeCap) count = NodeCap;
+            int safe = (Marshal.ReadInt32(game, 224) < Marshal.ReadInt32(game, 36) - 3) ? 1 : 0;
+            Log("POS " + pos + " count=" + count + " safe=" + safe
+                + " curM=" + Marshal.ReadInt32(game, 44)
+                + " holdM=" + Marshal.ReadInt32(game, 16)
+                + " combo=" + Marshal.ReadInt32(game, 288)
+                + " btb=" + Marshal.ReadInt32(game, 292));
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr child = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                DumpExpandChild(pos, i, child, root);
+            }
+            pos++;
+        }
+        Marshal.FreeHGlobal(countPtr);
+        Marshal.FreeHGlobal(outBuf);
+        Marshal.FreeHGlobal(nx);
+        Marshal.FreeHGlobal(root);
+    }
+
+    private static void DumpExpandChild(int gen, int index, IntPtr child, IntPtr root)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.Append("CHILD ").Append(gen).Append(' ').Append(index);
+        sb.Append(" x=").Append(Marshal.ReadInt32(child, 64));
+        sb.Append(" y=").Append(Marshal.ReadInt32(child, 68));
+        sb.Append(" rot=").Append(Marshal.ReadInt32(child, 72));
+        sb.Append(" m=").Append(Marshal.ReadInt32(child, 76));
+        sb.Append(" fallM=").Append(Marshal.ReadInt32(child, 44));
+        sb.Append(" holdM=").Append(Marshal.ReadInt32(child, 16));
+        sb.Append(" combo=").Append(Marshal.ReadInt32(child, 288));
+        sb.Append(" btb=").Append(Marshal.ReadInt32(child, 292));
+        sb.Append(" act=").Append(Marshal.ReadInt32(child, 296));
+        sb.Append(" delay=").Append(Marshal.ReadInt32(child, 280));
+        sb.Append(" stack=").Append(Marshal.ReadInt32(child, 96 + 128));
+        sb.Append(" lb=").Append(Marshal.ReadInt32(child, 96 + 132));
+        sb.Append(" rows=");
+        for (int r = 0; r < 32; r++)
+        {
+            if (r > 0) sb.Append(',');
+            sb.Append(Marshal.ReadInt32(child, 96 + r * 4));
+        }
+        IntPtr mPtr = Marshal.ReadIntPtr(child, 0);
+        long limit = root.ToInt64() + 112;
+        int qn = 0;
+        if (mPtr.ToInt64() >= root.ToInt64() && mPtr.ToInt64() <= limit)
+            qn = (int)((limit - mPtr.ToInt64()) / 4);
+        if (qn > 28) qn = 28;
+        sb.Append(" queue=");
+        for (int q = 0; q < qn; q++)
+        {
+            if (q > 0) sb.Append(',');
+            sb.Append(Marshal.ReadInt32(mPtr, q * 4));
+        }
+        Log(sb.ToString());
     }
 
     private static void DumpFallMino(string label, IntPtr p, int off)

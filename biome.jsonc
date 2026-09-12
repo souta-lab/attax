@@ -6,7 +6,8 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "includes": ["**", "!evidence/hoiko-fullgame/expand-turn183"]
   },
   "formatter": {
     "enabled": true,
