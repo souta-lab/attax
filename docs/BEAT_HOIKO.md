@@ -158,7 +158,7 @@ adaptive path is not oracle-verified (`tools/hoiko-oracle/diff/REPORT.md` §6).
 
 ## End-to-end exe equivalence (the real fidelity proof)
 
-Two faithful-but-wrong behaviors made the replica pick different moves than the shipping
+Three faithful-but-wrong behaviors made the replica pick different moves than the shipping
 exe in long games, so the earlier first-move oracle checks were not enough:
 
 1. **Beam-cutoff tie-breaking** — `run_search` used `select_nth_unstable_by` + a
@@ -168,11 +168,21 @@ exe in long games, so the earlier first-move oracle checks were not enough:
 2. **`Board::is_tspin` mini classification** — the mino's own row was read only when
    `y - 2 >= 0`, so T-spins near the floor were read as plain singles (wrong `act`/`btb`/
    score). Now read unconditionally, per `SPEC_CalcAtk_IsTspin`.
+3. **`DecisionOffsetOff` seeding** — the driver must seed column heights with **-1**
+   (not zero) and read the **post-first-move** root GamePack (`WriteResult` copies gen-1
+   into the root), not the pre-search board. Added `FirstMoveState {board, hold_m, btb}`
+   carried from generation 1 and used in `ffi.rs` decide.
 
 Verified with the exe-driven solo differential (`tools/hoiko-oracle/diff/fullgame.ts`):
 seed 1 **500/500** moves, seed 2 **200/200**, seed 7 **200/200**, zero divergences; the
-turn-196 search arena matches the exe byte-for-byte for all 13 generations. Raw evidence:
-`evidence/hoiko-fullgame/`.
+turn-196 search arena matches the exe byte-for-byte for all 13 generations.
+
+**Garbage/OffsetAI equivalence** (`tools/hoiko-oracle/diff/garbage.ts`, exe as the right
+fighter): full agreement on the first move `(x, rot, m)`, `act`, `garbageWait`, hold usage,
+the carried weight family, and all 15 OffsetAI state fields — natural runs seeds 1/2/3/7/11
+(406 thinks) plus stress runs (pressure + `garbageDelay=4`), 0 mismatches, with
+`garbageWait=1` exercised 6 times. Raw evidence: `evidence/hoiko-fullgame/`,
+`evidence/hoiko-fullgame/garbage/`.
 
 | Gate (32 seeds, faithful opponent) | DeepSeek v2 | Hoiko |
 |---|---|---|
