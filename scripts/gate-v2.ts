@@ -2,7 +2,8 @@
 // fixed 32-seed corpus. Mirror of scripts/hoiko-gate.ts, but selects the v2
 // fighter and allows ablation knobs via env:
 //   DSV2_DEPTH, DSV2_WIDTH, DSV2_TOP_K, DSV2_KICKS=0|1,
-//   DSV2_OPPONENT=0|1, DSV2_GARBAGE=0|1, DSV2_DOWNSTACK=0|1, DSV2_RUST=0|1
+//   DSV2_OPPONENT=0|1, DSV2_GARBAGE=0|1, DSV2_DOWNSTACK=0|1, DSV2_RUST=0|1,
+//   DSV2_BOOK=0|1
 // Emits JSONL records via stdout (HOIKO-config / HOIKO-match / HOIKO-summary).
 import { createDeepSeekV2, type DeepSeekV2Options } from "../src/ai/deepseek-v2.js";
 import type { HoikoPreset } from "../src/ai/hoiko-weights.js";
@@ -56,6 +57,7 @@ function readV2Options(): DeepSeekV2Options {
     useOpponent: readFlag(process.env.DSV2_OPPONENT, true),
     useGarbageDefense: readFlag(process.env.DSV2_GARBAGE, true),
     useDownstack: readFlag(process.env.DSV2_DOWNSTACK, true),
+    openingBook: readFlag(process.env.DSV2_BOOK, false),
   };
 }
 
@@ -64,6 +66,7 @@ interface SideMetrics {
   readonly sent: number;
   readonly tsd: number;
   readonly tetris: number;
+  readonly locks: number;
   readonly maxPending: number;
   readonly maxHeight: number;
   readonly holes: number;
@@ -108,6 +111,7 @@ interface MutableMetrics {
   sent: number;
   tsd: number;
   tetris: number;
+  locks: number;
   maxPending: number;
   maxHeight: number;
   holes: number;
@@ -122,6 +126,7 @@ function sampleSide(side: SideState, metrics: MutableMetrics): void {
   const snapshot = side.core.getSnapshot();
   metrics.lines = snapshot.lines;
   metrics.sent = side.sentTotal;
+  metrics.locks = snapshot.lockId;
   metrics.maxPending = Math.max(metrics.maxPending, snapshot.pendingGarbage);
   metrics.maxHeight = Math.max(metrics.maxHeight, stackHeight(snapshot.board.grid));
   metrics.holes = Math.max(metrics.holes, countHoles(snapshot.board.grid));
@@ -146,6 +151,7 @@ function finishMetrics(side: SideState, metrics: MutableMetrics): SideMetrics {
     sent: side.sentTotal,
     tsd: metrics.tsd,
     tetris: metrics.tetris,
+    locks: metrics.locks,
     maxPending: metrics.maxPending,
     maxHeight: metrics.maxHeight,
     holes: metrics.holes,
@@ -185,6 +191,7 @@ function freshMetrics(): MutableMetrics {
     sent: 0,
     tsd: 0,
     tetris: 0,
+    locks: 0,
     maxPending: 0,
     maxHeight: 0,
     holes: 0,
@@ -216,6 +223,7 @@ function sumSide(rows: readonly Row[], key: "left" | "right"): SideMetrics {
     total.sent += side.sent;
     total.tsd += side.tsd;
     total.tetris += side.tetris;
+    total.locks += side.locks;
     total.maxPending += side.maxPending;
     total.maxHeight += side.maxHeight;
     total.holes += side.holes;
@@ -229,6 +237,7 @@ function sumSide(rows: readonly Row[], key: "left" | "right"): SideMetrics {
     sent: total.sent,
     tsd: total.tsd,
     tetris: total.tetris,
+    locks: total.locks,
     maxPending: total.maxPending,
     maxHeight: total.maxHeight,
     holes: total.holes,
@@ -266,7 +275,8 @@ function fingerprint(rows: readonly Row[]): string {
 }
 
 function makeOurFighter(v2: DeepSeekV2Options): VersusFighter {
-  const core = USE_RUST ? createRustDeepSeekV2(v2) : createDeepSeekV2(v2);
+  const useRust = USE_RUST && v2.openingBook !== true;
+  const core = useRust ? createRustDeepSeekV2(v2) : createDeepSeekV2(v2);
   return { ...core, color: "#3aa0ff" };
 }
 
@@ -331,6 +341,10 @@ function main(): void {
       avgMsPerDecision: {
         left: agg.left.thinkCount > 0 ? agg.left.thinkMs / agg.left.thinkCount : 0,
         right: agg.right.thinkCount > 0 ? agg.right.thinkMs / agg.right.thinkCount : 0,
+      },
+      attackPerPiece: {
+        left: agg.left.locks > 0 ? agg.left.sent / agg.left.locks : 0,
+        right: agg.right.locks > 0 ? agg.right.sent / agg.right.locks : 0,
       },
     }),
   );
