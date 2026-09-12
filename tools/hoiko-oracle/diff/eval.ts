@@ -21,7 +21,6 @@ const ORACLE_PREFIX = Bun.env.HOIKO_ORACLE_PREFIX ?? `${ORACLE_ROOT}/prefix`;
 const ORACLE_SCRIPT = new URL("../run_oracle.sh", import.meta.url).pathname;
 const REPLICA_BIN = new URL("../../../rust/target/release/examples/eval_dump", import.meta.url)
   .pathname;
-const EVIDENCE_DIR = new URL("../../../evidence/hoiko-fullgame/eval-turn183/", import.meta.url);
 const SKIP_BFS = Bun.argv.includes("--no-bfs");
 
 if (!existsSync(REPLICA_BIN)) {
@@ -30,25 +29,51 @@ if (!existsSync(REPLICA_BIN)) {
   );
 }
 
-// Turn-183 snapshot from evidence/hoiko-fullgame/seed1-cap200.jsonl.
-const BOARD_ROWS: readonly number[] = [
-  0x3f7,
-  0x3f7,
-  0x3e3,
-  0x3c0,
-  0x1c0,
-  ...Array.from({ length: 27 }, () => 0),
-];
-const CURRENT = 2;
-const NEXT_HEAD = [0, 1, 5, 6, 5, 2, 0];
+const args = Bun.argv.slice(2);
+function argValue(flag: string): string | undefined {
+  const hit = args.find((a) => a.startsWith(`${flag}=`));
+  return hit === undefined ? undefined : hit.slice(flag.length + 1);
+}
+
+interface SnapshotFile {
+  readonly turn: number;
+  readonly board: readonly number[];
+  readonly current: number;
+  readonly next: readonly number[];
+  readonly hold: number;
+  readonly combo: number;
+  readonly btb: number;
+}
+
+const SNAPSHOT_ARG = argValue("--snapshot");
+const SNAPSHOT: SnapshotFile | null =
+  SNAPSHOT_ARG === undefined
+    ? null
+    : (JSON.parse(readFileSync(SNAPSHOT_ARG, "utf8")) as SnapshotFile);
+const TURN = SNAPSHOT?.turn ?? 183;
+const NAME = argValue("--name") ?? `eval-turn${TURN}`;
+const ALLOW_H3_FAIL = args.includes("--allow-h3-fail");
+const EVIDENCE_DIR = new URL(`../../../evidence/hoiko-fullgame/${NAME}/`, import.meta.url);
+
+// Default source is the turn-183 snapshot; `--snapshot=<replay-turn JSON>`
+// selects any other turn.
+const BOARD_ROWS: readonly number[] =
+  SNAPSHOT === null
+    ? [0x3f7, 0x3f7, 0x3e3, 0x3c0, 0x1c0, ...Array.from({ length: 27 }, () => 0)]
+    : [
+        ...SNAPSHOT.board,
+        ...Array.from({ length: Math.max(0, 32 - SNAPSHOT.board.length) }, () => 0),
+      ];
+const CURRENT = SNAPSHOT?.current ?? 2;
+const NEXT_HEAD = SNAPSHOT === null ? [0, 1, 5, 6, 5, 2, 0] : [...SNAPSHOT.next];
 const FULL_NEXT = [
   CURRENT,
   ...NEXT_HEAD,
-  ...Array.from({ length: 28 - 1 - NEXT_HEAD.length }, () => 7),
-];
-const HOLD = 4;
-const COMBO = 0;
-const BTB = 24;
+  ...Array.from({ length: Math.max(0, 27 - NEXT_HEAD.length) }, () => 7),
+].slice(0, 28);
+const HOLD = SNAPSHOT?.hold ?? 4;
+const COMBO = SNAPSHOT?.combo ?? 0;
+const BTB = SNAPSHOT?.btb ?? 24;
 const VIEW_NEXT = 2;
 const ALLOW_HOLD = 1;
 const REPLICA_QUEUE = FULL_NEXT.slice(1);
@@ -99,7 +124,7 @@ function boardInput(rows: readonly number[]): string {
 
 function snapshotInput(extra: readonly string[]): string {
   return [
-    "# eval differential turn=183",
+    `# eval differential turn=${TURN}`,
     `board=${boardInput(BOARD_ROWS)}`,
     `next=${FULL_NEXT.join(",")}`,
     `hold=${HOLD}`,
@@ -669,7 +694,7 @@ function crossSeedCase(seed: number): CrossSeedResult {
 
 mkdirSync(EVIDENCE_DIR, { recursive: true });
 
-console.log("eval: step 1/8 exe search on the turn-183 snapshot");
+console.log(`eval: step 1/8 exe search on the turn-${TURN} snapshot`);
 const searchText = runExe(snapshotInput(["timer=1"]), "search");
 writeFileSync(new URL("exe-search.log", EVIDENCE_DIR), searchText);
 const depth = matchInt(searchText, /depth\s+@\+?444\s*=\s*(-?\d+)/) ?? -1;
@@ -715,7 +740,7 @@ const nodesReproduced = stdNodes === nodeCount;
 console.log(`  TRACE(std) ${stdTraceLine}`);
 console.log(`  exe        x=${exeX} rot=${exeRot} m=${exeM} nodeCount=${nodeCount}`);
 console.log(`  move reproduced=${moveReproduced} nodeCount reproduced=${nodesReproduced}`);
-if (!moveReproduced || !nodesReproduced) {
+if ((!moveReproduced || !nodesReproduced) && !ALLOW_H3_FAIL) {
   throw new Error(
     "H3 test failed: std::partial_sort emulation does not reproduce the exe's search",
   );
@@ -814,7 +839,7 @@ const slimRun = (run: DiffRun): unknown => ({
 });
 const report = {
   experiment: "E4 EvaluateAI.Evaluate/EvaluateFirst differential",
-  turn: 183,
+  turn: TURN,
   snapshot: {
     board: BOARD_ROWS,
     current: CURRENT,
@@ -843,7 +868,7 @@ const report = {
 writeFileSync(new URL("report.json", EVIDENCE_DIR), `${JSON.stringify(report, null, 2)}\n`);
 
 const lines: string[] = [];
-lines.push("# E4 eval differential — turn 183 (`EvaluateAI.Evaluate`/`EvaluateFirst`)");
+lines.push(`# E4 eval differential — turn ${TURN} (\`EvaluateAI.Evaluate\`/\`EvaluateFirst\`)`);
 lines.push("");
 lines.push("## Headline");
 lines.push("");
@@ -938,4 +963,4 @@ if (primary === undefined) {
   for (const f of primary.evalDiffs) console.log(`  EVAL ${f}`);
   for (const f of primary.stateDiffs) console.log(`  STATE ${f}`);
 }
-console.log(`artifacts: evidence/hoiko-fullgame/eval-turn183/REPORT.md`);
+console.log(`artifacts: evidence/hoiko-fullgame/${NAME}/REPORT.md`);

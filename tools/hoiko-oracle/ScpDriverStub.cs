@@ -113,6 +113,16 @@ internal static class OracleHost
     // line of `positions_file` (default expand_positions.txt) in one process.
     private static int _expandMulti;
     private static string _expandMultiFile = "expand_positions.txt";
+    // Arena-dump mode (`tree_dump=1`): after SearchAI.Search, write the native
+    // node arena (`?tree@SearchAI`, RVA 0x663D8) to oracle_tree.bin so beam
+    // membership/order at every generation can be diffed against the replica.
+    private static int _treeDump;
+    // Search-global overrides for regime checks: `depthlimit=10` writes
+    // SearchAI.depthLimit (RVA 0x663F4) and `usehold=0` writes ExpandAI.useHold
+    // (RVA 0x663D0) right before Search, so the oracle can reproduce the
+    // replica's non-default test regimes (default -1 = leave untouched).
+    private static int _depthLimitOverride = -1;
+    private static int _useHoldOverride = -1;
     // Optional falling-piece spawn height (`fally=`), written after the board so
     // the searched state matches the replica's `build_root` spawn. -1 = leave it.
     private static int _fallY = -1;
@@ -240,6 +250,16 @@ internal static class OracleHost
 
         DateTime t0 = DateTime.UtcNow;
         Log("[5] SearchAI.Search(root)");
+        if (_depthLimitOverride >= 0 || _useHoldOverride >= 0)
+        {
+            IntPtr hinst = Marshal.GetHINSTANCE(_asm.ManifestModule);
+            if (_depthLimitOverride >= 0)
+                Marshal.WriteInt32(new IntPtr(hinst.ToInt64() + 0x663F4), _depthLimitOverride);
+            if (_useHoldOverride >= 0)
+                Marshal.WriteByte(new IntPtr(hinst.ToInt64() + 0x663D0), (byte)_useHoldOverride);
+            Log("[override] depthLimit=" + Marshal.ReadInt32(new IntPtr(hinst.ToInt64() + 0x663F4))
+                + " useHold=" + Marshal.ReadByte(new IntPtr(hinst.ToInt64() + 0x663D0)));
+        }
         if (_startTimer && miIsSearching != null)
         {
             Log("[4d] SearchAI.IsSearching(true)  (starts timer, limit=1000ms)");
@@ -247,6 +267,7 @@ internal static class OracleHost
         }
         Invoke(miSearch, buf);
         Log("[5] returned in " + (DateTime.UtcNow - t0).TotalMilliseconds.ToString("0.0", CultureInfo.InvariantCulture) + " ms");
+        if (_treeDump != 0) DumpTree();
 
         Log("");
         Log("================ SEARCH RESULT ================");
@@ -421,6 +442,18 @@ internal static class OracleHost
             else if (key == "expand_multi")
             {
                 _expandMulti = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "tree_dump")
+            {
+                _treeDump = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "depthlimit")
+            {
+                _depthLimitOverride = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "usehold")
+            {
+                _useHoldOverride = int.Parse(val, CultureInfo.InvariantCulture);
             }
             else if (key == "positions_file")
             {
@@ -1047,6 +1080,22 @@ internal static class OracleHost
         Marshal.FreeHGlobal(countPtr);
         Marshal.FreeHGlobal(bufA);
         Marshal.FreeHGlobal(bufB);
+    }
+
+    private static void DumpTree()
+    {
+        const int TreeFieldRva = 0x663D8;
+        const int ArenaBytes = 56580000;
+        IntPtr hinst = Marshal.GetHINSTANCE(_asm.ManifestModule);
+        IntPtr slot = new IntPtr(hinst.ToInt64() + TreeFieldRva);
+        IntPtr tree = Marshal.ReadIntPtr(slot);
+        Log("[tree] hinst=0x" + hinst.ToInt64().ToString("x") + " tree=0x" + tree.ToInt64().ToString("x"));
+        if (tree == IntPtr.Zero) return;
+        byte[] data = new byte[ArenaBytes];
+        Marshal.Copy(tree, data, 0, ArenaBytes);
+        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "oracle_tree.bin");
+        File.WriteAllBytes(path, data);
+        Log("[tree] wrote " + path + " (" + data.Length + " bytes)");
     }
 
     private static void DumpEvalChild(string label, IntPtr child, bool first, IntPtr rootNext,

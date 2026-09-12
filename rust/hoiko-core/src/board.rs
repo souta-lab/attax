@@ -389,7 +389,7 @@ impl Board {
         }
         let x = mino.x;
         let y = mino.y;
-        let l0 = if y - 2 >= 0 { self.row_at(y) } else { 0 };
+        let l0 = self.row_at(y);
         let l1 = if y - 2 >= 0 { self.row_at(y - 2) } else { 0 };
         let mut corners = [0i32; 4];
         let mut fill = 0;
@@ -424,7 +424,7 @@ impl Board {
 mod tests {
     use super::*;
     use crate::mino::FallMino;
-    use crate::shapes::MINO_I;
+    use crate::shapes::{MINO_I, MINO_T};
 
     #[test]
     fn popcount_and_log2() {
@@ -567,5 +567,18 @@ mod tests {
         f.m = MINO_I;
         f.y = 20;
         assert_eq!(b.collision_distance(&f), 19);
+    }
+
+    /// Turn-196 (seed 1) witness: the exe's search arena holds a locked T at
+    /// x=5 y=1 r=0 lastSrs=3 on rows [1007, 391] classified as a mini T-spin
+    /// (act=8, btb 26->27, score 215), while this port classified it as a
+    /// plain single (act=1). `y-2 < 0` must not zero the mino's own row.
+    #[test]
+    fn is_tspin_reads_mino_row_when_lower_corners_pass_the_floor() {
+        let mut b = Board::default();
+        b.line[0] = 1007;
+        b.line[1] = 391;
+        let mino = FallMino { x: 5, y: 1, r: 0, m: MINO_T, last_srs: 3, ..FallMino::default() };
+        assert_eq!(b.is_tspin(&mino), 2);
     }
 }

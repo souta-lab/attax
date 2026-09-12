@@ -177,6 +177,115 @@ fn apply_eval(node: &mut NodeState, ev: &EvalOut, parent_family: i32) {
     node.score = ev.score + parent_family;
 }
 
+// ---------------------------------------------------------------------------
+// Beam cutoff: the shipping binary's exact `std::partial_sort` (MSVC /
+// Dinkumware heap permutation), transcribed from IL 16239/16367/16455/16509.
+//
+// `SearchAI.Search` ranks children by raw accumulated `score` with a
+// score-only comparison. At the `beamSizeLimit` cutoff, several children can
+// share the cutoff score; *which* of them survive and in which order is decided
+// by the heap permutation below, not by any stable tie-break. The previous
+// `select_nth_unstable_by + sort_by(score desc, index asc)` kept a different
+// tie subset, which is exactly why the full-game differential diverged at
+// move 132-183 while child generation and leaf evaluation were identical (E3/E4
+// in `evidence/hoiko-fullgame/`). The identical algorithm in `probe_trace.rs`
+// reproduced the exe's move, plan and node count on every divergent seed, so
+// this is a verbatim port of that verified reference.
+// ---------------------------------------------------------------------------
+
+fn heap_score(children: &[NodeState], order: &[u32], i: usize) -> i32 {
+    children[order[i] as usize].score
+}
+
+fn pop_hole_by_index(
+    children: &[NodeState],
+    order: &mut [u32],
+    first: usize,
+    start_hole: usize,
+    bottom: usize,
+    val: u32,
+) {
+    let top = start_hole;
+    let mut hole = start_hole;
+    let mut child = start_hole;
+    let last = bottom - 1;
+    let half = last >> 1;
+    if hole < half {
+        loop {
+            child = (child + 1) * 2;
+            if children[order[first + child] as usize].score
+                > children[order[first + child - 1] as usize].score
+            {
+                child -= 1;
+            }
+            order[first + hole] = order[first + child];
+            hole = child;
+            if child >= half {
+                break;
+            }
+        }
+    }
+    if child == half && bottom % 2 == 0 {
+        order[first + hole] = order[first + bottom - 1];
+        hole = last;
+    }
+    let mut pos = hole;
+    if top < hole {
+        let mut parent = (hole - 1) >> 1;
+        loop {
+            let p = order[first + parent];
+            if !(children[p as usize].score > children[val as usize].score) {
+                break;
+            }
+            order[first + pos] = p;
+            pos = parent;
+            if top >= pos {
+                break;
+            }
+            parent = (parent - 1) >> 1;
+        }
+    }
+    order[first + pos] = val;
+}
+
+fn make_heap(children: &[NodeState], order: &mut [u32], first: usize, last: usize) {
+    let mut parent = (last - first) >> 1;
+    while parent > 0 {
+        parent -= 1;
+        let val = order[first + parent];
+        pop_hole_by_index(children, order, first, parent, last - first, val);
+    }
+}
+
+/// Transaction of `std::partial_sort` (IL 16239): make_heap on `[first, mid)`,
+/// then replace the heap root for every later element with a higher score, then
+/// sort_heap. Mirrors the in-place permutation, so the kept subset and its
+/// order match the exe's buffer exactly. `children` holds the candidates and
+/// `order` the index permutation to select into; `last == order.len()`.
+fn std_partial_sort(children: &[NodeState], order: &mut [u32], first: usize, mid: usize, last: usize) {
+    if first == mid {
+        return;
+    }
+    make_heap(children, order, first, mid);
+    if mid < last {
+        for ptr in mid..last {
+            if heap_score(children, order, ptr) > heap_score(children, order, first) {
+                let val = order[ptr];
+                order[ptr] = order[first];
+                pop_hole_by_index(children, order, first, 0, mid - first, val);
+            }
+        }
+    }
+    let mut end = mid;
+    while end - first >= 2 {
+        let last_i = end - 1;
+        let val = order[last_i];
+        order[last_i] = order[first];
+        pop_hole_by_index(children, order, first, 0, last_i - first, val);
+        end -= 1;
+    }
+}
+
 /// `SearchAI.Search` (IL 15619). Returns `None` when no first move exists.
 pub fn run_search(
     state: &mut SearchState,
@@ -254,15 +363,11 @@ pub fn run_search(
         let next_beam = cap.min(num_children).max(0) as usize;
         order.clear();
         order.extend(0..children.len() as u32);
-        let better = |&a: &u32, &b: &u32| {
-            children[b as usize].score.cmp(&children[a as usize].score).then(a.cmp(&b))
-        };
-        if next_beam < order.len() {
-            order.select_nth_unstable_by(next_beam, better);
-            order[..next_beam].sort_by(better);
-        } else {
-            order.sort_by(better);
-        }
+        let clen = children.len();
+        // The binary calls `std::partial_sort(first, first+nextBeam, last)` with
+        // a score-only comparison; the heap permutation (not index order) decides
+        // which equal-score children survive the cutoff. See `std_partial_sort`.
+        std_partial_sort(&children, &mut order, 0, next_beam, clen);
         parents.clear();
         for &idx in &order[..next_beam] {
             parents.push(children[idx as usize].clone());

@@ -1,0 +1,15 @@
+tree=0x7f2b4c9f0040 arena=56580000 bytes gens=13
+gen  2: num= 1785 keep= 150 MATCH
+gen  3: num= 6107 keep= 150 MATCH
+gen  4: num= 5556 keep= 150 MATCH
+gen  5: num= 8147 keep= 150 MATCH
+gen  6: num= 5955 keep= 150 MATCH
+gen  7: num= 8361 keep= 150 MATCH
+gen  8: num= 5629 keep=  75 MATCH
+gen  9: num= 2607 keep=  75 MATCH
+gen 10: num= 3749 keep=  75 MATCH
+gen 11: num= 3063 keep=  75 MATCH
+gen 12: num= 3996 keep=  75 MATCH
+gen 13: num= 4241 keep=  75 MATCH
+gen 14: num= 3179 keep=3179 MATCH
+VERDICT: all generations match

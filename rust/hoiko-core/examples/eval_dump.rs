@@ -243,7 +243,81 @@ fn main() {
                 );
             }
         }
+        let max_score = tr.terminals.iter().map(|t| t.score).max().unwrap_or(0);
+        let mut order: Vec<usize> = (0..tr.terminals.len()).collect();
+        order.sort_by_key(|&i| -tr.terminals[i].score);
+        for &i in order.iter().take(12) {
+            let t = &tr.terminals[i];
+            println!(
+                "TERM idx={} score={} max={} x={} r={} m={} act={} hold={}",
+                i,
+                t.score,
+                if t.score == max_score { 1 } else { 0 },
+                t.x,
+                ((t.r % 4) + 4) % 4,
+                t.m,
+                t.act,
+                if t.hold_used { 1 } else { 0 },
+            );
+        }
         println!("PATH {path}");
+        return;
+    }
+
+    if mode == "beams" {
+        let mut state = default_search_state();
+        let tr = search_trace(
+            &mut state,
+            &root,
+            &[ew],
+            true,
+            false,
+            input.probe.view_next,
+            input.allow_hold,
+            1,
+        )
+        .expect("trace");
+        for g in &tr.beams {
+            println!("BEAM depth={} num={} keep={}", g.depth, g.num, g.next_beam);
+            for (i, n) in g.nodes.iter().enumerate() {
+                let rows = n.rows.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                println!(
+                    "N {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                    i,
+                    n.score,
+                    n.first_x,
+                    ((n.first_r % 4) + 4) % 4,
+                    n.first_m,
+                    n.x,
+                    n.y,
+                    ((n.r % 4) + 4) % 4,
+                    n.m,
+                    n.act,
+                    n.last_srs,
+                    n.combo,
+                    n.btb,
+                    n.hold_m,
+                    n.next_base,
+                    rows,
+                );
+            }
+            for (i, p) in g.pre.iter().enumerate() {
+                let rows = p.rows.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                println!(
+                    "P {} {} {} {} {} {} {} {} {} {}",
+                    i,
+                    p.parent_slot,
+                    p.score,
+                    p.x,
+                    p.y,
+                    ((p.r % 4) + 4) % 4,
+                    p.m,
+                    p.act,
+                    p.last_srs,
+                    rows,
+                );
+            }
+        }
         return;
     }
 

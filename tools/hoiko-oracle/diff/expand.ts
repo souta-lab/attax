@@ -20,7 +20,6 @@ const ORACLE_PREFIX = Bun.env.HOIKO_ORACLE_PREFIX ?? `${ORACLE_ROOT}/prefix`;
 const ORACLE_SCRIPT = new URL("../run_oracle.sh", import.meta.url).pathname;
 const REPLICA_BIN = new URL("../../../rust/target/release/examples/expand_dump", import.meta.url)
   .pathname;
-const EVIDENCE_DIR = new URL("../../../evidence/hoiko-fullgame/expand-turn183/", import.meta.url);
 
 if (!existsSync(REPLICA_BIN)) {
   throw new Error(
@@ -28,26 +27,50 @@ if (!existsSync(REPLICA_BIN)) {
   );
 }
 
-// Turn-183 snapshot from evidence/hoiko-fullgame/seed1-cap200.jsonl (exe and
-// replica agreed on moves 0..182; first mismatch at turn 183).
-const BOARD_ROWS: readonly number[] = [
-  0x3f7,
-  0x3f7,
-  0x3e3,
-  0x3c0,
-  0x1c0,
-  ...Array.from({ length: 27 }, () => 0),
-];
-const CURRENT = 2;
-const NEXT_HEAD = [0, 1, 5, 6, 5, 2, 0];
+const args = Bun.argv.slice(2);
+function argValue(flag: string): string | undefined {
+  const hit = args.find((a) => a.startsWith(`${flag}=`));
+  return hit === undefined ? undefined : hit.slice(flag.length + 1);
+}
+
+interface SnapshotFile {
+  readonly turn: number;
+  readonly board: readonly number[];
+  readonly current: number;
+  readonly next: readonly number[];
+  readonly hold: number;
+  readonly combo: number;
+  readonly btb: number;
+}
+
+const SNAPSHOT_ARG = argValue("--snapshot");
+const SNAPSHOT: SnapshotFile | null =
+  SNAPSHOT_ARG === undefined
+    ? null
+    : (JSON.parse(readFileSync(SNAPSHOT_ARG, "utf8")) as SnapshotFile);
+const TURN = SNAPSHOT?.turn ?? 183;
+const NAME = argValue("--name") ?? `expand-turn${TURN}`;
+const EVIDENCE_DIR = new URL(`../../../evidence/hoiko-fullgame/${NAME}/`, import.meta.url);
+
+// Default source is the turn-183 snapshot; `--snapshot=<replay-turn JSON>`
+// selects any other turn.
+const BOARD_ROWS: readonly number[] =
+  SNAPSHOT === null
+    ? [0x3f7, 0x3f7, 0x3e3, 0x3c0, 0x1c0, ...Array.from({ length: 27 }, () => 0)]
+    : [
+        ...SNAPSHOT.board,
+        ...Array.from({ length: Math.max(0, 32 - SNAPSHOT.board.length) }, () => 0),
+      ];
+const CURRENT = SNAPSHOT?.current ?? 2;
+const NEXT_HEAD = SNAPSHOT === null ? [0, 1, 5, 6, 5, 2, 0] : [...SNAPSHOT.next];
 const FULL_NEXT = [
   CURRENT,
   ...NEXT_HEAD,
-  ...Array.from({ length: 28 - 1 - NEXT_HEAD.length }, () => 7),
-];
-const HOLD = 4;
-const COMBO = 0;
-const BTB = 24;
+  ...Array.from({ length: Math.max(0, 27 - NEXT_HEAD.length) }, () => 7),
+].slice(0, 28);
+const HOLD = SNAPSHOT?.hold ?? 4;
+const COMBO = SNAPSHOT?.combo ?? 0;
+const BTB = SNAPSHOT?.btb ?? 24;
 const VIEW_NEXT = 2;
 const ALLOW_HOLD = 1;
 
@@ -475,7 +498,7 @@ function diffGen(gen: ExeGen, rep: RepExpand, parentRows: readonly number[]): Ge
 mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 const searchInput = [
-  `# expand differential (search) turn=183`,
+  `# expand differential (search) turn=${TURN}`,
   `board=${boardInput(BOARD_ROWS)}`,
   `next=${FULL_NEXT.join(",")}`,
   `hold=${HOLD}`,
@@ -511,7 +534,7 @@ const path = plan
   .join(",");
 
 const expandInput = [
-  `# expand differential (expand) turn=183`,
+  `# expand differential (expand) turn=${TURN}`,
   `board=${boardInput(BOARD_ROWS)}`,
   `next=${FULL_NEXT.join(",")}`,
   `hold=${HOLD}`,
@@ -598,7 +621,7 @@ for (let k = 0; k <= plan.length; k += 1) {
 
 console.log("expand: step 4/4 report");
 const reportJson = {
-  turn: 183,
+  turn: TURN,
   snapshot: {
     board: BOARD_ROWS,
     current: CURRENT,
@@ -616,7 +639,7 @@ const reportJson = {
 writeFileSync(new URL("report.json", EVIDENCE_DIR), `${JSON.stringify(reportJson, null, 2)}\n`);
 
 const lines: string[] = [];
-lines.push("# E3 expand differential — turn 183");
+lines.push(`# E3 expand differential — turn ${TURN}`);
 lines.push("");
 lines.push(
   `Exe search: nodeCount=${nodeCount}, depth=${depth}, plan=${plan.length} entries (${plan.filter((e) => e.isBreak).length} display breaks).`,
@@ -987,4 +1010,4 @@ for (const r of reports) {
   }
 }
 if (firstMismatch === null && stopReason !== null) console.log(`walk stopped: ${stopReason}`);
-console.log(`artifacts: evidence/hoiko-fullgame/expand-turn183/REPORT.md`);
+console.log(`artifacts: evidence/hoiko-fullgame/${NAME}/REPORT.md`);

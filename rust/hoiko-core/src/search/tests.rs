@@ -1,5 +1,6 @@
     use super::*;
     use crate::probe::{build_root, ProbeInput};
+    use crate::probe_trace::search_trace;
     use crate::shapes::{ACT_NONE, ACT_PC, MINO_I, MINO_L, MINO_NONE, MINO_O, MINO_S, MINO_T, MINO_Z};
 
     const WE_WEIGHT: [i32; 50] = [
@@ -66,7 +67,7 @@
         let now = fixed_now();
         let out = run_search(&mut st, &root, &[we()], true, false, 2, &now, Some(1000), false)
             .expect("move");
-        let expected = (0, 0, MINO_I, false, ACT_NONE, 10, 27441, 202);
+        let expected = (0, 0, MINO_I, false, ACT_NONE, 10, 27439, 202);
         assert_eq!(
             (
                 out.first_x,
@@ -93,7 +94,7 @@
         let now = fixed_now();
         let out = run_search(&mut st, &root, &[we()], true, false, 2, &now, Some(1000), true)
             .expect("move");
-        let expected = (3, 0, MINO_I, false, ACT_NONE, 14, 71600, 112);
+        let expected = (3, 0, MINO_I, false, ACT_NONE, 14, 71624, 112);
         assert_eq!(
             (
                 out.first_x,
@@ -106,5 +107,61 @@
                 out.move_delay,
             ),
             expected
+        );
+    }
+
+    /// Turn-183 snapshot (seed 1) from `evidence/hoiko-fullgame/eval-turn183`,
+    /// the first full-game divergence. The exe picks x=7 r=2 m=2 (depth 14,
+    /// nodeCount 64174) and E4 proved the exe's `std::partial_sort` cutoff applied
+    /// to these evaluations reproduces it; a stable score/index selection picks
+    /// x=7 r=0, score 716, nodes 63854. Locks `run_search` to the exe's beam
+    /// policy and to the verified `probe_trace` reference in one assertion.
+    #[test]
+    fn beam_cutoff_matches_exe_on_turn183_divergence() {
+        let mut board = vec![0x3f7, 0x3f7, 0x3e3, 0x3c0, 0x1c0];
+        board.extend(std::iter::repeat_n(0, 27));
+        let mut queue = vec![0, 1, 5, 6, 5, 2, 0];
+        queue.extend(std::iter::repeat_n(7, 20));
+        let root = build_root(&ProbeInput {
+            board,
+            current: MINO_L,
+            queue,
+            hold: MINO_T,
+            combo: 0,
+            btb: 24,
+            view_next: 2,
+            weight_index: 0,
+            is_even: true,
+            use_s4w: false,
+            trust_rate: 1.0,
+        });
+        let now = fixed_now();
+        let mut st = SearchState::default();
+        let out =
+            run_search(&mut st, &root, &[we()], true, false, 2, &now, Some(1000), true).expect("move");
+        assert_eq!(
+            (
+                out.first_x,
+                out.first_r,
+                out.first_m,
+                out.score,
+                out.depth,
+                out.node,
+            ),
+            (7, 2, 2, 79, 14, 64174)
+        );
+
+        let mut st2 = SearchState::default();
+        let tr = search_trace(&mut st2, &root, &[we()], true, false, 2, true, 1).expect("trace");
+        assert_eq!(
+            (tr.first_x, tr.first_r, tr.first_m, tr.score, tr.depth, tr.nodes),
+            (
+                out.first_x,
+                out.first_r,
+                out.first_m,
+                out.score,
+                out.depth,
+                out.node,
+            )
         );
     }

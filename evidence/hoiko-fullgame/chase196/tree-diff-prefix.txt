@@ -1,0 +1,15 @@
+tree=0x7f2b4c9f0040 arena=56580000 bytes gens=13
+gen  2: num= 1785 keep= 150 MATCH
+gen  3: num= 6107 keep= 150 MATCH
+gen  4: num= 5556 keep= 150 MATCH
+gen  5: num= 8147 keep= 150 DIFF idx=58 multiset=4
+gen  6: num= 5955 keep= 150 DIFF idx=103 multiset=12
+gen  7: num= 8398 keep= 150 DIFF idx=118 multiset=6
+gen  8: num= 5629 keep=  75 DIFF idx=30 multiset=0
+gen  9: num= 2607 keep=  75 DIFF idx=29 multiset=2
+gen 10: num= 3749 keep=  75 DIFF idx=33 multiset=2
+gen 11: num= 3063 keep=  75 DIFF idx=73 multiset=2
+gen 12: num= 3996 keep=  75 DIFF idx=75 multiset=2
+gen 13: num= 4241 keep=  75 DIFF idx=75 multiset=2
+gen 14: num= 3179 keep=3179 DIFF idx=3179 multiset=102
+VERDICT: FAIL

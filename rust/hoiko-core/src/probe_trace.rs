@@ -22,6 +22,54 @@ pub struct TracePlacement {
     pub act: i32,
 }
 
+#[derive(Clone, Copy)]
+pub struct TerminalEntry {
+    pub score: i32,
+    pub x: i32,
+    pub r: i32,
+    pub m: i32,
+    pub act: i32,
+    pub hold_used: bool,
+}
+
+pub struct BeamNode {
+    pub score: i32,
+    pub first_x: i32,
+    pub first_r: i32,
+    pub first_m: i32,
+    pub x: i32,
+    pub y: i32,
+    pub r: i32,
+    pub m: i32,
+    pub act: i32,
+    pub last_srs: i32,
+    pub combo: i32,
+    pub btb: i32,
+    pub hold_m: i32,
+    pub next_base: i32,
+    pub rows: [i32; 32],
+}
+
+pub struct PreNode {
+    pub parent_slot: i32,
+    pub score: i32,
+    pub x: i32,
+    pub y: i32,
+    pub r: i32,
+    pub m: i32,
+    pub act: i32,
+    pub last_srs: i32,
+    pub rows: [i32; 32],
+}
+
+pub struct GenBeam {
+    pub depth: i32,
+    pub num: i32,
+    pub next_beam: i32,
+    pub nodes: Vec<BeamNode>,
+    pub pre: Vec<PreNode>,
+}
+
 pub struct SearchTrace {
     pub first_x: i32,
     pub first_r: i32,
@@ -33,6 +81,10 @@ pub struct SearchTrace {
     pub path: Vec<TracePlacement>,
     /// Per-generation beam-cutoff diagnostics (tie exposure at the boundary).
     pub prune_stats: Vec<PruneStat>,
+    /// Terminal generation in array order (the MaxElement input list).
+    pub terminals: Vec<TerminalEntry>,
+    /// Per-generation selected beam in order (select_mode == 1 only).
+    pub beams: Vec<GenBeam>,
 }
 
 pub struct PruneStat {
@@ -113,6 +165,7 @@ pub fn search_trace(
     let mut results: Vec<usize> = Vec::new();
     let mut order: Vec<u32> = Vec::new();
     let mut prune_stats: Vec<PruneStat> = Vec::new();
+    let mut beams: Vec<GenBeam> = Vec::new();
 
     loop {
         depth += 1;
@@ -159,9 +212,28 @@ pub fn search_trace(
             let clen = children.len();
             std_partial_sort(&arena, &mut children, 0, next_beam, clen);
             cutoff_score = if next_beam > 0 { arena[children[next_beam - 1]].score } else { 0 };
-            parents.clear();
-            parents.extend_from_slice(&children[..next_beam]);
-            children.clear();
+            let mut beam_nodes = Vec::with_capacity(next_beam);
+            for &c in &children[..next_beam] {
+                let f = arena[parents_of_first_gen(&arena, c)].placement;
+                let p = arena[c].placement;
+                beam_nodes.push(BeamNode {
+                    score: arena[c].score,
+                    first_x: f.x,
+                    first_r: f.r,
+                    first_m: f.m,
+                    x: p.x,
+                    y: arena[c].game.locked_mino.y,
+                    r: p.r,
+                    m: p.m,
+                    act: p.act,
+                    last_srs: arena[c].game.locked_mino.last_srs,
+                    combo: arena[c].game.combo,
+                    btb: arena[c].game.btb,
+                    hold_m: arena[c].game.hold.m,
+                    next_base: arena[c].game.next_it.base,
+                    rows: arena[c].game.board.line,
+                });
+            }
             prune_stats.push(PruneStat {
                 depth,
                 num_children,
@@ -172,6 +244,35 @@ pub fn search_trace(
                 kept_at_cutoff,
                 distinct_scores,
             });
+            let pre_nodes = if depth == 5 {
+                children
+                    .iter()
+                    .map(|&c| {
+                        let f = arena[c].placement;
+                        let parent_slot = arena[c]
+                            .parent
+                            .and_then(|p| parents.iter().position(|&q| q == p))
+                            .map_or(-1, |s| s as i32);
+                        PreNode {
+                            parent_slot,
+                            score: arena[c].score,
+                            x: f.x,
+                            y: arena[c].game.locked_mino.y,
+                            r: ((f.r % 4) + 4) % 4,
+                            m: f.m,
+                            act: f.act,
+                            last_srs: arena[c].game.locked_mino.last_srs,
+                            rows: arena[c].game.board.line,
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            beams.push(GenBeam { depth, num: num_children, next_beam: next_beam as i32, nodes: beam_nodes, pre: pre_nodes });
+            parents.clear();
+            parents.extend_from_slice(&children[..next_beam]);
+            children.clear();
             continue;
         }
         if next_beam < order.len() {
@@ -215,6 +316,37 @@ pub fn search_trace(
     if results.is_empty() {
         return None;
     }
+    if select_mode == 1 {
+        let mut beam_nodes = Vec::with_capacity(results.len());
+        for &c in &results {
+            let f = arena[parents_of_first_gen(&arena, c)].placement;
+            let p = arena[c].placement;
+            beam_nodes.push(BeamNode {
+                score: arena[c].score,
+                first_x: f.x,
+                first_r: f.r,
+                first_m: f.m,
+                x: p.x,
+                y: arena[c].game.locked_mino.y,
+                r: p.r,
+                m: p.m,
+                act: p.act,
+                last_srs: arena[c].game.locked_mino.last_srs,
+                combo: arena[c].game.combo,
+                btb: arena[c].game.btb,
+                hold_m: arena[c].game.hold.m,
+                next_base: arena[c].game.next_it.base,
+                rows: arena[c].game.board.line,
+            });
+        }
+        beams.push(GenBeam {
+            depth,
+            num: results.len() as i32,
+            next_beam: results.len() as i32,
+            nodes: beam_nodes,
+            pre: Vec::new(),
+        });
+    }
     let mut best = results[0];
     for &n in &results {
         if arena[n].score > arena[best].score {
@@ -229,6 +361,20 @@ pub fn search_trace(
         cur = arena[i].parent;
     }
     path.reverse();
+    let terminals = results
+        .iter()
+        .map(|&n| {
+            let p = arena[parents_of_first_gen(&arena, n)].placement;
+            TerminalEntry {
+                score: arena[n].score,
+                x: p.x,
+                r: p.r,
+                m: p.m,
+                act: p.act,
+                hold_used: p.hold_used,
+            }
+        })
+        .collect();
     Some(SearchTrace {
         first_x: first.x,
         first_r: first.r,
@@ -238,6 +384,8 @@ pub fn search_trace(
         nodes: total,
         path,
         prune_stats,
+        terminals,
+        beams,
     })
 }
 
