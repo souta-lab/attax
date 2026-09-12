@@ -7,7 +7,7 @@
 
 ## Priority order
 1. **Keep the Hoiko replica faithful** (EvaluateAI + OffsetAI garbage management). The port is complete and oracle-verified in Rust/WASM; do not regress it.
-2. **Then beat Hoiko** with DeepSeek (the goal: a stronger AI that wins vs Hoiko).
+2. ~~Then beat Hoiko with DeepSeek~~ — **achieved**: DeepSeek v2 beats Hoiko 32-0 on the gate and 80-0 on fresh seeds (see `docs/BEAT_HOIKO.md`). Keep it winning; do not adopt changes that are not measurably better.
 
 ## Use subagents
 - Delegate large/parallel work to `deep`/`general` subagents; give them the exact source paths (HOME paths are readable, e.g. `/home/s0u7a/hoiko-src/`) and the current architecture (Rust/WASM is canonical; the TS engine is deleted — see `MIGRATION_RUST.md`).
@@ -18,9 +18,11 @@
 - Commit + push verified increments (atomic, meaningful messages). Do not commit unverified/speculative changes.
 - Metric-verify changes where possible (lines, tetris, holes, maxHeight); avoid blind knob changes that show no measurable effect.
 - No cheating: no seed rigging, no test weakening, no frozen-opponent re-creation, no `as any`/`ts-ignore`, no secrets.
-- Reverse-engineering artifacts are obsolete now that Hoiko's real C++ source is available at `/home/s0u7a/hoiko-src/` (do not re-derive from decompiled binaries).
+- The **shipping binary is the authoritative** Hoiko reference (the provided `/home/s0u7a/hoiko-src` is an older/simplified revision). Match observable behavior against the binary via the Wine oracle; do not change `rust/hoiko-core`/`rust/hoiko-wasm` behavior.
 
 ## Current state
-- Rust/WASM is canonical: `rust/hoiko-core` (expand/evaluate/search/OffsetAI) + `rust/hoiko-wasm`, built by `rust/build.sh` into the checked-in `src/ai/wasm/hoiko_core.wasm`. Adapters: `src/ai/hoiko-rust.ts` (browser), `src/ai/hoiko-rust-core.ts` (shared), `tools/hoiko-rust/loader.ts` (Bun). The TypeScript engine is deleted (`MIGRATION_RUST.md`).
-- `src/ai/deepseek.ts`: DeepSeek is the AI to strengthen and use to beat Hoiko.
-- Gates: `bunx tsc --noEmit`, `bun test`, `bun run build`, `bun run lint`, plus the oracle differentials in `tools/hoiko-oracle/diff/`.
+- Rust/WASM is canonical: `rust/hoiko-core` (expand/evaluate/search/OffsetAI) + `rust/hoiko-wasm`, built by `rust/build.sh` into `src/ai/wasm/hoiko_core.wasm`. The engine is ~2x the binary's speed with byte-identical moves (oracle diff 9/9 + beam-adaptation 9/9). Adapters: `src/ai/hoiko-rust.ts` (browser), `src/ai/hoiko-rust-core.ts` (shared), `tools/hoiko-rust/loader.ts` (Bun).
+- DeepSeek: `src/ai/deepseek.ts` (v1) and `src/ai/deepseek-v2.ts` (**v2, the app's fighter** — SRS kicks, garbage defense, opponent timing). v2 is ported to Rust (`rust/hoiko-deepseek`) and to wasm (`rust/deepseek-wasm` -> `src/ai/wasm/deepseek_v2.wasm`, 2.4x faster) and the app runs it.
+- Scoreboard: `bun scripts/gate-v2.ts` (env `HOIKO_BEAM`, `DSV2_RUST`, `DSV2_DEPTH`, `DSV2_BOOK`). Results and the beat-Hoiko playbook: `docs/BEAT_HOIKO.md`.
+- Gates: `bunx tsc --noEmit`, `bun test`, `bun run build`, `bun run lint`, `cargo test --manifest-path rust/Cargo.toml`, plus the oracle differentials in `tools/hoiko-oracle/diff/`.
+- Backlog: opening book is implemented but opt-in/off (mixed result, `evidence/opening-book/`); self-play weight tuner exists (`scripts/tune-vs.ts`); GitHub Actions parked until the account billing is fixed.
