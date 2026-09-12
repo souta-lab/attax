@@ -94,7 +94,7 @@ function sideLabel(label: string, snap: SideSnap, sent: number, debug: SideDebug
 for (const seed of seeds) {
   console.log(`\n===== SEED ${seed} =====`);
   const ds = createDeepSeekTetris();
-  const hoiko = createRustHoiko();
+  const hoiko = createRustHoiko({ versus: true });
   const dsDebug = () => ds.getDebug();
   const hoikoDebug = () => hoiko.getDebug?.() ?? null;
   const ctrl = createVersusController(

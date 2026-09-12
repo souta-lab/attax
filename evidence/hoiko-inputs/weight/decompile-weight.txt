@@ -1,0 +1,46 @@
+# EvaluateAI.weight transitions (binary decompile Hoiko.all.cs)
+
+## TransitionWeight reads the previous row: 13618/13632 (weight==row1 sticky) and 13548 (transitionHeight 13 if weight>=row2)
+			if (*(int*)((ulong)(nint)searching + 344uL) + 1 <= 10)
+			{
+				?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = ?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA;
+			}
+			else
+				{
+					EvaluateAI.EvalWeight* ptr = (EvaluateAI.EvalWeight*)((ulong)(nint)?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA + 272uL);
+					if (?weight@EvaluateAI@@0PEAVEvalWeight@1@EA == ptr)
+					{
+						return;
+					}
+					if (num2 == -1 && num5 <= 5)
+					{
+						?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = ptr;
+						return;
+					}
+				}
+			}
+			else
+			{
+				EvaluateAI.EvalWeight* ptr = (EvaluateAI.EvalWeight*)((ulong)(nint)?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA + 272uL);
+				if (?weight@EvaluateAI@@0PEAVEvalWeight@1@EA == ptr)
+				{
+					return;
+				}
+				if (num2 == -1 && num5 <= 5)
+				{
+					?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = ptr;
+					return;
+				}
+
+## The only writes to the weight global are TransitionWeight / EvenOrOdd (13659) / ReadEvalWeight (13530, at Init)
+13530:		?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = ?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA;
+13548:				?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = ?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA;
+13552:				?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = (EvaluateAI.EvalWeight*)((ulong)(nint)?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA + 272uL);
+13558:				?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = ?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA;
+13562:				?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = (EvaluateAI.EvalWeight*)((ulong)(nint)?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA + 272uL);
+
+## SearchAI.ReadConfig callers (Init only: 2497/4001/6315)
+2497:		SearchAI.ReadConfig();
+4001:		SearchAI.ReadConfig();
+6315:		SearchAI.ReadConfig();
+15581:	internal unsafe static void SearchAI.ReadConfig()

@@ -5,12 +5,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::board::{Board, BOARD_HEIGHT};
-use crate::evaluate::{evaluate, evaluate_first};
+use crate::evaluate::{evaluate, evaluate_first, EvalFlags, VsFlags};
 use crate::expand::expand_node;
 use crate::expand_derive::get_above_cell;
 use crate::gamepack::GamePack;
 use crate::mino::FallMino;
-use crate::nextmino::NextMino;
+use crate::nextmino::{NextMino, NEXT_SIZE};
 use crate::shapes::{MinoType, ACT_NONE};
 use crate::weights::HoikoWeights;
 
@@ -26,7 +26,19 @@ pub struct ProbeInput {
     pub is_even: bool,
     pub use_s4w: bool,
     pub use_pcstack: bool,
+    pub vs: VsFlags,
     pub trust_rate: f64,
+}
+
+impl ProbeInput {
+    pub fn eval_flags(&self) -> EvalFlags {
+        EvalFlags {
+            is_even_board: self.is_even,
+            use_s4w: self.use_s4w,
+            use_pcstack: self.use_pcstack,
+            vs: self.vs,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -54,11 +66,41 @@ pub struct ProbeExpand {
 
 /// Mirrors `buildRoot(input, viewNext, feedQueue=false)` from `native/index.ts`.
 pub fn build_root(input: &ProbeInput) -> GamePack {
-    let next = Rc::new(RefCell::new(NextMino::default()));
-    next.borrow_mut().view_next = input.view_next;
+    let (mut g, next) = base_root(input);
     let mut real_next = Vec::with_capacity(input.queue.len() + 1);
     real_next.push(input.current);
     real_next.extend_from_slice(&input.queue);
+    next.borrow_mut().init(&real_next);
+    g.set_new_current(&next);
+    g
+}
+
+/// Carried `NextMino` state: the versus game's persistent queue after
+/// `RootNode.SetPPTData` (`m`, `trust_end`, `bag_remains`).
+pub struct NextCarry {
+    pub m: [MinoType; NEXT_SIZE],
+    pub trust_end: i32,
+    pub bag_remains: i32,
+}
+
+/// Like `build_root`, but seeds the queue from carried state. The host has
+/// already run the per-turn `ShiftNext` + `Compare(0, live)` mutation, so this
+/// path skips `init`.
+pub fn build_root_carried(input: &ProbeInput, carry: &NextCarry) -> GamePack {
+    let (mut g, next) = base_root(input);
+    {
+        let mut n = next.borrow_mut();
+        n.m = carry.m;
+        n.trust_end = carry.trust_end;
+        n.bag_remains = carry.bag_remains;
+    }
+    g.set_new_current(&next);
+    g
+}
+
+fn base_root(input: &ProbeInput) -> (GamePack, Rc<RefCell<NextMino>>) {
+    let next = Rc::new(RefCell::new(NextMino::default()));
+    next.borrow_mut().view_next = input.view_next;
 
     let mut g = GamePack::default();
     g.board = Board::default();
@@ -74,23 +116,14 @@ pub fn build_root(input: &ProbeInput) -> GamePack {
     g.act = ACT_NONE;
     g.falling_mino.init();
     g.locked_mino.init();
-    next.borrow_mut().init(&real_next);
-    g.set_new_current(&next);
-    g
+    (g, next)
 }
 
 pub fn evaluate_probe(input: &ProbeInput, ew: &HoikoWeights) -> ProbeEval {
     let g = build_root(input);
-    let e = evaluate(
-        &g,
-        ew,
-        input.weight_index,
-        input.is_even,
-        input.use_s4w,
-        input.use_pcstack,
-        input.trust_rate,
-    );
-    let f = evaluate_first(&g, ew, input.weight_index, input.is_even, input.use_pcstack);
+    let flags = input.eval_flags();
+    let e = evaluate(&g, ew, input.weight_index, flags, input.trust_rate);
+    let f = evaluate_first(&g, ew, input.weight_index, flags);
     ProbeEval {
         family_score: e.family_score,
         score: e.score,

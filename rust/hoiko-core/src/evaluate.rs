@@ -25,6 +25,36 @@ use crate::weights::HoikoWeights;
 pub const DEFAULT_IS_EVEN_BOARD: bool = true;
 pub const DEFAULT_VIEW_NEXT: i32 = 2;
 
+/// Versus-only opponent-aware statics the binary maintains in
+/// `PPT2AI.ObserveOpponent` / `EvaluateAI` (IL 4687-4693). All false/0 in
+/// solo (`EvaluateAI.ReadConfig`, IL 11045-11047).
+#[derive(Clone, Copy, Default)]
+pub struct VsFlags {
+    pub multi_evaluation: bool,
+    pub opponent_is_pc_board: bool,
+    pub opponent_is_powerful_board: bool,
+    pub opponents_combo: i32,
+}
+
+#[derive(Clone, Copy)]
+pub struct EvalFlags {
+    pub is_even_board: bool,
+    pub use_s4w: bool,
+    pub use_pcstack: bool,
+    pub vs: VsFlags,
+}
+
+impl Default for EvalFlags {
+    fn default() -> Self {
+        Self {
+            is_even_board: DEFAULT_IS_EVEN_BOARD,
+            use_s4w: false,
+            use_pcstack: false,
+            vs: VsFlags::default(),
+        }
+    }
+}
+
 fn w(ew: &HoikoWeights, i: usize) -> i32 {
     weight_at(ew, i)
 }
@@ -138,9 +168,7 @@ pub fn evaluate(
     g: &GamePack,
     ew: &HoikoWeights,
     weight_index: i32,
-    is_even_board: bool,
-    use_s4w: bool,
-    use_pcstack: bool,
+    flags: EvalFlags,
     trust_rate: f64,
 ) -> EvalOut {
     let mut ch = [0i32; 10];
@@ -151,11 +179,18 @@ pub fn evaluate(
     board += terms::get_up_down(&ch, well.well_column, well.well_depth, ew);
     board += terms::get_underground(&g.board, &ch, min_height, ew);
     let y0 = well.well_depth + min_height;
-    board += terms::get_resource(g, &ch, min_height, ew, use_s4w);
+    board += terms::get_resource(
+        g,
+        &ch,
+        min_height,
+        ew,
+        flags.use_s4w,
+        flags.vs.opponent_is_powerful_board,
+    );
     board += terms::get_ground(g, &ch, y0, ew);
     board += tsd::search_tsd(g, &ch, y0, ew);
     board += tst::search_tst(g, &ch, y0, min_height, ew);
-    board += pc::search_pc_board(g, min_height, ew, is_even_board, use_pcstack);
+    board += pc::search_pc_board(g, min_height, ew, flags.is_even_board, flags.use_pcstack);
     board += get_cont_bonus(g, ew);
     let action = get_final_action(g, ew, weight_index);
     let family_score = ((ew.nexus * board as f64) as i32 + action) as f64 * trust_rate;
@@ -164,42 +199,54 @@ pub fn evaluate(
 }
 
 /// `EvaluateAI.EvaluateFirst` (binary 11098).
-pub fn evaluate_first(
-    g: &GamePack,
-    ew: &HoikoWeights,
-    weight_index: i32,
-    is_even_board: bool,
-    use_pcstack: bool,
-) -> EvalOut {
+pub fn evaluate_first(g: &GamePack, ew: &HoikoWeights, weight_index: i32, flags: EvalFlags) -> EvalOut {
     let mut ch = [0i32; 10];
     let min_height = terms::build_column_height(&g.board, &mut ch);
     let mut board = terms::get_height(&g.board, &ch, ew);
-    board += pc::search_pc_board(g, min_height, ew, is_even_board, use_pcstack);
+    board += pc::search_pc_board(g, min_height, ew, flags.is_even_board, flags.use_pcstack);
     board += get_cont_bonus(g, ew);
     let family_score = get_final_action(g, ew, weight_index) + (board as f64 * ew.nexus) as i32;
     EvalOut { family_score, score: family_score }
 }
 
-/// `EvaluateAI.TransitionWeight` (binary 13533) for the VS/single-eval config.
-pub fn transition_weight(board: &Board, weight_index: i32, is_even_board: bool) -> i32 {
+/// `EvaluateAI.TransitionWeight.<lambda>` (binary 13571) — the VS weight-family
+/// transition. `opponents_combo > 8` sends the search to `weightList[3]`; the
+/// `isEvenBoard` branch only considers `weightList[1]` when the opponent is on a
+/// PC board (or comboing), matching the versus-only `MultiEvaluation` gate.
+pub fn transition_weight(board: &Board, weight_index: i32, flags: EvalFlags) -> i32 {
     let transition_height = if weight_index >= 2 { 13 } else { 15 };
     let mut ch = [0i32; 10];
     let garbage_height = terms::build_column_height(board, &mut ch);
-    let mut c4 = ch[3].max(ch[4]).max(ch[5]).max(ch[6]);
-    c4 = c4.max(0);
+    let c4 = ch[3].max(ch[4]).max(ch[5]).max(ch[6]);
+    let sh1 = board.stack_height + 1;
     if c4 + 1 <= transition_height {
-        if board.stack_height + 1 >= 11 {
+        if flags.vs.multi_evaluation && flags.vs.opponents_combo > 8 {
+            let threshold = if garbage_height == -1 { 11 } else { -1 };
+            if sh1 >= threshold {
+                return 3;
+            }
+        }
+        if sh1 >= 11 {
             return 0;
         }
-        if !is_even_board {
+        let pc_branch = if flags.is_even_board {
+            flags.vs.multi_evaluation
+                && (flags.vs.opponent_is_pc_board || flags.vs.opponents_combo >= 3)
+        } else {
+            true
+        };
+        if pc_branch {
             if weight_index == 1 {
                 return 1;
             }
-            if garbage_height == -1 && board.stack_height + 1 <= 5 {
+            if garbage_height == -1 && sh1 <= 5 {
                 return 1;
             }
         }
         return 0;
+    }
+    if flags.vs.multi_evaluation && flags.vs.opponents_combo > 8 {
+        return 3;
     }
     2
 }
@@ -252,13 +299,52 @@ mod tests {
 
     #[test]
     fn transition_weight_golden() {
-        assert_eq!(transition_weight(&Board::default(), 0, true), 0);
+        assert_eq!(transition_weight(&Board::default(), 0, EvalFlags::default()), 0);
         let mut b = Board::default();
         for row in b.line.iter_mut().take(10) {
             *row = FULL_ROW;
         }
         b.stack_height = 9;
-        assert_eq!(transition_weight(&b, 0, true), 0);
+        assert_eq!(transition_weight(&b, 0, EvalFlags::default()), 0);
+    }
+
+    // Values probed from Hoiko.exe v0-beta1 (`multieval`/`oppcombo`/`opppc`/
+    // `evenodd` keys): the versus multi-eval branches select weightList[3] on
+    // combo>8 with garbage present at any height (IL 13598 `num4 = ??11 : -1`),
+    // weightList[1] only when the opponent is on a PC board (or comboing), and
+    // the non-even branch unconditionally considers weightList[1].
+    #[test]
+    fn transition_weight_versus_flags_golden() {
+        fn board(rows: &[i32]) -> Board {
+            let mut b = Board::default();
+            for (y, row) in rows.iter().enumerate() {
+                b.line[y] = *row;
+            }
+            b.update_max_height();
+            b
+        }
+        fn flags(even: bool, multi: bool, pc: bool, combo: i32) -> EvalFlags {
+            EvalFlags {
+                is_even_board: even,
+                vs: VsFlags {
+                    multi_evaluation: multi,
+                    opponent_is_pc_board: pc,
+                    opponents_combo: combo,
+                    ..VsFlags::default()
+                },
+                ..EvalFlags::default()
+            }
+        }
+        let empty = board(&[]);
+        assert_eq!(transition_weight(&empty, 0, flags(true, false, false, 9)), 0);
+        assert_eq!(transition_weight(&empty, 0, flags(true, true, false, 9)), 1);
+        assert_eq!(transition_weight(&empty, 0, flags(true, true, true, 2)), 1);
+        assert_eq!(transition_weight(&empty, 0, flags(true, true, false, 2)), 0);
+        assert_eq!(transition_weight(&empty, 0, flags(false, true, false, 2)), 1);
+        assert_eq!(transition_weight(&board(&[FULL_ROW]), 0, flags(true, true, false, 9)), 3);
+        let six = board(&[0x001; 6]);
+        assert_eq!(transition_weight(&six, 0, flags(true, true, false, 9)), 0);
+        assert_eq!(transition_weight(&board(&[0x3ff, 0x3ff]), 3, flags(true, true, false, 9)), 3);
     }
 
     fn build_root(
@@ -303,9 +389,9 @@ mod tests {
             0,
             0,
         );
-        let e = evaluate(&empty, &we(), 0, true, false, false, 1.0);
+        let e = evaluate(&empty, &we(), 0, EvalFlags::default(), 1.0);
         assert_eq!((e.family_score, e.score), (0, 0));
-        let ef = evaluate_first(&empty, &we(), 0, true, false);
+        let ef = evaluate_first(&empty, &we(), 0, EvalFlags::default());
         assert_eq!((ef.family_score, ef.score), (0, 0));
 
         let mid = build_root(
@@ -316,9 +402,9 @@ mod tests {
             2,
             1,
         );
-        let e = evaluate(&mid, &we(), 0, true, false, false, 1.0);
+        let e = evaluate(&mid, &we(), 0, EvalFlags::default(), 1.0);
         assert_eq!((e.family_score, e.score), (492, 484));
-        let ef = evaluate_first(&mid, &we(), 0, true, false);
+        let ef = evaluate_first(&mid, &we(), 0, EvalFlags::default());
         assert_eq!((ef.family_score, ef.score), (500, 500));
     }
 
@@ -351,7 +437,7 @@ mod tests {
         assert_eq!(ch, [2, 1, 2, 1, 1, 1, 1, 1, 1, 1]);
         assert_eq!(terms::get_height(&notch.board, &ch, &we()), -45);
         assert_eq!(terms::get_underground(&notch.board, &ch, g, &we()), 0);
-        assert_eq!(terms::get_resource(&notch, &ch, g, &we(), false), 4);
+        assert_eq!(terms::get_resource(&notch, &ch, g, &we(), false, false), 4);
         let well = terms::get_well_column(&notch.board, &ch, g, &we());
         assert_eq!(terms::get_up_down(&ch, well.well_column, well.well_depth, &we()), -12);
         assert_eq!(tsd::search_tsd(&notch, &ch, well.well_depth + g, &we()), 2);
@@ -369,7 +455,7 @@ mod tests {
         assert_eq!(terms::get_height(&pc_board.board, &ch, &we()), -60);
         let well = terms::get_well_column(&pc_board.board, &ch, g, &we());
         assert_eq!((well.score, well.well_column, well.well_depth), (30, 9, 4));
-        assert_eq!(terms::get_resource(&pc_board, &ch, g, &we(), false), 60);
+        assert_eq!(terms::get_resource(&pc_board, &ch, g, &we(), false, false), 60);
         assert_eq!(pc::search_pc_board(&pc_board, g, &we(), true, false), 1000);
     }
 }

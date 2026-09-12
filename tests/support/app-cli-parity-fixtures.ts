@@ -61,6 +61,7 @@ export interface HoikoEngineSettings {
   readonly depthLimit: number;
   readonly viewNext: number;
   readonly isEvenBoard: boolean;
+  readonly versus: boolean;
   readonly framesPerThink: number;
   readonly offsetEnabled: number;
   readonly searchState: {
@@ -76,6 +77,7 @@ export function hoikoEngineSettings(fighter: RustHoikoFighter): HoikoEngineSetti
     depthLimit: fighter.engine.depthLimit,
     viewNext: fighter.engine.viewNext,
     isEvenBoard: fighter.engine.isEvenBoard,
+    versus: fighter.engine.versus,
     framesPerThink: fighter.engine.framesPerThink,
     offsetEnabled: fighter.engine.offsetEnabled,
     searchState: fighter.engine.searchState,

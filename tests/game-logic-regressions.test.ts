@@ -69,8 +69,8 @@ describe("lock-out top-out", () => {
   });
 });
 
-describe("native combo reset", () => {
-  test("resets to 0 on a no-clear lock instead of a negative sentinel", () => {
+describe("native combo break", () => {
+  test("negates a live combo on a no-clear lock (binary CalcAtk), 0 stays 0", () => {
     const engine = createEngine({ random: IDENTITY_SHUFFLE });
     const place = (rotation: number, x: number, topRow: number): boolean =>
       engine.placeMinoAt?.(rotation, x, topRow, 0) ?? false;
@@ -86,6 +86,10 @@ describe("native combo reset", () => {
 
     expect(place(0, 0, 18)).toBe(true); // Z -> locks without clearing
 
+    // Shipping exe `postmove` combo is `-1` here (the binary negates the live
+    // combo); the next no-clear lock returns it to 0.
+    expect(engine.getSnapshot().nativeCombo).toBe(-1);
+    engine.hardDrop(); // second no-clear lock
     expect(engine.getSnapshot().nativeCombo).toBe(0);
   });
 });

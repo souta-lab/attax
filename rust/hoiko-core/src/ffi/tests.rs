@@ -20,6 +20,10 @@
             use_pcstack: 0,
             view_next: 2,
             allow_hold: 0,
+            multi_evaluation: 0,
+            opponent_is_pc_board: 0,
+            opponent_is_powerful_board: 0,
+            opponents_combo: 0,
             weight_index: 0,
             min_depth: st.min_depth,
             depth_limit: 10,
@@ -56,6 +60,11 @@
             sync_opp_btb: 0,
             sync_opp_combo: 0,
             sync_now_ms: 0,
+            next_carry: 0,
+            next_carry_m: [7; 28],
+            next_carry_trust_end: 0,
+            next_carry_bag_remains: 6,
+            next_carry_pad: 0,
         }
     }
 

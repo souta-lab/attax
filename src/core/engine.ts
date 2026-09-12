@@ -161,7 +161,10 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   function applyClear(cleared: number, tspin: TspinKind, perfectClear: boolean): void {
     lastAction = actionForClear(cleared, tspin, perfectClear);
     if (cleared === 0) {
-      nativeCombo = 0;
+      // Binary `Others.CalcAtk` (Tetriz_Common.cpp 530): `if (combo > 0) combo *= -1;
+      // else combo = 0` — the exe's `postCombo` is negative on a broken combo
+      // (evidence/hoiko-fullgame/*.jsonl: -1/-2/-3).
+      nativeCombo = nativeCombo > 0 ? -nativeCombo : 0;
       combo = -1;
       lastAttack = 0;
       lastBlocked = 0;

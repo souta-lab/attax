@@ -13,7 +13,7 @@
 use std::io::Read;
 
 use hoiko_core::board::BOARD_HEIGHT;
-use hoiko_core::evaluate::transition_weight;
+use hoiko_core::evaluate::{transition_weight, VsFlags};
 use hoiko_core::probe::{build_root, ProbeInput};
 use hoiko_core::probe_eval::{eval_bfs_probe, eval_walk_probe, EvalChildDump, EvalGenDump};
 use hoiko_core::probe_trace::search_trace;
@@ -55,6 +55,14 @@ fn env_flag(name: &str) -> bool {
     std::env::var(name).map(|v| v != "0").unwrap_or(false)
 }
 
+fn env_flag_default(name: &str, default: bool) -> bool {
+    std::env::var(name).map(|v| v != "0").unwrap_or(default)
+}
+
+fn env_i32(name: &str, default: i32) -> i32 {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
 fn read_input(t: &mut Tok) -> Input {
     let board_len = t.usize();
     let mut board = Vec::with_capacity(board_len);
@@ -82,9 +90,15 @@ fn read_input(t: &mut Tok) -> Input {
             btb,
             view_next,
             weight_index: 0,
-            is_even: true,
+            is_even: env_flag_default("HOIKO_ISEVEN", true),
             use_s4w: env_flag("HOIKO_USE_S4W"),
             use_pcstack: env_flag("HOIKO_USE_PCSTACK"),
+            vs: VsFlags {
+                multi_evaluation: env_flag("HOIKO_VS_MULTI"),
+                opponent_is_pc_board: env_flag("HOIKO_VS_OPP_PC"),
+                opponent_is_powerful_board: env_flag("HOIKO_VS_OPP_POWERFUL"),
+                opponents_combo: env_i32("HOIKO_VS_OPP_COMBO", 0),
+            },
             trust_rate: 1.0,
         },
         allow_hold,
@@ -179,7 +193,8 @@ fn main() {
     let mut input = read_input(&mut t);
     let ew = we();
     let root = build_root(&input.probe);
-    let weight_index = transition_weight(&root.board, 0, true);
+    let flags = input.probe.eval_flags();
+    let weight_index = transition_weight(&root.board, 0, flags);
     input.probe.weight_index = weight_index;
 
     if mode == "trace" || mode == "trace_std" {
@@ -188,9 +203,7 @@ fn main() {
             &mut state,
             &root,
             &[ew],
-            true,
-            input.probe.use_s4w,
-            input.probe.use_pcstack,
+            flags,
             input.probe.view_next,
             &|| 0.0,
             Some(i32::MAX),
@@ -203,9 +216,7 @@ fn main() {
             &mut state2,
             &root,
             &[ew],
-            true,
-            input.probe.use_s4w,
-            input.probe.use_pcstack,
+            flags,
             input.probe.view_next,
             input.allow_hold,
             select_mode,
@@ -277,9 +288,7 @@ fn main() {
             &mut state,
             &root,
             &[ew],
-            true,
-            input.probe.use_s4w,
-            input.probe.use_pcstack,
+            flags,
             input.probe.view_next,
             input.allow_hold,
             1,
@@ -344,9 +353,7 @@ fn main() {
             &input.probe,
             &ew,
             weight_index,
-            true,
-            input.probe.use_s4w,
-            input.probe.use_pcstack,
+            flags,
             input.allow_hold,
             1,
             &path,
@@ -363,9 +370,7 @@ fn main() {
             &input.probe,
             &ew,
             weight_index,
-            true,
-            input.probe.use_s4w,
-            input.probe.use_pcstack,
+            flags,
             input.allow_hold,
         );
         let root = gens.first();

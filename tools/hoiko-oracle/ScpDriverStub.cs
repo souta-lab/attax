@@ -127,6 +127,24 @@ internal static class OracleHost
     // Optional falling-piece spawn height (`fally=`), written after the board so
     // the searched state matches the replica's `build_root` spawn. -1 = leave it.
     private static int _fallY = -1;
+    // Next-queue carry probe (`shiftnext=N`): after RootNode.Init, replay the
+    // real `RootNode.SetPPTData` mutation N times — each turn `NextMino.ShiftNext`
+    // then `NextMino.Compare(root, 0, nx)` (IL 7048-7049) — then `SetNewCurrent`.
+    // Exposes the turn-N bag/trust state the harness must reproduce.
+    private static int _shiftNext;
+    // `shiftiter=N`: replay N full per-turn mutations after `RootNode.Init`
+    // (`ShiftNext; Compare(0,nx); SetNewCurrent` each iteration) — the exact
+    // sequence the harness applies across N versus turns.
+    private static int _shiftIter;
+    // `carrym=`, `carrytrust=`, `carryrem=`: seed the persistent NextMino with a
+    // recorded carry state (after Init) instead of the fresh bag. Lets the exe
+    // search from the same queue state the replica carries across turns.
+    private static int[] _carryM;
+    private static int _carryTrust = int.MinValue;
+    private static int _carryRem = int.MinValue;
+    // `nextdump=1`: print the root NextMino state (m[0..9], trustEnd, bagRemains)
+    // after Init / shiftnext and before the search, then exit without searching.
+    private static int _nextDump;
     // ConfigAI/TemplateAI static overrides (`viewnext=`, `usepcstack=`, `uses4w=`,
     // `usetdopeners=`) so the oracle can enable config options the shipping
     // config.dll has off. -1 = leave the static untouched. Applied before
@@ -203,6 +221,26 @@ internal static class OracleHost
     private static int _lastOppId;
     // `iseven=` override (RVA 0x66382). -1 = leave the static untouched.
     private static int _isEvenBoard = -1;
+    // --- Versus opponent-aware EvaluateAI statics (real-game `PPT2AI.ObserveOpponent`
+    // + `NextTurn` path). All opt-in; -1/int.MinValue = leave untouched:
+    //   multieval=0/1  -> EvaluateAI.MultiEvaluation(bool)  (0x060001CD)
+    //   opppc=0/1      -> EvaluateAI.OpponentIsPCBoard(bool) (0x060001D0)
+    //   opppowerful=0/1-> EvaluateAI.OpponentIsPowerfulBoard(bool) (0x060001D3)
+    //   oppcombo=N     -> EvaluateAI.SetOpponentsCombo(N)   (0x060001D2)
+    //   evenodd=1      -> EvaluateAI.EvenOrOdd(root) before Search (0x060001CB),
+    //                     which is exactly what the versus `QuickSearch` does
+    //                     (`isEvenBoard = PopCount(root board) even`).
+    private static int _multiEval = -1;
+    private static int _oppPcSet = -1;
+    private static int _oppPowerfulSet = -1;
+    private static int _oppComboSet = int.MinValue;
+    private static int _evenOdd = -1;
+    // `vsprobe=1`: call the real `EvaluateAI.OpponentIsPCBoard(Board*)` /
+    // `OpponentIsPowerfulBoard(Board*, combo, garbage)` on a synthetic opponent
+    // board (`oppboard=` native rows; `oppcombo=`/`garbage=` inputs), dump the two
+    // booleans, then exit without searching. Verifies the derivation formula.
+    private static int _vsProbe;
+    private static readonly int[] _oppBoard = new int[32];
     // Carried `EvaluateAI.weight` family index (weightList + 272*index). A fresh
     // process always starts at 0, so the harness restores the replica's carried
     // index and reads the post-search index back (adapter carries it too).
@@ -354,6 +392,59 @@ internal static class OracleHost
             Log("     board row " + r + " mask=0x" + board[r].ToString("x3", CultureInfo.InvariantCulture));
         }
         Invoke(miUpdateMaxHeight, new IntPtr(buf.ToInt64() + OffBoard));
+        if (_shiftNext > 0 || _shiftIter > 0 || _nextDump != 0 || _carryM != null)
+        {
+            MethodInfo miShift = Resolve(0, "NextMino.ShiftNext", 1);
+            MethodInfo miCompare = Resolve(0, "NextMino.Compare", 3);
+            MethodInfo miSetCurrent = Resolve(0, "RootNode.SetNewCurrent", 1);
+            if (miSetCurrent == null)
+            {
+                Log("[next] shift/compare methods not resolved: shift=" + (miShift != null)
+                    + " compare=" + (miCompare != null) + " setCurrent=" + (miSetCurrent != null));
+            }
+            else if (_carryM != null)
+            {
+                for (int i = 0; i < 28 && i < _carryM.Length; i++)
+                    Marshal.WriteInt32(buf, i * 4, _carryM[i]);
+                if (_carryTrust != int.MinValue) Marshal.WriteInt32(buf, 112, _carryTrust);
+                if (_carryRem != int.MinValue) Marshal.WriteInt32(buf, 116, _carryRem);
+                Invoke(miSetCurrent, buf);
+                Log("[next] carry injected (m[0]=" + _carryM[0] + " trustEnd="
+                    + Marshal.ReadInt32(buf, 112) + " remains=" + Marshal.ReadInt32(buf, 116) + ")");
+            }
+            else if (miShift == null || miCompare == null)
+            {
+                Log("[next] shift/compare methods not resolved: shift=" + (miShift != null)
+                    + " compare=" + (miCompare != null) + " setCurrent=" + (miSetCurrent != null));
+            }
+            else if (_shiftIter > 0)
+            {
+                for (int s = 0; s < _shiftIter; s++)
+                {
+                    Invoke(miShift, buf);
+                    Invoke(miCompare, buf, 0, nx);
+                    Invoke(miSetCurrent, buf);
+                }
+                Log("[next] applied " + _shiftIter + " x (ShiftNext + Compare(0,nx) + SetNewCurrent)");
+            }
+            else
+            {
+                for (int s = 0; s < _shiftNext; s++)
+                {
+                    Invoke(miShift, buf);
+                    Invoke(miCompare, buf, 0, nx);
+                }
+                Invoke(miSetCurrent, buf);
+                Log("[next] applied " + _shiftNext + " x (ShiftNext + Compare(0,nx)) + SetNewCurrent");
+            }
+            DumpNextState(buf, _shiftIter > 0 ? _shiftIter : _shiftNext);
+            if (_nextDump == 1)
+            {
+                Marshal.FreeHGlobal(buf);
+                Marshal.FreeHGlobal(nx);
+                return true;
+            }
+        }
         if (_fallY >= 0) Marshal.WriteInt32(buf, OffFalling + 4, _fallY);
         if (_fallX != int.MinValue) Marshal.WriteInt32(buf, OffFalling, _fallX);
         if (_fallR != int.MinValue) Marshal.WriteInt32(buf, OffFalling + 8, _fallR);
@@ -380,6 +471,16 @@ internal static class OracleHost
             SetEvenBoard(_isEvenBoard != 0);
         }
         if (_weightIndex >= 0) ApplyWeightIndex();
+        ApplyVsStatics();
+
+        if (_vsProbe != 0)
+        {
+            Log("[5] versus derivation probe (SearchAI.Search skipped)");
+            RunVsProbe();
+            Marshal.FreeHGlobal(buf);
+            Marshal.FreeHGlobal(nx);
+            return true;
+        }
 
         if (_tmplProbe != 0)
         {
@@ -452,6 +553,7 @@ internal static class OracleHost
         }
 
         DumpTemplateStatics("pre");
+        if (_evenOdd == 1) Invoke(Resolve(0x060001CB, "EvaluateAI.EvenOrOdd", 1), buf);
         Invoke(miSearch, buf);
         DumpTemplateStatics("post");
         Log("[5] returned in " + (DateTime.UtcNow - t0).TotalMilliseconds.ToString("0.0", CultureInfo.InvariantCulture) + " ms");
@@ -653,6 +755,32 @@ internal static class OracleHost
             {
                 _fallY = int.Parse(val, CultureInfo.InvariantCulture);
             }
+            else if (key == "shiftnext")
+            {
+                _shiftNext = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "shiftiter")
+            {
+                _shiftIter = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "carrym")
+            {
+                _carryM = new int[parts.Length];
+                for (int i = 0; i < parts.Length && i < 28; i++)
+                    _carryM[i] = int.Parse(parts[i].Trim(), CultureInfo.InvariantCulture);
+            }
+            else if (key == "carrytrust")
+            {
+                _carryTrust = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "carryrem")
+            {
+                _carryRem = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "nextdump")
+            {
+                _nextDump = int.Parse(val, CultureInfo.InvariantCulture);
+            }
             else if (key == "viewnext")
             {
                 _viewNextOverride = int.Parse(val, CultureInfo.InvariantCulture);
@@ -730,6 +858,35 @@ internal static class OracleHost
             {
                 _isEvenBoard = val != "0" ? 1 : 0;
             }
+            else if (key == "multieval")
+            {
+                _multiEval = val != "0" ? 1 : 0;
+            }
+            else if (key == "opppc")
+            {
+                _oppPcSet = val != "0" ? 1 : 0;
+            }
+            else if (key == "opppowerful")
+            {
+                _oppPowerfulSet = val != "0" ? 1 : 0;
+            }
+            else if (key == "oppcombo")
+            {
+                _oppComboSet = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "evenodd")
+            {
+                _evenOdd = val != "0" ? 1 : 0;
+            }
+            else if (key == "vsprobe")
+            {
+                _vsProbe = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "oppboard")
+            {
+                for (int i = 0; i < parts.Length && i < 32; i++)
+                    _oppBoard[i] = (int)long.Parse(parts[i].Trim().Replace("0x", ""), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            }
             else if (key == "weightindex")
             {
                 _weightIndex = int.Parse(val, CultureInfo.InvariantCulture);
@@ -763,7 +920,9 @@ internal static class OracleHost
             else if (key == "opplockid") _syncOppLockId = int.Parse(val, CultureInfo.InvariantCulture);
             else if (key == "oppclear") _syncOppClearLines = int.Parse(val, CultureInfo.InvariantCulture);
             else if (key == "oppbtb") _syncOppBtb = int.Parse(val, CultureInfo.InvariantCulture);
-            else if (key == "oppcombo") _syncOppCombo = int.Parse(val, CultureInfo.InvariantCulture);
+            // Sync-field name (`_syncOppCombo`); `oppcombo=` is the versus static
+            // `EvaluateAI.SetOpponentsCombo` and must not be reused here.
+            else if (key == "opplastcombo") _syncOppCombo = int.Parse(val, CultureInfo.InvariantCulture);
         }
         Log("[input] loaded oracle_input.txt (board rows=" + board.Length + ", next=" + seq.Length + ")");
     }
@@ -796,6 +955,26 @@ internal static class OracleHost
         }
     }
 
+    private static void DumpNextState(IntPtr root, int shift)
+    {
+        StringBuilder sb = new StringBuilder("NEXTDUMP shift=" + shift + " m=");
+        for (int i = 0; i < 28; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(Marshal.ReadInt32(root, i * 4));
+        }
+        sb.Append(" trustEnd=").Append(Marshal.ReadInt32(root, 112));
+        sb.Append(" remains=").Append(Marshal.ReadInt32(root, 116));
+        Log(sb.ToString());
+        StringBuilder full = new StringBuilder("NEXTFULL shift=" + shift + " m=");
+        for (int i = 0; i < 28; i++)
+        {
+            if (i > 0) full.Append(',');
+            full.Append(Marshal.ReadInt32(root, i * 4));
+        }
+        Log(full.ToString());
+    }
+
     private static void SetBoard(IntPtr root, int c4)
     {
         for (int i = 0; i < 32; i++) Marshal.WriteInt32(root, OffBoard + i * 4, 0);
@@ -821,6 +1000,37 @@ internal static class OracleHost
             if (_isEvenBoardField == null) Log("[offset] WARNING isEvenBoard field not found");
         }
         if (_isEvenBoardField != null) _isEvenBoardField.SetValue(null, v);
+    }
+
+    private static void ApplyVsStatics()
+    {
+        if (_multiEval >= 0) Invoke(Resolve(0x060001CD, "EvaluateAI.MultiEvaluation", 1), _multiEval != 0);
+        if (_oppPcSet >= 0) Invoke(Resolve(0x060001D0, "EvaluateAI.OpponentIsPCBoard", 1), _oppPcSet != 0);
+        if (_oppPowerfulSet >= 0)
+            Invoke(Resolve(0x060001D3, "EvaluateAI.OpponentIsPowerfulBoard", 1), _oppPowerfulSet != 0);
+        if (_oppComboSet != int.MinValue)
+            Invoke(Resolve(0x060001D2, "EvaluateAI.SetOpponentsCombo", 1), _oppComboSet);
+    }
+
+    private static void RunVsProbe()
+    {
+        MethodInfo miPc = Resolve(0x060001D1, "EvaluateAI.OpponentIsPCBoard", 1);
+        MethodInfo miPowerful = Resolve(0x060001D4, "EvaluateAI.OpponentIsPowerfulBoard", 3);
+        IntPtr bd = Marshal.AllocHGlobal(136);
+        for (int i = 0; i < 136; i += 4) Marshal.WriteInt32(bd, i, 0);
+        int sh = -1;
+        for (int y = 0; y < 32; y++)
+        {
+            Marshal.WriteInt32(bd, y * 4, _oppBoard[y]);
+            if (_oppBoard[y] != 0) sh = y;
+        }
+        Marshal.WriteInt32(bd, 128, sh);
+        int combo = _oppComboSet == int.MinValue ? 0 : _oppComboSet;
+        bool pc = CallBool(miPc, bd);
+        bool powerful = CallBool(miPowerful, bd, combo, _pendingGarbage);
+        Log("VSPROBE oppPc=" + (pc ? 1 : 0) + " oppPowerful=" + (powerful ? 1 : 0)
+            + " stackHeight=" + sh + " combo=" + combo + " garbage=" + _pendingGarbage);
+        Marshal.FreeHGlobal(bd);
     }
 
     private static void ApplyConfigOverrides()
@@ -1014,7 +1224,7 @@ internal static class OracleHost
         if (_hasLastOwn != 0 && _syncLockId != _lastOwnId)
         {
             Invoke(_miSetPrev, _syncLastAction);
-            Invoke(_miLockOff, frame, _syncLastAttack, _syncLockId);
+            Invoke(_miLockOff, frame, _syncLastAttack, _syncHasOppLock != 0 ? _syncOppLockId : 0);
         }
         _hasLastOwn = 1;
         _lastOwnId = _syncLockId;

@@ -14,7 +14,7 @@
 
 use crate::baby::ExpandedChild;
 use crate::board::Board;
-use crate::evaluate::{evaluate, evaluate_first, transition_weight, EvalOut};
+use crate::evaluate::{evaluate, evaluate_first, transition_weight, EvalFlags, EvalOut};
 use crate::expand::{expand_node_into, ExpandScratch};
 use crate::gamepack::GamePack;
 use crate::weights::HoikoWeights;
@@ -317,9 +317,7 @@ pub fn run_search(
     state: &mut SearchState,
     root: &GamePack,
     weight_list: &[HoikoWeights],
-    is_even_board: bool,
-    use_s4w: bool,
-    use_pcstack: bool,
+    flags: EvalFlags,
     view_next: i32,
     now: &dyn Fn() -> f64,
     time_limit_ms: Option<i32>,
@@ -327,7 +325,7 @@ pub fn run_search(
 ) -> Option<SearchOutcome> {
     let limit = time_limit_ms.unwrap_or(state.timer_limit_ms);
     let t0 = now();
-    let weight_index = transition_weight(&root.board, state.weight_index, is_even_board);
+    let weight_index = transition_weight(&root.board, state.weight_index, flags);
     state.weight_index = weight_index;
     let ew = weight_list.get(weight_index.max(0) as usize).or_else(|| weight_list.first())?;
 
@@ -342,7 +340,7 @@ pub fn run_search(
         .drain(..)
         .map(|child| {
             let mut node = make_node(child, None, true);
-            let ev = evaluate_first(&node.game, ew, weight_index, is_even_board, use_pcstack);
+            let ev = evaluate_first(&node.game, ew, weight_index, flags);
             node.family_score = ev.family_score;
             node.score = ev.family_score;
             node
@@ -365,7 +363,7 @@ pub fn run_search(
             num_children += expanded.len() as i32;
             for c in expanded.drain(..) {
                 let mut node = make_node(c, Some(&parents[i]), false);
-                let ev = evaluate(&node.game, ew, weight_index, is_even_board, use_s4w, use_pcstack, trust_rate);
+                let ev = evaluate(&node.game, ew, weight_index, flags, trust_rate);
                 apply_eval(&mut node, &ev, parents[i].family_score);
                 children.push(node);
             }

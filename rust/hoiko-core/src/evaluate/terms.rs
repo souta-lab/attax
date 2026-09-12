@@ -154,11 +154,15 @@ pub fn get_underground(
 /// (right six columns full) / `0x3F0` (left six), counts the equal-mask run
 /// height `h`, requires >=2 cells outside the mask below it, then returns the
 /// `comboTable` tier for `h` (plus `game.combo` when `h >= 4 && combo > 2`).
-/// `opponentIsPowerfulBoard` is the EvaluateAI static, false for solo/shipped
-/// config (IL 11045); when set it vetoes the `h < 11` tiers.
-const OPPONENT_IS_POWERFUL_BOARD: bool = false;
-
-fn s4w_bonus(g: &GamePack, min_height: i32, ew: &HoikoWeights) -> i32 {
+/// `opponent_is_powerful_board` is the EvaluateAI static the versus
+/// `ObserveOpponent` sets each turn (IL 4687); when set it vetoes the `h < 11`
+/// tiers. Solo/offline keeps it false (IL 11045).
+fn s4w_bonus(
+    g: &GamePack,
+    min_height: i32,
+    ew: &HoikoWeights,
+    opponent_is_powerful_board: bool,
+) -> i32 {
     let sh = g.board.stack_height;
     if sh <= min_height {
         return 0;
@@ -221,15 +225,15 @@ fn s4w_bonus(g: &GamePack, min_height: i32, ew: &HoikoWeights) -> i32 {
                                     bonus = combo_at(ew, 4);
                                 }
                                 bonus += combo_at(ew, 3);
-                            } else if OPPONENT_IS_POWERFUL_BOARD {
+                            } else if opponent_is_powerful_board {
                                 return 0;
                             }
                             bonus += combo_at(ew, 2);
-                        } else if OPPONENT_IS_POWERFUL_BOARD {
+                        } else if opponent_is_powerful_board {
                             return 0;
                         }
                         bonus += combo_at(ew, 1);
-                    } else if OPPONENT_IS_POWERFUL_BOARD {
+                    } else if opponent_is_powerful_board {
                         return 0;
                     }
                     bonus += combo_at(ew, 0);
@@ -247,6 +251,7 @@ pub fn get_resource(
     garbage_height: i32,
     ew: &HoikoWeights,
     use_s4w: bool,
+    opponent_is_powerful_board: bool,
 ) -> i32 {
     let board = &g.board;
     let mut anabara = 0;
@@ -275,7 +280,7 @@ pub fn get_resource(
         }
     }
     if use_s4w {
-        line += s4w_bonus(g, garbage_height, ew);
+        line += s4w_bonus(g, garbage_height, ew, opponent_is_powerful_board);
     }
     line + anabara * w(ew, WI_ANABARA) + resource * w(ew, WI_RESOURCE)
 }

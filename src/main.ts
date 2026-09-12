@@ -407,7 +407,7 @@ async function boot(): Promise<void> {
   const shell = buildShell(root);
 
   // Faithful shipping-binary opponent: beamSize 50 + derived cap 150 + SetNextOption adaptation.
-  const hoiko = createRustHoiko();
+  const hoiko = createRustHoiko({ versus: true });
   const deepseek = await createDeepSeekFighter();
   const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas, {
     holdCanvas: shell.sideL.holdCanvas,

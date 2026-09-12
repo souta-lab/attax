@@ -9,6 +9,7 @@
 
 use std::io::Read;
 
+use hoiko_core::evaluate::VsFlags;
 use hoiko_core::probe::{build_root, expand_dump_probe, tuck_probe, ProbeInput};
 
 fn main() {
@@ -60,6 +61,7 @@ fn main() {
         is_even: true,
         use_s4w: false,
         use_pcstack: false,
+        vs: VsFlags::default(),
         trust_rate: 1.0,
     };
     let spawn_y = build_root(&input).falling_mino.y;

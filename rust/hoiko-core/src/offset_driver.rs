@@ -110,7 +110,13 @@ impl HoikoOffsetDriver {
         if let Some(last_own) = self.last_own_lock_id {
             if s.lock_id != last_own {
                 self.offset.set_prev_act(act_from_lock_action(s.last_action));
-                self.offset.lock_offset_after_clearing(frame, s.last_attack, s.lock_id);
+                // Binary call-site arg 3 is `GetNextCount(opponent)` (the opponent's
+                // draw cursor), not our own lock id: IL 3150-3152.
+                self.offset.lock_offset_after_clearing(
+                    frame,
+                    s.last_attack,
+                    s.opponent_lock_id.unwrap_or(0),
+                );
             }
         }
         self.last_own_lock_id = Some(s.lock_id);
@@ -184,13 +190,14 @@ mod tests {
                 lock_id: 2,
                 last_action: LockAction::Double,
                 last_attack: 0,
+                opponent_lock_id: Some(5),
                 ..Default::default()
             },
             0.0,
         );
         assert_eq!(d.offset.gb_data.remaining_time, 10);
         assert_eq!(d.offset.gb_data.cool_time, 10 + 24);
-        assert_eq!(d.offset.gb_data.opponents_lock_count, 2);
+        assert_eq!(d.offset.gb_data.opponents_lock_count, 5);
         assert!(d.offset.gb_data.first_invalid_lock);
         assert_eq!(d.offset.get_opponents_atk(), -1);
     }

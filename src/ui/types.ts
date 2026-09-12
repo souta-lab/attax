@@ -60,6 +60,7 @@ export interface GameSnapshot {
   readonly opponentCombo?: number;
   readonly opponentBtb?: number;
   readonly opponentLockId?: number;
+  readonly opponentBoard?: BoardView;
   readonly opponentLastClearLines?: number;
   readonly opponentLastNativeCombo?: number;
   readonly opponentLastNativeBtb?: number;

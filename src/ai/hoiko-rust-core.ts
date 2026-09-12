@@ -25,6 +25,14 @@ import type {
 import { ROWS } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
 import { FAITHFUL_HOIKO } from "./hoiko-faithful.js";
+import { NEXT_SIZE, NextState } from "./hoiko-next.js";
+import {
+  boardToNativeRows,
+  nativePopCount,
+  nativeStackHeight,
+  opponentIsPCBoard,
+  opponentIsPowerfulBoard,
+} from "./hoiko-opponent.js";
 import { type HoikoPreset, type HoikoWeights, hoikoWeightList } from "./hoiko-weights.js";
 import { kindToMino, MINO_NONE, type MinoType } from "./mino-codes.js";
 
@@ -166,6 +174,10 @@ export interface RawSearchRequest {
   readonly viewNext: number;
   readonly allowHold: boolean;
   readonly depth: number;
+  readonly multiEvaluation: boolean;
+  readonly opponentIsPCBoard: boolean;
+  readonly opponentIsPowerfulBoard: boolean;
+  readonly opponentsCombo: number;
 }
 
 export interface RustHoikoOptions {
@@ -186,6 +198,25 @@ export interface RustHoikoOptions {
   readonly viewNext?: number | undefined;
   readonly isEvenBoard?: boolean | undefined;
   readonly depthLimit?: number | undefined;
+  /**
+   * Versus match: enable the opponent-aware statics and
+   * `isEvenBoard = PopCount(board) even` (`auto`, binary `MultiEvaluation` +
+   * `EvenOrOdd` resync). Also carries `EvaluateAI.weight` across searches like
+   * the in-process binary: `TransitionWeight` reads the previous row (IL 13618)
+   * and nothing resets it per turn (`ReadEvalWeight` runs once at Init).
+   */
+  readonly versus?: boolean | undefined;
+  /**
+   * Carry the native `NextMino` across searches (binary `RootNode.SetPPTData`
+   * `ShiftNext` + `Compare(0, live)`, IL 7045). Defaults to `versus`.
+   */
+  readonly nextCarry?: boolean | undefined;
+  /**
+   * Versus `isEvenBoard` source. The binary only recomputes it in `QuickSearch`
+   * (IL 15603) and otherwise holds the `ReadConfig` value `true`; `auto` uses
+   * the per-turn board parity instead. Defaults to `auto`.
+   */
+  readonly evenMode?: "auto" | "true" | "false" | undefined;
   /** Deterministic virtual frame clock: game frames advanced per think. */
   readonly framesPerThink?: number | undefined;
 }
@@ -232,9 +263,17 @@ export class RustHoikoEngine {
   readonly isEvenBoard: boolean;
   readonly usePCstack: boolean;
   readonly useS4W: boolean;
+  readonly versus: boolean;
+  readonly nextCarry: boolean;
+  readonly evenMode: "auto" | "true" | "false";
   readonly offsetEnabled: number;
   readonly framesPerThink: number;
   readonly adapt: boolean;
+
+  private readonly initialBeamSizeLimit: number;
+  private next: NextState;
+  private searchesDone = 0;
+  private prevUsedHold = false;
 
   constructor(instance: WebAssembly.Instance, options: RustHoikoOptions = {}) {
     const ex = instance.exports as WasmExports;
@@ -245,12 +284,17 @@ export class RustHoikoEngine {
     this.outPtr = ex.h_alloc(this.outSize);
     this.weights = options.weights ?? hoikoWeightList(options.weightPreset ?? HOIKO_DEFAULT_PRESET);
     this.beamSizeLimit = options.beamSizeLimit ?? FAITHFUL_HOIKO.beamSizeLimit;
+    this.initialBeamSizeLimit = this.beamSizeLimit;
     this.maxBeamSize = options.maxBeamSize ?? FAITHFUL_HOIKO.maxBeamSize;
     this.depthLimit = options.depthLimit ?? FAITHFUL_HOIKO.depthLimit;
     this.viewNext = options.viewNext ?? FAITHFUL_HOIKO.viewNext;
     this.isEvenBoard = options.isEvenBoard ?? true;
     this.usePCstack = options.usePCstack ?? false;
     this.useS4W = options.useS4W ?? false;
+    this.versus = options.versus ?? false;
+    this.nextCarry = options.nextCarry ?? this.versus;
+    this.evenMode = options.evenMode ?? "auto";
+    this.next = new NextState(this.viewNext);
     this.framesPerThink = options.framesPerThink ?? 20;
     this.adapt = options.adapt ?? FAITHFUL_HOIKO.adapt;
     const offset = options.offset ?? true;
@@ -269,6 +313,38 @@ export class RustHoikoEngine {
       beamSizeLimit: this.beamSizeLimit,
       timerLimitMs: this.timerLimitMs,
     };
+  }
+
+  /**
+   * New-match state: the binary re-runs `SearchAI.Init`/`ReadConfig`
+   * (`weight = weightList[0]`, beam 50/150, timer 1000) and `RootNode.Init`
+   * (`NextMino.Init`, fresh OffsetOffAI) when a match starts, so a rematch must
+   * not inherit the previous match's queue/weight/beam/offset/frame state.
+   */
+  resetMatchState(): void {
+    this.weightIndex = 0;
+    this.maxBeamSize = FAITHFUL_HOIKO.maxBeamSize;
+    this.beamSizeLimit = this.initialBeamSizeLimit;
+    this.timerLimitMs = 1000;
+    this.useOffsetOff = this.offsetEnabled;
+    this.ofsCanWait = 0;
+    this.ofsCenter4 = 0;
+    this.ofsAtk = 0;
+    this.ofsPcChance = 0;
+    this.ofsNearOffset = 0;
+    this.gbOpponentsAtk = 0;
+    this.gbCoolTime = 0;
+    this.gbRemainingTime = 0;
+    this.gbOpponentsLockCount = 0;
+    this.gbFirstInvalidLock = 0;
+    this.hasLastOwnLock = 0;
+    this.lastOwnLockId = 0;
+    this.hasLastOppLock = 0;
+    this.lastOppLockId = 0;
+    this.next = new NextState(this.viewNext);
+    this.searchesDone = 0;
+    this.prevUsedHold = false;
+    this.frameMs = 0;
   }
 
   /** Fill `HSearchInput` in exact declaration order (see ffi/layout.rs). */
@@ -298,6 +374,10 @@ export class RustHoikoEngine {
     w.i32(req.usePCstack ? 1 : 0);
     w.i32(req.viewNext);
     w.i32(req.allowHold ? 1 : 0);
+    w.i32(req.multiEvaluation ? 1 : 0);
+    w.i32(req.opponentIsPCBoard ? 1 : 0);
+    w.i32(req.opponentIsPowerfulBoard ? 1 : 0);
+    w.i32(req.opponentsCombo);
     w.i32(this.weightIndex);
     w.i32(10); // min_depth
     w.i32(req.depth);
@@ -335,6 +415,12 @@ export class RustHoikoEngine {
     w.i32(sync.opponentLastNativeBtb ?? 0);
     w.i32(sync.opponentLastNativeCombo ?? 0);
     w.i32(nowMs); // sync_now_ms
+    const carryM = this.nextCarry ? this.next.m : new Array<number>(NEXT_SIZE).fill(MINO_NONE);
+    w.i32(this.nextCarry ? 1 : 0);
+    w.i32s(carryM);
+    w.i32(this.nextCarry ? this.next.trustEnd : 0);
+    w.i32(this.nextCarry ? this.next.bagRemains : 6);
+    w.i32(0); // next_carry_pad: keeps the repr(C) struct 8-byte aligned
     if (w.pos !== this.inSize) throw new Error(`input layout ${w.pos} != ${this.inSize}`);
   }
 
@@ -424,6 +510,7 @@ export class RustHoikoEngine {
 
   /** One `h_search`; carries all SearchState + OffsetOffAI fields forward. */
   search(req: RawSearchRequest, sync: SyncFields, pendingGarbage: number): RustOut {
+    if (this.nextCarry) this.advanceNext(req);
     this.writeInput(req, sync, pendingGarbage);
     const t0 = performance.now();
     const rc = this.ex.h_search(this.inPtr, this.outPtr);
@@ -455,36 +542,57 @@ export class RustHoikoEngine {
     this.lastOwnLockId = out.lastOwnLockId;
     this.hasLastOppLock = out.hasLastOppLock;
     this.lastOppLockId = out.lastOppLockId;
+    this.searchesDone += 1;
+    this.prevUsedHold = out.useHold === 1;
     this.frameMs += frameStepMs(this.framesPerThink);
     return out;
   }
 
+  /**
+   * Per-turn `RootNode.SetPPTData` queue mutation (IL 7045): one `ShiftNext` per
+   * consumed piece, an extra one after an empty-slot hold (`IsFirstHold`, the
+   * command string starting with 'f'), then `Compare(0, live)` re-pins the first
+   * `viewNext` entries. The first search of a match runs `NextMino.Init`, which
+   * fills `m[28]` from the bag and pins the same live queue (verified against
+   * the exe: `evidence/hoiko-inputs/nextcarry/`).
+   */
+  private advanceNext(req: RawSearchRequest): void {
+    const live = new Array<number>(NEXT_SIZE).fill(MINO_NONE);
+    live[0] = req.current;
+    for (let i = 0; i < req.next.length && i + 1 < NEXT_SIZE; i += 1) {
+      live[i + 1] = req.next[i] ?? MINO_NONE;
+    }
+    if (this.searchesDone === 0) {
+      this.next.init(live);
+      return;
+    }
+    this.next.shiftNext();
+    if (this.prevUsedHold) this.next.shiftNext();
+    this.next.compare(0, live);
+  }
+
   /** Binary `SetNextOption` (IL 15892) driven by the REAL search time. */
   private applySetNextOption(elapsedMs: number, out: RustOut): void {
-    const timerLimit = rGetDelay(out.moveDelay, out.firstAct);
-    const overTime = elapsedMs - timerLimit;
+    // `root.result.overTime` is measured against `timer.limit` AT SEARCH START,
+    // which the previous `SetNextOption` set to `GetDelay(prev) - 5`.
+    const limitAtStart = this.timerLimitMs;
+    const overTime = elapsedMs - limitAtStart;
     if (overTime > 0) {
       this.maxBeamSize += (out.depth - 14) * 10;
-    } else if (overTime < -33 && this.timerLimitMs < 336) {
+    } else if (overTime < -33 && limitAtStart < 336) {
       this.maxBeamSize += Math.trunc((overTime + 16) * 0.06) * -10;
     }
     this.maxBeamSize = Math.min(500, Math.max(50, this.maxBeamSize));
-    this.timerLimitMs = timerLimit - 5;
-    let beam = Math.trunc((this.maxBeamSize * this.timerLimitMs) / 112);
+    const timerLimit = rGetDelay(out.moveDelay, out.firstAct) - 5;
+    this.timerLimitMs = timerLimit;
+    let beam = Math.trunc((this.maxBeamSize * timerLimit) / 112);
     beam = Math.min(beam, this.maxBeamSize * 3);
     this.beamSizeLimit = beam;
   }
 }
 
 function toNativeRows(s: GameSnapshot): number[] {
-  const rows: number[] = [];
-  for (let y = 0; y < s.board.rows; y += 1) {
-    const src = s.board.grid[s.board.rows - 1 - y];
-    let bits = 0;
-    for (let x = 0; x < 10; x += 1) if ((src?.[x] ?? 0) !== 0) bits |= 1 << (9 - x);
-    rows.push(bits);
-  }
-  return rows;
+  return boardToNativeRows(s.board);
 }
 
 function boardFingerprint(s: GameSnapshot): string {
@@ -525,26 +633,47 @@ export interface RustHoikoFighter extends VersusFighter {
   ): { out: RustOut; move: AiMove | null; req: RawSearchRequest } | null;
 }
 
+function versusIsEven(engine: RustHoikoEngine, board: readonly number[]): boolean {
+  if (engine.evenMode === "true") return true;
+  if (engine.evenMode === "false") return false;
+  return nativePopCount(board, nativeStackHeight(board)) % 2 === 0;
+}
+
 export function rawRequestFromSnapshot(
   s: GameSnapshot,
   engine: RustHoikoEngine,
 ): RawSearchRequest | null {
   if (s.active === null) return null;
+  const board = toNativeRows(s);
   const next: number[] = [];
   for (const k of s.next) next.push(kindToMino(k));
+  const versus = engine.versus;
+  const opponentRows = s.opponentBoard === undefined ? [] : boardToNativeRows(s.opponentBoard);
+  const opponentsCombo = versus ? (s.opponentCombo ?? 0) : 0;
+  const opponentPC =
+    versus && s.opponentBoard !== undefined ? opponentIsPCBoard(opponentRows) : false;
+  const opponentPowerful =
+    versus && engine.useS4W && s.opponentBoard !== undefined
+      ? opponentIsPowerfulBoard(opponentRows, opponentsCombo, s.pendingGarbage)
+      : false;
+  const isEven = versus ? versusIsEven(engine, board) : engine.isEvenBoard;
   return {
-    board: toNativeRows(s),
+    board,
     current: kindToMino(s.active.kind),
     next,
     hold: s.hold === null ? MINO_NONE : (kindToMino(s.hold) as MinoType),
     combo: s.nativeCombo,
     btb: s.nativeBtb,
-    isEven: engine.isEvenBoard,
+    isEven,
     useS4W: engine.useS4W,
     usePCstack: engine.usePCstack,
     viewNext: engine.viewNext,
     allowHold: s.canHold,
     depth: engine.depthLimit,
+    multiEvaluation: versus,
+    opponentIsPCBoard: opponentPC,
+    opponentIsPowerfulBoard: opponentPowerful,
+    opponentsCombo,
   };
 }
 
@@ -615,6 +744,10 @@ export function makeRustHoiko(
     name: "HOIKO-RUST",
     color: HOIKO_COLOR,
     engine,
+    reset(): void {
+      engine.resetMatchState();
+      debug = null;
+    },
     searchSnapshot(
       s: GameSnapshot,
     ): { out: RustOut; move: AiMove | null; req: RawSearchRequest } | null {

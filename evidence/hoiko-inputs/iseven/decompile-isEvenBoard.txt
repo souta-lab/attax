@@ -1,0 +1,55 @@
+# EvaluateAI.isEvenBoard writers and QuickSearch caller (binary decompile Hoiko.all.cs)
+
+## 11042 EvaluateAI.ReadConfig -> isEvenBoard = true
+	internal static void EvaluateAI.ReadConfig()
+	{
+		EvaluateAI.ReadEvalWeight();
+		TemplateAI.ReadConfig();
+		?isEvenBoard@EvaluateAI@@0_NA = true;
+		?multiEvaluation@EvaluateAI@@0_NA = false;
+		?useS4W@EvaluateAI@@0_NA = ConfigAI.UseS4W();
+		?opponentIsPowerfulBoard@EvaluateAI@@0_NA = false;
+		?opponentIsPCBoard@EvaluateAI@@0_NA = false;
+		?opponentsCombo@EvaluateAI@@0HA = 0;
+	}
+
+
+## 13654 EvaluateAI.EvenOrOdd -> board parity (~PopCount & 1)
+	internal unsafe static void EvaluateAI.EvenOrOdd(RootNode* searching)
+	{
+		//IL_000d: Expected I, but got I8
+		//IL_0027: Expected I, but got I8
+		?isEvenBoard@EvaluateAI@@0_NA = (byte)((uint)(~Board.PopCount((Board*)((ulong)(nint)searching + 216uL))) & 1u) != 0;
+		?weight@EvaluateAI@@0PEAVEvalWeight@1@EA = (EvaluateAI.EvalWeight*)((ulong)(nint)?weightList@EvaluateAI@@0PEAVEvalWeight@1@EA + 544uL);
+	}
+
+
+## 15598 SearchAI.QuickSearch -> EvenOrOdd (the only caller)
+	internal unsafe static void SearchAI.QuickSearch(RootNode* rootNode)
+	{
+		System.Runtime.CompilerServices.Unsafe.As<Timer, double>(ref System.Runtime.CompilerServices.Unsafe.AddByteOffset(ref ?timer@SearchAI@@0VTimer@@A, 8)) = 56.0;
+		?beamSizeLimit@SearchAI@@0HA = (int)((double)?maxBeamSize@SearchAI@@0HA * 0.5);
+		TemplateAI.FailTemplate(set: true);
+		EvaluateAI.EvenOrOdd(rootNode);
+		SearchAI.Search(rootNode);
+	}
+
+
+## 5054 PPTMain.Update -> normal per-turn SetPPTData + Search (no EvenOrOdd)
+		if (*(byte*)((ulong)(nint)P_0 + 2288uL) == 1)
+		{
+			MainForm mainForm = gcroot<Hoiko::MainForm ^>.->((gcroot<Hoiko::MainForm ^>*)((ulong)(nint)P_0 + 72uL));
+			PPTMain* ptr = (PPTMain*)((ulong)(nint)P_0 + 2016uL);
+			mainForm.DelegateDrawSearchResult((SearchResult*)((ulong)(nint)P_0 + 1480uL), (Board*)ptr);
+			*(sbyte*)((ulong)(nint)P_0 + 2288uL) = 0;
+			PPTMain* ptr2 = (PPTMain*)((ulong)(nint)P_0 + 80uL);
+			PPTAI.GetPPTNext((PPTAI*)ptr2);
+			RootNode.SetPPTData((RootNode*)ptr2, (MimicAI*)ptr);
+			SearchAI.Search((RootNode*)ptr2);
+
+## 2682 PPT2AI.NextTurn resync path -> ResetPPTData + QuickSearch
+			RootNode.ResetPPTData((RootNode*)ptr, (MimicAI*)mimic);
+			SearchAI.IsSearching(set: true);
+			SearchAI.QuickSearch((RootNode*)ptr);
+			// IL cpblk instruction
+			System.Runtime.CompilerServices.Unsafe.CopyBlock(P_0, ptr, 968);

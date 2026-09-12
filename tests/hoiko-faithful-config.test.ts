@@ -28,12 +28,13 @@ describe("faithful Hoiko opponent config (shipping binary)", () => {
   });
 
   test("gate resolver defaults to the faithful constant when env is empty", () => {
-    expect(resolveFaithfulHoikoOptions({})).toEqual({ ...FAITHFUL_HOIKO });
+    expect(resolveFaithfulHoikoOptions({})).toEqual({ ...FAITHFUL_HOIKO, versus: true });
   });
 
   test("gate resolver keeps faithful beam and adaptation when HOIKO_BEAM overrides the cap", () => {
     expect(resolveFaithfulHoikoOptions({ HOIKO_BEAM: "1500" })).toEqual({
       ...FAITHFUL_HOIKO,
+      versus: true,
       beamSizeLimit: 1500,
     });
   });
@@ -41,6 +42,7 @@ describe("faithful Hoiko opponent config (shipping binary)", () => {
   test("gate resolver disables adaptation when HOIKO_ADAPT=0", () => {
     expect(resolveFaithfulHoikoOptions({ HOIKO_ADAPT: "0" })).toEqual({
       ...FAITHFUL_HOIKO,
+      versus: true,
       adapt: false,
     });
   });
@@ -48,6 +50,7 @@ describe("faithful Hoiko opponent config (shipping binary)", () => {
   test("gate resolver honors an explicit preset without touching the faithful bounds", () => {
     expect(resolveFaithfulHoikoOptions({}, "wo")).toEqual({
       ...FAITHFUL_HOIKO,
+      versus: true,
       weightPreset: "wo",
     });
   });

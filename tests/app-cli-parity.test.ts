@@ -75,16 +75,17 @@ describe("app vs CLI/gate parity", () => {
   });
 
   test("default app Hoiko config equals the gate resolver output", () => {
-    const appDefault = createRustHoiko();
+    const appDefault = createRustHoiko({ versus: true });
     const gateDefault = createRustHoiko(resolveFaithfulHoikoOptions({}));
 
-    expect(resolveFaithfulHoikoOptions({})).toEqual({ ...FAITHFUL_HOIKO });
+    expect(resolveFaithfulHoikoOptions({})).toEqual({ ...FAITHFUL_HOIKO, versus: true });
     expect(hoikoEngineSettings(appDefault)).toEqual(hoikoEngineSettings(gateDefault));
     expect(hoikoEngineSettings(appDefault)).toEqual({
       adapt: true,
       depthLimit: 14,
       viewNext: 2,
       isEvenBoard: true,
+      versus: true,
       framesPerThink: 20,
       offsetEnabled: 1,
       searchState: { maxBeamSize: 50, beamSizeLimit: 150, timerLimitMs: 1000 },
@@ -93,7 +94,7 @@ describe("app vs CLI/gate parity", () => {
 
   test("engine decisions match on identical snapshots (deterministic beam)", () => {
     expect(snapshots.length).toBeGreaterThanOrEqual(8);
-    const appPath = createRustHoiko({ adapt: false });
+    const appPath = createRustHoiko({ versus: true, adapt: false });
     const gatePath = createRustHoiko({ ...resolveFaithfulHoikoOptions({}), adapt: false });
 
     for (const [index, snapshot] of snapshots.entries()) {
@@ -155,7 +156,7 @@ describe("app vs CLI/gate parity", () => {
     const app = readSource(new URL("../src/main.ts", import.meta.url));
     const gate = readSource(new URL("../scripts/gate-v2.ts", import.meta.url));
 
-    expect(app).toMatch(/createRustHoiko\(\)/);
+    expect(app).toMatch(/createRustHoiko\(\{ versus: true \}\)/);
     expect(app).toMatch(/from "\.\/versus\/speed\.js"/);
     expect(app).toMatch(/speedOptions\(speed\)/);
     expect(app).toMatch(/createVersusController\(\s*hoiko,/);

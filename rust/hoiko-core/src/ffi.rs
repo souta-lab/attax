@@ -23,7 +23,8 @@ use crate::offset::{GarbageData, OffsetData, OffsetOffAI};
 use crate::offset_driver::{
     DriverSnapshot, HoikoOffsetDriver, LockAction, OffsetDecisionInput,
 };
-use crate::probe::{build_root, ProbeInput};
+use crate::evaluate::{EvalFlags, VsFlags};
+use crate::probe::{build_root, build_root_carried, NextCarry, ProbeInput};
 use crate::search::{run_search, set_next_option, SearchState};
 use crate::weights::HoikoWeights;
 
@@ -134,6 +135,18 @@ pub fn run_search_ffi(input: &HSearchInput, out: &mut HSearchOutput) -> i32 {
         depth_limit: input.depth_limit,
     };
 
+    let vs = VsFlags {
+        multi_evaluation: b(input.multi_evaluation),
+        opponent_is_pc_board: b(input.opponent_is_pc_board),
+        opponent_is_powerful_board: b(input.opponent_is_powerful_board),
+        opponents_combo: input.opponents_combo,
+    };
+    let flags = EvalFlags {
+        is_even_board: b(input.is_even_board),
+        use_s4w: b(input.use_s4w),
+        use_pcstack: b(input.use_pcstack),
+        vs,
+    };
     let probe = ProbeInput {
         board: input.board.to_vec(),
         current: input.current,
@@ -146,9 +159,23 @@ pub fn run_search_ffi(input: &HSearchInput, out: &mut HSearchOutput) -> i32 {
         is_even: b(input.is_even_board),
         use_s4w: b(input.use_s4w),
         use_pcstack: b(input.use_pcstack),
+        vs,
         trust_rate: 1.0,
     };
-    let root = build_root(&probe);
+    let root = if input.next_carry != 0 {
+        let mut m = [0i32; 28];
+        m.copy_from_slice(&input.next_carry_m);
+        build_root_carried(
+            &probe,
+            &NextCarry {
+                m,
+                trust_end: input.next_carry_trust_end,
+                bag_remains: input.next_carry_bag_remains,
+            },
+        )
+    } else {
+        build_root(&probe)
+    };
 
     let mut driver = build_driver(input);
     if input.sync_enabled != 0 {
@@ -172,9 +199,7 @@ pub fn run_search_ffi(input: &HSearchInput, out: &mut HSearchOutput) -> i32 {
         &mut state,
         &root,
         &weights,
-        b(input.is_even_board),
-        b(input.use_s4w),
-        b(input.use_pcstack),
+        flags,
         input.view_next,
         &now,
         Some(input.time_limit_ms),

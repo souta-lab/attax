@@ -10,7 +10,7 @@
 
 use crate::board::BOARD_HEIGHT;
 use crate::evaluate::terms;
-use crate::evaluate::{evaluate_first, get_cont_bonus, get_final_action, pc, tsd, tst};
+use crate::evaluate::{evaluate_first, get_cont_bonus, get_final_action, pc, tsd, tst, EvalFlags};
 use crate::baby::ExpandedChild;
 use crate::expand::expand_node;
 use crate::gamepack::GamePack;
@@ -47,9 +47,7 @@ pub fn eval_terms(
     g: &GamePack,
     ew: &HoikoWeights,
     weight_index: i32,
-    is_even_board: bool,
-    use_s4w: bool,
-    use_pcstack: bool,
+    flags: EvalFlags,
     trust_rate: f64,
 ) -> EvalTerms {
     let mut ch = [0i32; 10];
@@ -60,10 +58,17 @@ pub fn eval_terms(
     let underground = terms::get_underground(&g.board, &ch, min_height, ew);
     let y0 = well.well_depth + min_height;
     let ground = terms::get_ground(g, &ch, y0, ew);
-    let resource = terms::get_resource(g, &ch, min_height, ew, use_s4w);
+    let resource = terms::get_resource(
+        g,
+        &ch,
+        min_height,
+        ew,
+        flags.use_s4w,
+        flags.vs.opponent_is_powerful_board,
+    );
     let tsd = tsd::search_tsd(g, &ch, y0, ew);
     let tst = tst::search_tst(g, &ch, y0, min_height, ew);
-    let pc = pc::search_pc_board(g, min_height, ew, is_even_board, use_pcstack);
+    let pc = pc::search_pc_board(g, min_height, ew, flags.is_even_board, flags.use_pcstack);
     let cont_bonus = get_cont_bonus(g, ew);
     let final_action = get_final_action(g, ew, weight_index);
     let board_sum =
@@ -150,9 +155,7 @@ pub fn eval_walk_probe(
     input: &ProbeInput,
     ew: &HoikoWeights,
     weight_index: i32,
-    is_even_board: bool,
-    use_s4w: bool,
-    use_pcstack: bool,
+    flags: EvalFlags,
     allow_hold: bool,
     start_depth: i32,
     path: &[(i32, i32, i32, i32)],
@@ -177,9 +180,9 @@ pub fn eval_walk_probe(
         };
         let mut gen_dump = cur;
         for c in &children {
-            let mut t = eval_terms(&c.game, ew, weight_index, is_even_board, use_s4w, use_pcstack, trust_rate);
+            let mut t = eval_terms(&c.game, ew, weight_index, flags, trust_rate);
             if mode_first {
-                let ef = evaluate_first(&c.game, ew, weight_index, is_even_board, use_pcstack);
+                let ef = evaluate_first(&c.game, ew, weight_index, flags);
                 t.family_score = ef.family_score;
                 t.score = ef.family_score;
             }
@@ -211,9 +214,7 @@ pub fn eval_bfs_probe(
     input: &ProbeInput,
     ew: &HoikoWeights,
     weight_index: i32,
-    is_even_board: bool,
-    use_s4w: bool,
-    use_pcstack: bool,
+    flags: EvalFlags,
     allow_hold: bool,
 ) -> Vec<EvalGenDump> {
     let root = build_root(input);
@@ -231,8 +232,8 @@ pub fn eval_bfs_probe(
         children: Vec::with_capacity(first.len()),
     };
     for c in &first {
-        let t = eval_terms(&c.game, ew, weight_index, is_even_board, use_s4w, use_pcstack, 1.0);
-        let ef = evaluate_first(&c.game, ew, weight_index, is_even_board, use_pcstack);
+        let t = eval_terms(&c.game, ew, weight_index, flags, 1.0);
+        let ef = evaluate_first(&c.game, ew, weight_index, flags);
         let mut t = t;
         t.family_score = ef.family_score;
         t.score = ef.family_score;
@@ -255,7 +256,7 @@ pub fn eval_bfs_probe(
             children: Vec::with_capacity(kids.len()),
         };
         for k in &kids {
-            let t = eval_terms(&k.game, ew, weight_index, is_even_board, use_s4w, use_pcstack, trust_rate);
+            let t = eval_terms(&k.game, ew, weight_index, flags, trust_rate);
             gd.children.push(dump_child(k, t));
         }
         gens.push(gd);

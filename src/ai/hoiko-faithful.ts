@@ -28,6 +28,10 @@ export const FAITHFUL_HOIKO = {
 export interface FaithfulHoikoEnv {
   readonly HOIKO_BEAM?: string | undefined;
   readonly HOIKO_ADAPT?: string | undefined;
+  readonly HOIKO_OFFSET?: string | undefined;
+  readonly HOIKO_FRAMES?: string | undefined;
+  readonly HOIKO_NEXTCARRY?: string | undefined;
+  readonly HOIKO_EVEN?: string | undefined;
 }
 
 function readEnvInteger(name: string, raw: string | undefined, fallback: number): number {
@@ -44,6 +48,19 @@ function readEnvFlag(name: string, raw: string | undefined, fallback: boolean): 
   throw new Error(`${name} must be 0 or 1, got ${raw}`);
 }
 
+function readEnvEvenMode(
+  raw: string | undefined,
+  fallback: "auto" | "true" | "false",
+): "auto" | "true" | "false" {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  if (raw === "auto" || raw === "true" || raw === "false") return raw;
+  throw new Error(`HOIKO_EVEN must be auto, true or false, got ${raw}`);
+}
+
+function hasEnv(raw: string | undefined): raw is string {
+  return raw !== undefined && raw.trim() !== "";
+}
+
 /**
  * Faithful options for the gate/harnesses. Identical to the app defaults unless
  * `HOIKO_BEAM` (stress/ablation) or `HOIKO_ADAPT=0` (deterministic runs) overrides
@@ -55,8 +72,19 @@ export function resolveFaithfulHoikoOptions(
 ): RustHoikoOptions {
   return {
     ...FAITHFUL_HOIKO,
+    versus: true,
     weightPreset: preset,
     beamSizeLimit: readEnvInteger("HOIKO_BEAM", env.HOIKO_BEAM, FAITHFUL_HOIKO.beamSizeLimit),
     adapt: readEnvFlag("HOIKO_ADAPT", env.HOIKO_ADAPT, FAITHFUL_HOIKO.adapt),
+    ...(hasEnv(env.HOIKO_OFFSET)
+      ? { offset: readEnvFlag("HOIKO_OFFSET", env.HOIKO_OFFSET, true) }
+      : {}),
+    ...(hasEnv(env.HOIKO_FRAMES)
+      ? { framesPerThink: readEnvInteger("HOIKO_FRAMES", env.HOIKO_FRAMES, 20) }
+      : {}),
+    ...(hasEnv(env.HOIKO_NEXTCARRY)
+      ? { nextCarry: readEnvFlag("HOIKO_NEXTCARRY", env.HOIKO_NEXTCARRY, true) }
+      : {}),
+    ...(hasEnv(env.HOIKO_EVEN) ? { evenMode: readEnvEvenMode(env.HOIKO_EVEN, "auto") } : {}),
   };
 }

@@ -3,6 +3,7 @@
 
 use std::io::Read;
 
+use hoiko_core::evaluate::VsFlags;
 use hoiko_core::probe::{evaluate_probe, expand_probe, ProbeInput};
 use hoiko_core::weights::HoikoWeights;
 
@@ -81,6 +82,7 @@ fn main() {
             is_even,
             use_s4w,
             use_pcstack: false,
+            vs: VsFlags::default(),
             trust_rate,
         };
         let ev = evaluate_probe(&input, &ew);

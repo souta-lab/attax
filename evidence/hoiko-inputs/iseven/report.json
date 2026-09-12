@@ -1,0 +1,493 @@
+{
+  "positions": 9,
+  "realMatchesTrue": 9,
+  "parityMatchesAuto": 9,
+  "rows": [
+    {
+      "position": "empty",
+      "popcount": 0,
+      "parityEven": true,
+      "exe": {
+        "real": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        },
+        "parity": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "floor",
+      "popcount": 10,
+      "parityEven": true,
+      "exe": {
+        "real": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "parity": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "low-odd",
+      "popcount": 11,
+      "parityEven": false,
+      "exe": {
+        "real": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "parity": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "low-even",
+      "popcount": 20,
+      "parityEven": true,
+      "exe": {
+        "real": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "parity": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "mid-odd",
+      "popcount": 21,
+      "parityEven": false,
+      "exe": {
+        "real": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "parity": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "stack-odd",
+      "popcount": 33,
+      "parityEven": false,
+      "exe": {
+        "real": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "parity": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "well-odd",
+      "popcount": 27,
+      "parityEven": false,
+      "exe": {
+        "real": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        },
+        "parity": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        },
+        "true": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 2,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "odd-3bit",
+      "popcount": 3,
+      "parityEven": false,
+      "exe": {
+        "real": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        },
+        "parity": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        },
+        "true": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 1
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    },
+    {
+      "position": "odd-3bit-I",
+      "popcount": 3,
+      "parityEven": false,
+      "exe": {
+        "real": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "true": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 0,
+          "rot": 0,
+          "m": 0,
+          "weightIndex": 1
+        },
+        "parity": {
+          "x": 0,
+          "rot": 0,
+          "m": 0,
+          "weightIndex": 1
+        }
+      },
+      "replica": {
+        "auto": {
+          "x": 0,
+          "rot": 0,
+          "m": 0,
+          "weightIndex": 1
+        },
+        "true": {
+          "x": 6,
+          "rot": 0,
+          "m": 6,
+          "weightIndex": 0
+        },
+        "false": {
+          "x": 0,
+          "rot": 0,
+          "m": 0,
+          "weightIndex": 1
+        }
+      },
+      "realEqualsIsEven1": true,
+      "realEqualsReplicaTrue": true,
+      "parityEqualsReplicaAuto": true
+    }
+  ]
+}

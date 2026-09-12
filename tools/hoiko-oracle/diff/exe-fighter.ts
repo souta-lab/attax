@@ -190,7 +190,7 @@ function exeInputFor(s: GameSnapshot, state: ExeFighterState, isEvenBoard: boole
     `opplockid=${s.opponentLockId ?? 0}`,
     `oppclear=${s.opponentLastClearLines ?? 0}`,
     `oppbtb=${s.opponentLastNativeBtb ?? 0}`,
-    `oppcombo=${s.opponentLastNativeCombo ?? 0}`,
+    `opplastcombo=${s.opponentLastNativeCombo ?? 0}`,
     "",
   ].join("\n");
 }

@@ -23,6 +23,10 @@ pub struct HSearchInput {
     pub use_pcstack: i32,
     pub view_next: i32,
     pub allow_hold: i32,
+    pub multi_evaluation: i32,
+    pub opponent_is_pc_board: i32,
+    pub opponent_is_powerful_board: i32,
+    pub opponents_combo: i32,
     pub weight_index: i32,
     pub min_depth: i32,
     pub depth_limit: i32,
@@ -59,6 +63,13 @@ pub struct HSearchInput {
     pub sync_opp_btb: i32,
     pub sync_opp_combo: i32,
     pub sync_now_ms: i32,
+    /// 1 = use the carried NextMino state below (versus `RootNode.SetPPTData`);
+    /// 0 = fresh `NextMino.Init` from `current` + `next`.
+    pub next_carry: i32,
+    pub next_carry_m: [i32; 28],
+    pub next_carry_trust_end: i32,
+    pub next_carry_bag_remains: i32,
+    pub next_carry_pad: i32,
 }
 
 #[repr(C)]

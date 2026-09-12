@@ -1,0 +1,928 @@
+{
+  "timestamp": "2026-09-12T19:10:47.075Z",
+  "derivation": {
+    "total": 72,
+    "passed": 72,
+    "cases": [
+      {
+        "name": "empty",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "empty",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "empty",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "empty",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "empty",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "empty",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "one-full",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "one-full",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "one-full",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "one-full",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "one-full",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "one-full",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "four-full",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "four-full",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "four-full",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "four-full",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "four-full",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "four-full",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "nine-full",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "nine-full",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "nine-full",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "nine-full",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "nine-full",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "nine-full",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "ten-full",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "ten-full",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "ten-full",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "ten-full",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "ten-full",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "ten-full",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit-x5",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit-x5",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit-x5",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit-x5",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit-x5",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "odd-9bit-x5",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "even-col9",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "even-col9",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "even-col9",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "even-col9",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "even-col9",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "even-col9",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "bara-mix",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "bara-mix",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "bara-mix",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "bara-mix",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "bara-mix",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "bara-mix",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "well-center",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "well-center",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "well-center",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "well-center",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "well-center",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "well-center",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": true,
+        "tsPc": true,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "tall-mixed",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "tall-mixed",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "tall-mixed",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "tall-mixed",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "tall-mixed",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "tall-mixed",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "s4w-3f",
+        "combo": 0,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "s4w-3f",
+        "combo": 4,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "s4w-3f",
+        "combo": 5,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "s4w-3f",
+        "combo": 0,
+        "garbage": 5,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": false,
+        "tsPowerful": false,
+        "ok": true
+      },
+      {
+        "name": "s4w-3f",
+        "combo": 0,
+        "garbage": 6,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      },
+      {
+        "name": "s4w-3f",
+        "combo": 9,
+        "garbage": 0,
+        "exePc": false,
+        "tsPc": false,
+        "exePowerful": true,
+        "tsPowerful": true,
+        "ok": true
+      }
+    ]
+  },
+  "behavior": {
+    "total": 8,
+    "passed": 8,
+    "cases": [
+      {
+        "name": "empty-opp",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "ok": true
+      },
+      {
+        "name": "opp-pc",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "ok": true
+      },
+      {
+        "name": "opp-notpc",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 0,
+          "depth": 10,
+          "nodes": 55818,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 0,
+          "depth": 10,
+          "nodes": 55818,
+          "delay": 112
+        },
+        "ok": true
+      },
+      {
+        "name": "opp-combo9",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "ok": true
+      },
+      {
+        "name": "opp-combo9-garbage",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 1,
+          "depth": 10,
+          "nodes": 58354,
+          "delay": 112
+        },
+        "ok": true
+      },
+      {
+        "name": "own-stack-combo9",
+        "exe": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 3,
+          "depth": 10,
+          "nodes": 52935,
+          "delay": 798
+        },
+        "rep": {
+          "x": 4,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 3,
+          "depth": 10,
+          "nodes": 52935,
+          "delay": 798
+        },
+        "ok": true
+      },
+      {
+        "name": "s4w-opp-powerful",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 0,
+          "depth": 10,
+          "nodes": 55818,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 0,
+          "depth": 10,
+          "nodes": 55818,
+          "delay": 112
+        },
+        "ok": true
+      },
+      {
+        "name": "s4w-opp-notpowerful",
+        "exe": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 0,
+          "depth": 10,
+          "nodes": 55818,
+          "delay": 112
+        },
+        "rep": {
+          "x": 3,
+          "rot": 0,
+          "m": 6,
+          "garbageWait": 0,
+          "weightIndex": 0,
+          "depth": 10,
+          "nodes": 55818,
+          "delay": 112
+        },
+        "ok": true
+      }
+    ]
+  },
+  "pass": true
+}

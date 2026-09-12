@@ -117,6 +117,7 @@ function think(side: SideState, opponent: SideState): void {
     opponentCombo: opponentSnap.nativeCombo,
     opponentBtb: opponentSnap.nativeBtb,
     opponentLockId: opponentSnap.lockId,
+    opponentBoard: opponentSnap.board,
     ...(opponentTransition === null
       ? {}
       : {
