@@ -17,6 +17,7 @@
             btb: 0,
             is_even_board: 1,
             use_s4w: 0,
+            use_pcstack: 0,
             view_next: 2,
             allow_hold: 0,
             weight_index: 0,

@@ -162,6 +162,7 @@ export interface RawSearchRequest {
   readonly btb: number;
   readonly isEven: boolean;
   readonly useS4W: boolean;
+  readonly usePCstack: boolean;
   readonly viewNext: number;
   readonly allowHold: boolean;
   readonly depth: number;
@@ -178,6 +179,10 @@ export interface RustHoikoOptions {
   readonly weights?: readonly HoikoWeights[] | undefined;
   /** OffsetOffAI garbage management. Default true (mirrors hoiko-native.ts). */
   readonly offset?: boolean | undefined;
+  /** `usePCstack` config: lambda1 PC-stack board-depth estimate. Default false. */
+  readonly usePCstack?: boolean | undefined;
+  /** `useS4W` config: the binary's comboTable S4W bonus. Default false. */
+  readonly useS4W?: boolean | undefined;
   readonly viewNext?: number | undefined;
   readonly isEvenBoard?: boolean | undefined;
   readonly depthLimit?: number | undefined;
@@ -225,6 +230,8 @@ export class RustHoikoEngine {
   readonly depthLimit: number;
   readonly viewNext: number;
   readonly isEvenBoard: boolean;
+  readonly usePCstack: boolean;
+  readonly useS4W: boolean;
   readonly offsetEnabled: number;
   readonly framesPerThink: number;
   readonly adapt: boolean;
@@ -242,6 +249,8 @@ export class RustHoikoEngine {
     this.depthLimit = options.depthLimit ?? FAITHFUL_HOIKO.depthLimit;
     this.viewNext = options.viewNext ?? FAITHFUL_HOIKO.viewNext;
     this.isEvenBoard = options.isEvenBoard ?? true;
+    this.usePCstack = options.usePCstack ?? false;
+    this.useS4W = options.useS4W ?? false;
     this.framesPerThink = options.framesPerThink ?? 20;
     this.adapt = options.adapt ?? FAITHFUL_HOIKO.adapt;
     const offset = options.offset ?? true;
@@ -286,6 +295,7 @@ export class RustHoikoEngine {
     w.i32(req.btb);
     w.i32(req.isEven ? 1 : 0);
     w.i32(req.useS4W ? 1 : 0);
+    w.i32(req.usePCstack ? 1 : 0);
     w.i32(req.viewNext);
     w.i32(req.allowHold ? 1 : 0);
     w.i32(this.weightIndex);
@@ -325,7 +335,6 @@ export class RustHoikoEngine {
     w.i32(sync.opponentLastNativeBtb ?? 0);
     w.i32(sync.opponentLastNativeCombo ?? 0);
     w.i32(nowMs); // sync_now_ms
-    w.i32(0); // trailing struct padding (IN_SIZE includes 4 B align pad)
     if (w.pos !== this.inSize) throw new Error(`input layout ${w.pos} != ${this.inSize}`);
   }
 
@@ -531,7 +540,8 @@ export function rawRequestFromSnapshot(
     combo: s.nativeCombo,
     btb: s.nativeBtb,
     isEven: engine.isEvenBoard,
-    useS4W: false,
+    useS4W: engine.useS4W,
+    usePCstack: engine.usePCstack,
     viewNext: engine.viewNext,
     allowHold: s.canHold,
     depth: engine.depthLimit,

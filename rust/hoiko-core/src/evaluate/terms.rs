@@ -5,7 +5,7 @@
 use crate::board::{log2, popcount, Board, FULL_ROW};
 use crate::gamepack::GamePack;
 use crate::weight_index::{
-    column_at, weight_at, WI_ANABARA, WI_BAD_ROOF, WI_COVER, WI_DONATE_COVER, WI_MAX_HEIGHT,
+    column_at, combo_at, weight_at, WI_ANABARA, WI_BAD_ROOF, WI_COVER, WI_DONATE_COVER, WI_MAX_HEIGHT,
     WI_OVER10, WI_OVER15, WI_PIERCE, WI_RESOURCE, WI_RESOURCE_MAX, WI_ROOF, WI_UPDOWN2,
     WI_WELL_DEPTH, WI_WELL_HINT, WI_WELL_PEAK,
 };
@@ -150,13 +150,105 @@ pub fn get_underground(
     donate_cover * w(ew, WI_DONATE_COVER) + cover * w(ew, WI_COVER)
 }
 
+/// Binary `GetResource.<lambda>` (IL 11490): recognizes only `line[y] == 0x3F`
+/// (right six columns full) / `0x3F0` (left six), counts the equal-mask run
+/// height `h`, requires >=2 cells outside the mask below it, then returns the
+/// `comboTable` tier for `h` (plus `game.combo` when `h >= 4 && combo > 2`).
+/// `opponentIsPowerfulBoard` is the EvaluateAI static, false for solo/shipped
+/// config (IL 11045); when set it vetoes the `h < 11` tiers.
+const OPPONENT_IS_POWERFUL_BOARD: bool = false;
+
+fn s4w_bonus(g: &GamePack, min_height: i32, ew: &HoikoWeights) -> i32 {
+    let sh = g.board.stack_height;
+    if sh <= min_height {
+        return 0;
+    }
+    let mut y = sh;
+    let mut cover = 0;
+    loop {
+        let row = g.board.row_at(y);
+        cover |= row;
+        let mask = if row == 0x3F {
+            if (cover & 0x3C0) != 0 {
+                return 0;
+            }
+            0x3F
+        } else if row == 0x3F0 {
+            if (cover & 0xF) != 0 {
+                return 0;
+            }
+            0x3F0
+        } else {
+            y -= 1;
+            if y <= min_height {
+                return 0;
+            }
+            continue;
+        };
+        if y == 0 || sh + 1 > 13 {
+            return 0;
+        }
+        let mut h = 1;
+        let mut below = y - 1;
+        if below > min_height {
+            while g.board.row_at(below) == mask {
+                h += 1;
+                below -= 1;
+                if below <= min_height {
+                    break;
+                }
+            }
+        }
+        if below > min_height {
+            let mut overhang = 0;
+            loop {
+                overhang += popcount(g.board.row_at(below) & !mask);
+                below -= 1;
+                if below <= min_height {
+                    break;
+                }
+            }
+            if overhang >= 2 {
+                if h >= 4 && g.combo > 2 {
+                    h += g.combo;
+                }
+                let mut bonus = 0;
+                if min_height <= h && h >= 4 {
+                    if h >= 6 {
+                        if h >= 8 {
+                            if h >= 11 {
+                                if h >= 12 {
+                                    bonus = combo_at(ew, 4);
+                                }
+                                bonus += combo_at(ew, 3);
+                            } else if OPPONENT_IS_POWERFUL_BOARD {
+                                return 0;
+                            }
+                            bonus += combo_at(ew, 2);
+                        } else if OPPONENT_IS_POWERFUL_BOARD {
+                            return 0;
+                        }
+                        bonus += combo_at(ew, 1);
+                    } else if OPPONENT_IS_POWERFUL_BOARD {
+                        return 0;
+                    }
+                    bonus += combo_at(ew, 0);
+                }
+                return bonus;
+            }
+        }
+        return 0;
+    }
+}
+
 pub fn get_resource(
-    board: &Board,
+    g: &GamePack,
     _ch: &[i32; 10],
     garbage_height: i32,
     ew: &HoikoWeights,
     use_s4w: bool,
 ) -> i32 {
+    let board = &g.board;
     let mut anabara = 0;
     let mut resource = 0;
     let mut line = board.row_at(0);
@@ -182,7 +274,9 @@ pub fn get_resource(
             line = (col(ew, x as usize) as f64 * 0.5) as i32;
         }
     }
-    let _ = use_s4w;
+    if use_s4w {
+        line += s4w_bonus(g, garbage_height, ew);
+    }
     line + anabara * w(ew, WI_ANABARA) + resource * w(ew, WI_RESOURCE)
 }
 

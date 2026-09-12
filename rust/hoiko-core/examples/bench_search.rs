@@ -12,11 +12,11 @@ fn main() {
     for _ in 0..reps {
         let root = build_root(&ProbeInput {
             board: vec![0; 32], current: 0, queue: vec![3,4,5,6,1,2,0,3,4,5,6,1,2],
-            hold: 7, combo: 0, btb: 0, view_next: 2, weight_index: 0, is_even: true, use_s4w: false, trust_rate: 1.0,
+            hold: 7, combo: 0, btb: 0, view_next: 2, weight_index: 0, is_even: true, use_s4w: false, use_pcstack: false, trust_rate: 1.0,
         });
         let mut st = default_search_state();
         let t = Instant::now();
-        let out = run_search(&mut st, &root, &w, true, false, 2, &|| 0.0, Some(i32::MAX), true).unwrap();
+        let out = run_search(&mut st, &root, &w, true, false, false, 2, &|| 0.0, Some(i32::MAX), true).unwrap();
         ms += t.elapsed().as_secs_f64()*1000.0; nodes += out.node as i64;
     }
     println!("NATIVE RUST: {:.1}ms/move, {:.0} nodes/move, {:.0}k nodes/s, depth14",

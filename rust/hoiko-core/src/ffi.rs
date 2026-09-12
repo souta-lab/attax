@@ -145,6 +145,7 @@ pub fn run_search_ffi(input: &HSearchInput, out: &mut HSearchOutput) -> i32 {
         weight_index: input.weight_index,
         is_even: b(input.is_even_board),
         use_s4w: b(input.use_s4w),
+        use_pcstack: b(input.use_pcstack),
         trust_rate: 1.0,
     };
     let root = build_root(&probe);
@@ -173,6 +174,7 @@ pub fn run_search_ffi(input: &HSearchInput, out: &mut HSearchOutput) -> i32 {
         &weights,
         b(input.is_even_board),
         b(input.use_s4w),
+        b(input.use_pcstack),
         input.view_next,
         &now,
         Some(input.time_limit_ms),

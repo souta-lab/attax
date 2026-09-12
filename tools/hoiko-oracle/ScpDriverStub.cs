@@ -127,6 +127,15 @@ internal static class OracleHost
     // Optional falling-piece spawn height (`fally=`), written after the board so
     // the searched state matches the replica's `build_root` spawn. -1 = leave it.
     private static int _fallY = -1;
+    // ConfigAI/TemplateAI static overrides (`viewnext=`, `usepcstack=`, `uses4w=`,
+    // `usetdopeners=`) so the oracle can enable config options the shipping
+    // config.dll has off. -1 = leave the static untouched. Applied before
+    // `SearchAI.ReadConfig` so EvaluateAI/TemplateAI derive their flags exactly
+    // as they would from a changed config.dll.
+    private static int _viewNextOverride = -1;
+    private static int _pcStackOverride = -1;
+    private static int _s4wOverride = -1;
+    private static int _tdOpenersOverride = -1;
     // Hold slot mino (opt-in via `hold=`): default 7 == MinoType.NONE, which is
     // exactly what HoldMino.Init writes, so omitting the key is behavior-preserving.
     private static int _hold = 7;
@@ -207,6 +216,15 @@ internal static class OracleHost
     private const int RvaUseOffsetOff = 0x6638C;
     private const int RvaOfsData = 0x66390;
     private const int RvaGbData = 0x663A0;
+    // ConfigAI / TemplateAI statics (monodis --fields): viewNext 418588,
+    // useTDOpeners 418600, usePCstack 418617, useS4W 418618,
+    // EvaluateAI.useS4W 418689, TemplateAI.useTDOpeners 418812.
+    private const int RvaConfigViewNext = 0x6631C;
+    private const int RvaConfigUseTDOpeners = 0x66328;
+    private const int RvaConfigUsePCstack = 0x66339;
+    private const int RvaConfigUseS4W = 0x6633A;
+    private const int RvaEvalUseS4W = 0x66381;
+    private const int RvaTemplateUseTDOpeners = 0x663FC;
     private static FieldInfo _isEvenBoardField;
     private static bool _fieldScanDone;
     private static string _logPath;
@@ -258,14 +276,6 @@ internal static class OracleHost
             return false;
         }
 
-        if (!_initDone)
-        {
-            Log("[1] ConfigAI.ReadConfig"); Invoke(miConfigRead);
-            Log("[2] SearchAI.Init"); Invoke(miSearchInit);
-            Log("[3] SearchAI.ReadConfig"); Invoke(miSearchReadConfig);
-            _initDone = true;
-        }
-
         int[] seq = new int[] { 0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6, 0,1,2,3,4,5,6 };
         int[] board = new int[32];
         board[0] = 0x1FF;
@@ -273,6 +283,19 @@ internal static class OracleHost
         board[2] = 0x001;
         board[3] = 0x001;
         LoadInput(ref seq, board);
+
+        if (!_initDone)
+        {
+            Log("[1] ConfigAI.ReadConfig"); Invoke(miConfigRead);
+            ApplyConfigOverrides();
+            Log("[2] SearchAI.Init"); Invoke(miSearchInit);
+            Log("[3] SearchAI.ReadConfig"); Invoke(miSearchReadConfig);
+            _initDone = true;
+        }
+        else
+        {
+            ApplyConfigOverrides();
+        }
 
         IntPtr buf = Marshal.AllocHGlobal(RootBufSize);
         for (int i = 0; i < RootBufSize; i += 8) Marshal.WriteInt64(buf, i, 0L);
@@ -551,6 +574,22 @@ internal static class OracleHost
             {
                 _fallY = int.Parse(val, CultureInfo.InvariantCulture);
             }
+            else if (key == "viewnext")
+            {
+                _viewNextOverride = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "usepcstack")
+            {
+                _pcStackOverride = val != "0" ? 1 : 0;
+            }
+            else if (key == "uses4w")
+            {
+                _s4wOverride = val != "0" ? 1 : 0;
+            }
+            else if (key == "usetdopeners")
+            {
+                _tdOpenersOverride = val != "0" ? 1 : 0;
+            }
             else if (key == "hold")
             {
                 _hold = int.Parse(val, CultureInfo.InvariantCulture);
@@ -670,6 +709,39 @@ internal static class OracleHost
             if (_isEvenBoardField == null) Log("[offset] WARNING isEvenBoard field not found");
         }
         if (_isEvenBoardField != null) _isEvenBoardField.SetValue(null, v);
+    }
+
+    private static void ApplyConfigOverrides()
+    {
+        if (_viewNextOverride < 0 && _pcStackOverride < 0 && _s4wOverride < 0
+            && _tdOpenersOverride < 0) return;
+        IntPtr h = ModuleBase();
+        if (_viewNextOverride >= 0)
+            Marshal.WriteInt32(new IntPtr(h.ToInt64() + RvaConfigViewNext), _viewNextOverride);
+        if (_pcStackOverride >= 0)
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaConfigUsePCstack),
+                (byte)(_pcStackOverride != 0 ? 1 : 0));
+        if (_s4wOverride >= 0)
+        {
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaConfigUseS4W),
+                (byte)(_s4wOverride != 0 ? 1 : 0));
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaEvalUseS4W),
+                (byte)(_s4wOverride != 0 ? 1 : 0));
+        }
+        if (_tdOpenersOverride >= 0)
+        {
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaConfigUseTDOpeners),
+                (byte)(_tdOpenersOverride != 0 ? 1 : 0));
+            Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaTemplateUseTDOpeners),
+                (byte)(_tdOpenersOverride != 0 ? 1 : 0));
+            MethodInfo miTemplateReadConfig = Resolve(0, "TemplateAI.ReadConfig", 0);
+            if (miTemplateReadConfig != null) Invoke(miTemplateReadConfig);
+        }
+        Log("[config] overrides: viewNext=" + Marshal.ReadInt32(new IntPtr(h.ToInt64() + RvaConfigViewNext))
+            + " usePCstack=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUsePCstack))
+            + " configS4W=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUseS4W))
+            + " evalS4W=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaEvalUseS4W))
+            + " useTDOpeners=" + Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaConfigUseTDOpeners)));
     }
 
     private const int RvaWeightList = 0x66368;

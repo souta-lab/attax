@@ -25,6 +25,7 @@ pub struct ProbeInput {
     pub weight_index: i32,
     pub is_even: bool,
     pub use_s4w: bool,
+    pub use_pcstack: bool,
     pub trust_rate: f64,
 }
 
@@ -80,8 +81,16 @@ pub fn build_root(input: &ProbeInput) -> GamePack {
 
 pub fn evaluate_probe(input: &ProbeInput, ew: &HoikoWeights) -> ProbeEval {
     let g = build_root(input);
-    let e = evaluate(&g, ew, input.weight_index, input.is_even, input.use_s4w, input.trust_rate);
-    let f = evaluate_first(&g, ew, input.weight_index, input.is_even);
+    let e = evaluate(
+        &g,
+        ew,
+        input.weight_index,
+        input.is_even,
+        input.use_s4w,
+        input.use_pcstack,
+        input.trust_rate,
+    );
+    let f = evaluate_first(&g, ew, input.weight_index, input.is_even, input.use_pcstack);
     ProbeEval {
         family_score: e.family_score,
         score: e.score,

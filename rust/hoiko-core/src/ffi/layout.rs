@@ -20,6 +20,7 @@ pub struct HSearchInput {
     pub btb: i32,
     pub is_even_board: i32,
     pub use_s4w: i32,
+    pub use_pcstack: i32,
     pub view_next: i32,
     pub allow_hold: i32,
     pub weight_index: i32,

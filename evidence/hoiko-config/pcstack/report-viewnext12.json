@@ -1,0 +1,83 @@
+{
+  "option": "pcstack",
+  "viewNext": 12,
+  "searchMode": false,
+  "cases": [
+    {
+      "name": "empty",
+      "ok": true,
+      "exeNodes": 1216,
+      "repNodes": 1216,
+      "pcNonzero": 928,
+      "resNonzero": 1216,
+      "diffs": []
+    },
+    {
+      "name": "stub-default",
+      "ok": true,
+      "exeNodes": 1226,
+      "repNodes": 1226,
+      "pcNonzero": 82,
+      "resNonzero": 1226,
+      "diffs": []
+    },
+    {
+      "name": "rand-0-h0",
+      "ok": true,
+      "exeNodes": 1528,
+      "repNodes": 1528,
+      "pcNonzero": 1193,
+      "resNonzero": 1528,
+      "diffs": []
+    },
+    {
+      "name": "rand-1-h1",
+      "ok": true,
+      "exeNodes": 1818,
+      "repNodes": 1818,
+      "pcNonzero": 184,
+      "resNonzero": 1818,
+      "diffs": []
+    },
+    {
+      "name": "rand-2-h2",
+      "ok": true,
+      "exeNodes": 3062,
+      "repNodes": 3062,
+      "pcNonzero": 146,
+      "resNonzero": 3062,
+      "diffs": []
+    },
+    {
+      "name": "rand-3-h3",
+      "ok": true,
+      "exeNodes": 740,
+      "repNodes": 740,
+      "pcNonzero": 19,
+      "resNonzero": 740,
+      "diffs": []
+    },
+    {
+      "name": "rand-4-h4",
+      "ok": true,
+      "exeNodes": 5502,
+      "repNodes": 5502,
+      "pcNonzero": 0,
+      "resNonzero": 5502,
+      "diffs": []
+    },
+    {
+      "name": "rand-5-h5",
+      "ok": true,
+      "exeNodes": 3624,
+      "repNodes": 3624,
+      "pcNonzero": 0,
+      "resNonzero": 3624,
+      "diffs": []
+    }
+  ],
+  "passed": 8,
+  "total": 8,
+  "totalPcNonzero": 2552,
+  "timestamp": "2026-09-12T14:32:29.770Z"
+}

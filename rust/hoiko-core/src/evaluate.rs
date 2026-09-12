@@ -140,6 +140,7 @@ pub fn evaluate(
     weight_index: i32,
     is_even_board: bool,
     use_s4w: bool,
+    use_pcstack: bool,
     trust_rate: f64,
 ) -> EvalOut {
     let mut ch = [0i32; 10];
@@ -150,11 +151,11 @@ pub fn evaluate(
     board += terms::get_up_down(&ch, well.well_column, well.well_depth, ew);
     board += terms::get_underground(&g.board, &ch, min_height, ew);
     let y0 = well.well_depth + min_height;
-    board += terms::get_resource(&g.board, &ch, min_height, ew, use_s4w);
+    board += terms::get_resource(g, &ch, min_height, ew, use_s4w);
     board += terms::get_ground(g, &ch, y0, ew);
     board += tsd::search_tsd(g, &ch, y0, ew);
     board += tst::search_tst(g, &ch, y0, min_height, ew);
-    board += pc::search_pc_board(g, min_height, ew, is_even_board);
+    board += pc::search_pc_board(g, min_height, ew, is_even_board, use_pcstack);
     board += get_cont_bonus(g, ew);
     let action = get_final_action(g, ew, weight_index);
     let family_score = ((ew.nexus * board as f64) as i32 + action) as f64 * trust_rate;
@@ -168,11 +169,12 @@ pub fn evaluate_first(
     ew: &HoikoWeights,
     weight_index: i32,
     is_even_board: bool,
+    use_pcstack: bool,
 ) -> EvalOut {
     let mut ch = [0i32; 10];
     let min_height = terms::build_column_height(&g.board, &mut ch);
     let mut board = terms::get_height(&g.board, &ch, ew);
-    board += pc::search_pc_board(g, min_height, ew, is_even_board);
+    board += pc::search_pc_board(g, min_height, ew, is_even_board, use_pcstack);
     board += get_cont_bonus(g, ew);
     let family_score = get_final_action(g, ew, weight_index) + (board as f64 * ew.nexus) as i32;
     EvalOut { family_score, score: family_score }
@@ -301,9 +303,9 @@ mod tests {
             0,
             0,
         );
-        let e = evaluate(&empty, &we(), 0, true, false, 1.0);
+        let e = evaluate(&empty, &we(), 0, true, false, false, 1.0);
         assert_eq!((e.family_score, e.score), (0, 0));
-        let ef = evaluate_first(&empty, &we(), 0, true);
+        let ef = evaluate_first(&empty, &we(), 0, true, false);
         assert_eq!((ef.family_score, ef.score), (0, 0));
 
         let mid = build_root(
@@ -314,9 +316,9 @@ mod tests {
             2,
             1,
         );
-        let e = evaluate(&mid, &we(), 0, true, false, 1.0);
+        let e = evaluate(&mid, &we(), 0, true, false, false, 1.0);
         assert_eq!((e.family_score, e.score), (492, 484));
-        let ef = evaluate_first(&mid, &we(), 0, true);
+        let ef = evaluate_first(&mid, &we(), 0, true, false);
         assert_eq!((ef.family_score, ef.score), (500, 500));
     }
 
@@ -340,7 +342,7 @@ mod tests {
         assert_eq!(ch, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
         assert_eq!(terms::get_height(&flat.board, &ch, &we()), -30);
         assert_eq!(tsd::search_tsd(&flat, &ch, g, &we()), 0);
-        assert_eq!(pc::search_pc_board(&flat, g, &we(), true), 0);
+        assert_eq!(pc::search_pc_board(&flat, g, &we(), true, false), 0);
 
         let notch = mk(&[1023, 1023, (1 << 9) | (1 << 7)], 2, MINO_I, MINO_NONE);
         let mut ch = [0i32; 10];
@@ -349,7 +351,7 @@ mod tests {
         assert_eq!(ch, [2, 1, 2, 1, 1, 1, 1, 1, 1, 1]);
         assert_eq!(terms::get_height(&notch.board, &ch, &we()), -45);
         assert_eq!(terms::get_underground(&notch.board, &ch, g, &we()), 0);
-        assert_eq!(terms::get_resource(&notch.board, &ch, g, &we(), false), 4);
+        assert_eq!(terms::get_resource(&notch, &ch, g, &we(), false), 4);
         let well = terms::get_well_column(&notch.board, &ch, g, &we());
         assert_eq!(terms::get_up_down(&ch, well.well_column, well.well_depth, &we()), -12);
         assert_eq!(tsd::search_tsd(&notch, &ch, well.well_depth + g, &we()), 2);
@@ -367,8 +369,8 @@ mod tests {
         assert_eq!(terms::get_height(&pc_board.board, &ch, &we()), -60);
         let well = terms::get_well_column(&pc_board.board, &ch, g, &we());
         assert_eq!((well.score, well.well_column, well.well_depth), (30, 9, 4));
-        assert_eq!(terms::get_resource(&pc_board.board, &ch, g, &we(), false), 60);
-        assert_eq!(pc::search_pc_board(&pc_board, g, &we(), true), 1000);
+        assert_eq!(terms::get_resource(&pc_board, &ch, g, &we(), false), 60);
+        assert_eq!(pc::search_pc_board(&pc_board, g, &we(), true, false), 1000);
     }
 }
 

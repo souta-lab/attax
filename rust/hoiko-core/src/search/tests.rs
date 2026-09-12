@@ -27,6 +27,7 @@
             weight_index: 0,
             is_even: true,
             use_s4w: false,
+            use_pcstack: false,
             trust_rate: 1.0,
         }
     }
@@ -65,7 +66,7 @@
         let mut st = SearchState::default();
         st.depth_limit = 10;
         let now = fixed_now();
-        let out = run_search(&mut st, &root, &[we()], true, false, 2, &now, Some(1000), false)
+        let out = run_search(&mut st, &root, &[we()], true, false, false, 2, &now, Some(1000), false)
             .expect("move");
         let expected = (0, 0, MINO_I, false, ACT_NONE, 10, 27439, 202);
         assert_eq!(
@@ -92,7 +93,7 @@
         ));
         let mut st = SearchState::default();
         let now = fixed_now();
-        let out = run_search(&mut st, &root, &[we()], true, false, 2, &now, Some(1000), true)
+        let out = run_search(&mut st, &root, &[we()], true, false, false, 2, &now, Some(1000), true)
             .expect("move");
         let expected = (3, 0, MINO_I, false, ACT_NONE, 14, 71624, 112);
         assert_eq!(
@@ -133,12 +134,13 @@
             weight_index: 0,
             is_even: true,
             use_s4w: false,
+            use_pcstack: false,
             trust_rate: 1.0,
         });
         let now = fixed_now();
         let mut st = SearchState::default();
         let out =
-            run_search(&mut st, &root, &[we()], true, false, 2, &now, Some(1000), true).expect("move");
+            run_search(&mut st, &root, &[we()], true, false, false, 2, &now, Some(1000), true).expect("move");
         assert_eq!(
             (
                 out.first_x,
@@ -152,7 +154,7 @@
         );
 
         let mut st2 = SearchState::default();
-        let tr = search_trace(&mut st2, &root, &[we()], true, false, 2, true, 1).expect("trace");
+        let tr = search_trace(&mut st2, &root, &[we()], true, false, false, 2, true, 1).expect("trace");
         assert_eq!(
             (tr.first_x, tr.first_r, tr.first_m, tr.score, tr.depth, tr.nodes),
             (

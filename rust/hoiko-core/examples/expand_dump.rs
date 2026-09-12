@@ -59,6 +59,7 @@ fn main() {
         weight_index: 0,
         is_even: true,
         use_s4w: false,
+        use_pcstack: false,
         trust_rate: 1.0,
     };
     let spawn_y = build_root(&input).falling_mino.y;

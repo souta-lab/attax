@@ -80,6 +80,7 @@ fn main() {
             weight_index,
             is_even,
             use_s4w,
+            use_pcstack: false,
             trust_rate,
         };
         let ev = evaluate_probe(&input, &ew);

@@ -51,6 +51,10 @@ struct Input {
     allow_hold: bool,
 }
 
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).map(|v| v != "0").unwrap_or(false)
+}
+
 fn read_input(t: &mut Tok) -> Input {
     let board_len = t.usize();
     let mut board = Vec::with_capacity(board_len);
@@ -79,7 +83,8 @@ fn read_input(t: &mut Tok) -> Input {
             view_next,
             weight_index: 0,
             is_even: true,
-            use_s4w: false,
+            use_s4w: env_flag("HOIKO_USE_S4W"),
+            use_pcstack: env_flag("HOIKO_USE_PCSTACK"),
             trust_rate: 1.0,
         },
         allow_hold,
@@ -184,7 +189,8 @@ fn main() {
             &root,
             &[ew],
             true,
-            false,
+            input.probe.use_s4w,
+            input.probe.use_pcstack,
             input.probe.view_next,
             &|| 0.0,
             Some(i32::MAX),
@@ -198,7 +204,8 @@ fn main() {
             &root,
             &[ew],
             true,
-            false,
+            input.probe.use_s4w,
+            input.probe.use_pcstack,
             input.probe.view_next,
             input.allow_hold,
             select_mode,
@@ -271,7 +278,8 @@ fn main() {
             &root,
             &[ew],
             true,
-            false,
+            input.probe.use_s4w,
+            input.probe.use_pcstack,
             input.probe.view_next,
             input.allow_hold,
             1,
@@ -337,7 +345,8 @@ fn main() {
             &ew,
             weight_index,
             true,
-            false,
+            input.probe.use_s4w,
+            input.probe.use_pcstack,
             input.allow_hold,
             1,
             &path,
@@ -350,7 +359,15 @@ fn main() {
 
     if mode == "eval_bfs" {
         println!("WEIGHT weightIndex={weight_index}");
-        let gens = eval_bfs_probe(&input.probe, &ew, weight_index, true, false, input.allow_hold);
+        let gens = eval_bfs_probe(
+            &input.probe,
+            &ew,
+            weight_index,
+            true,
+            input.probe.use_s4w,
+            input.probe.use_pcstack,
+            input.allow_hold,
+        );
         let root = gens.first();
         if let Some(g0) = root {
             print_gen(g0);

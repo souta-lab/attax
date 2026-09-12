@@ -130,6 +130,7 @@ pub fn search_trace(
     weight_list: &[HoikoWeights],
     is_even_board: bool,
     use_s4w: bool,
+    use_pcstack: bool,
     view_next: i32,
     allow_hold: bool,
     select_mode: i32,
@@ -149,7 +150,7 @@ pub fn search_trace(
     let mut parents: Vec<usize> = Vec::with_capacity(expanded.len());
     for c in expanded.drain(..) {
         let placement = placement_of(&c);
-        let ev = evaluate_first(&c.game, ew, weight_index, is_even_board);
+        let ev = evaluate_first(&c.game, ew, weight_index, is_even_board, use_pcstack);
         arena.push(TraceNode {
             game: c.game,
             score: ev.family_score,
@@ -177,7 +178,7 @@ pub fn search_trace(
             num_children += expanded.len() as i32;
             for c in expanded.drain(..) {
                 let placement = placement_of(&c);
-                let ev = evaluate(&c.game, ew, weight_index, is_even_board, use_s4w, trust_rate);
+                let ev = evaluate(&c.game, ew, weight_index, is_even_board, use_s4w, use_pcstack, trust_rate);
                 let ci = arena.len();
                 arena.push(TraceNode {
                     game: c.game,
