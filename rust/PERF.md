@@ -82,3 +82,67 @@ same depth and still reports exactly `71600 nodes/move`.
   `wasm_smoke.ts` instantiates and exposes `h_search`/`h_alloc`/`h_dealloc`;
   `rust/verify.mjs` bit primitives correct. FFI `size_of` unchanged
   (input 1496 B, output 208 B).
+
+---
+
+# Second pass — collision / Shape / clone optimizations
+
+Goal: attack the actual profile hotspots (not allocations this time). Measured
+with `cargo run --release -p hoiko-core --example bench_search` (depth-14 empty
+board, 71 600 nodes):
+
+| | ms/move | nodes/move | notes |
+|---|---|---|---|
+| start of this pass (after the arena pass) | 64.3 | 71 600 | measured on this machine |
+| after the changes below + `lto` release | **31.7** | **71 600** | `2259 k nodes/s` |
+
+That is a further **2.0×**. From the original naive port (≈160 ms) the total is
+≈5×. The shipping binary is ≈101 ms, so the Rust engine is now ≈3× the binary's
+speed at identical results.
+
+## What changed (commit by commit)
+
+1. **`shapes.rs` — inline Shape cells, const table instead of `OnceLock`.**
+   `Shape.cells` was a heap `Vec<Cell>`; every hit test chased the `NonNull`
+   pointer and iterated a slice. Now the four cells are inline (`[Cell; 4]` +
+   `len`) and the per-`(mino, rotation)` metadata lives in a `const` static
+   table, so `shape_for()` is an indexed load with no atomic and no runtime
+   build. `r & 3` is exact for two's-complement `i32`.
+   *A/B: instructions 12.14 B → 11.03 B (−9.2%), branches 2.41 B → 2.23 B (−7.7%).*
+2. **`board.rs` — combine `collision_distance` cells into per-row masks.**
+   `collision_distance` was ~33% of runtime, redoing `col = x + cell.x` and
+   `1 << (9-col)` for 4 cells on every candidate drop row. At fixed `x` the
+   piece footprint is a per-row bitmask independent of `s`, so build the masks
+   once and AND one mask per occupied row. Floor check and limit unchanged.
+   *A/B: 40.7 → 35.1 ms (−14%), instructions 11.01 B → 8.78 B (−20%).*
+3. **`board.rs` — start `collision_distance` at the first collidable row.**
+   Rows above `stack_height` are empty, so the scan can start at
+   `mino.y - max_y - stack_height` (clamped ≥1); the scan is now
+   `O(stack_height)` instead of `O(mino.y)`.
+   *A/B: 35.4 → 28.6 ms (−19%), instructions 8.78 B → 7.00 B (−20%).*
+4. **`board.rs` — single-pass `get_column_height_zeroed`.** The monotonic OR
+   accumulator lets each column's count be derived from the iteration it first
+   appears, instead of re-testing 10 columns every row.
+   *A/B: 45.5 → 43.5 ms (−4.5%), branch-misses 45.8 M → 35.3 M (−23%).*
+5. **`expand_template.rs` / `expand_derive.rs` — fewer `Baby`/`Rc` clones.**
+   `expand_template_node` cloned `babies.first()` (full `Baby` + `Rc` bump) and
+   immediately overwrote `next_it` (second `Rc` bump); it now builds from
+   `Baby::default()` with a single copy. `expand_derive_node` cloned `cand`
+   only to push it; it now moves.
+   *A/B: 42.9 → 41.8 ms median, instructions 11.075 B → 11.015 B.*
+
+Two new tests pin byte-identical output against the original per-cell loops:
+`board::tests::collision_distance_matches_reference` (50 k random boards ×
+pieces) and `board::tests::column_height_zeroed_matches_reference` (20 k random
+boards).
+
+## Verification
+
+- `cargo test` → **47 passed**; 0 failed.
+- `bench_search` → exactly **71 600 nodes/move**, depth 14.
+- Oracle `diff.ts` → **9/9 first-move**, `twosearch.ts` → **9/9 beam-adaptation**,
+  run against the rebuilt wasm.
+- `src/ai/wasm/hoiko_core.wasm` rebuilt (103 071 → 104 227 bytes).
+- **No behavioral drift**: a 150-position random differential across the
+  original, pre-pass and post-pass wasm produced identical
+  `(x, y, rotation, hold, score, node)` on every position (0 mismatches).
