@@ -33,6 +33,7 @@ import {
   v2OpponentModel,
 } from "./deepseek-v2-score.js";
 import { extractFeatures } from "./features.js";
+import { createOpeningBook, type OpeningBook } from "./opening-book.js";
 import {
   enumerateKickPlacements,
   enumerateScored,
@@ -125,6 +126,8 @@ export interface DeepSeekV2Options {
   readonly useOpponent?: boolean | undefined;
   readonly useGarbageDefense?: boolean | undefined;
   readonly useDownstack?: boolean | undefined;
+  /** Consult the PCO opening book before the beam search (off by default). */
+  readonly openingBook?: boolean | undefined;
 }
 
 function hasI(hold: PieceKind | null, canHold: boolean, queue: readonly PieceKind[]): boolean {
@@ -394,13 +397,17 @@ export function createDeepSeekV2(options: DeepSeekV2Options = {}): DeepSeekV2 {
     useDownstack: options.useDownstack ?? true,
   };
   const generator = makePlacementGenerator(DEEPSEEK_V2_WEIGHTS, useKicks);
+  const book: OpeningBook | null = options.openingBook === true ? createOpeningBook() : null;
   let last: V2Debug | null = null;
+  let lastBook: { name: string | null; thinkMs: number; pieces: number } | null = null;
   let pieces = 0;
   return {
     name: DEEPSEEK_V2_NAME,
     reset: () => {
       last = null;
+      lastBook = null;
       pieces = 0;
+      book?.reset();
     },
     findBestMove: (s) => {
       const t0 = performance.now();
@@ -408,6 +415,15 @@ export function createDeepSeekV2(options: DeepSeekV2Options = {}): DeepSeekV2 {
       pieces += 1;
       const seen = pieces;
       const board = toBoard(s);
+      if (book !== null) {
+        const bookMove = book.next(s, board);
+        if (bookMove !== null) {
+          last = null;
+          lastBook = { name: book.lastOpener(), thinkMs: performance.now() - t0, pieces: seen };
+          return bookMove;
+        }
+      }
+      lastBook = null;
       const cur: PieceKind = s.active.kind;
       const queue: readonly PieceKind[] = s.next.slice(0, Math.max(1, depth));
       const opp = v2OpponentModel(s);
@@ -435,6 +451,19 @@ export function createDeepSeekV2(options: DeepSeekV2Options = {}): DeepSeekV2 {
       };
     },
     getDebug: () => {
+      if (last === null && lastBook !== null) {
+        return {
+          score: 0,
+          fireScore: 0,
+          linesCleared: 0,
+          isTspin: false,
+          opener: lastBook.name,
+          topHoles: 0,
+          topMaxHeight: 0,
+          thinkMs: lastBook.thinkMs,
+          pieceIndex: lastBook.pieces,
+        };
+      }
       if (last === null) return null;
       const h = v2BoardStats(last.mv.after);
       return {
