@@ -192,6 +192,30 @@ the carried weight family, and all 15 OffsetAI state fields — natural runs see
 The earlier 32-0/80-0 were an APM artifact of the unfair step model (#24); the
 intermediate 21-11/25-7/27-5 were measured before the replica was exe-equivalent.
 
+## Versus input contract (exe-verified)
+
+The replica is exe-equivalent only for the inputs it receives, so the versus harness's
+state mapping was audited input-by-input (`evidence/hoiko-inputs/AUDIT.md`). Five contract
+bugs were found and fixed, each verified against the exe:
+
+1. **NextMino carry** — the first search never ran `NextMino.Init` (queue tail all `None`)
+   and the root was rebuilt per turn, resetting `bagRemains=6`; the real game carries the
+   persistent queue (`trustEnd = viewNext-1 + trustRange(bagRemains)`). Wired
+   `src/ai/hoiko-next.ts`; exe 13/13 state + 20/20 behavior.
+2. **`EvaluateAI.weight` row** — forced to 0 every versus search; the binary carries it.
+3. **`combo`** — the engine clamped `nativeCombo` to 0; the binary negates a broken combo.
+4. **sync key collision** — `oppcombo=` set the versus static instead of the sync combo.
+5. **match reset** — added `resetMatchState()`/`fighter.reset()` for app rematches.
+
+Also exe-verified: opponent flags (`multiEvaluation` / `opponentIsPCBoard` /
+`opponentIsPowerfulBoard` / `opponentsCombo`) 72/72 derivation + 8/8 behavior;
+`isEvenBoard` auto (parity) 9/9.
+
+Result: the deterministic 32-seed gate moved from 26-6 to **23-9**. Every primary input is
+now exe-verified, so the remaining gap is DeepSeek being genuinely stronger. Residuals
+(modeled, not exe-verifiable): the host frame clock, the `GetDelay-5` time bound, the
+resync-turn weight seed, and wall-clock beam adaptation (`HOIKO_ADAPT=1`).
+
 ## Configurable options
 
 The replica runs the shipping binary's config. Ported and exe-verified:
