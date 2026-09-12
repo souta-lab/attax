@@ -146,8 +146,11 @@ impl HoikoOffsetDriver {
         if !self.enabled {
             return false;
         }
+        // `DecisionOffsetOff` seeds the native `Int32Array` with -1 and
+        // `Board.GetColumnHeight` adds into it (IL 13943-13954), so the port must
+        // use the -1-filling wrapper, not `get_column_height_zeroed`.
         let mut column_heights = [0i32; 10];
-        input.board.get_column_height_zeroed(&mut column_heights);
+        input.board.get_column_height(&mut column_heights);
         if let Some(next) = input.next {
             self.offset.compute_decision(
                 input.plan_acts,
@@ -229,6 +232,36 @@ mod tests {
         );
         assert_eq!(d.offset.get_opponents_atk(), 4);
         assert_eq!(d.last_opponent_lock_id, Some(10));
+    }
+
+    /// Binary `DecisionOffsetOff` seeds the height array with -1 before
+    /// `Board.GetColumnHeight` (IL 13943); the zero-seeded variant reports
+    /// center4 one higher. Board/expected values from the exe differential
+    /// (evidence/hoiko-fullgame/garbage/smoke-divergence-seed1-turn14).
+    #[test]
+    fn decide_uses_minus_one_seeded_column_heights() {
+        let mut d = HoikoOffsetDriver::new(true);
+        let mut board = Board::default();
+        board.line[0] = 1015;
+        board.line[1] = 995;
+        board.line[2] = 487;
+        board.line[3] = 231;
+        board.line[4] = 227;
+        board.line[5] = 231;
+        board.update_max_height();
+        let next = NextMino::default();
+        let input = OffsetDecisionInput {
+            plan_acts: &[ACT_NONE, ACT_NONE, ACT_QUAD],
+            depth: 10,
+            hold: 7,
+            next: Some(&next),
+            btb: 0,
+            is_even_board: true,
+            board: &board,
+            pending_garbage: 4,
+        };
+        assert!(d.decide(&input, 0.0));
+        assert_eq!(d.offset.ofs_data.center4_height, 5);
     }
 
     #[test]

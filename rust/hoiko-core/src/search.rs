@@ -13,6 +13,7 @@
 //! allocation meaningfully. Results are exact integers regardless.
 
 use crate::baby::ExpandedChild;
+use crate::board::Board;
 use crate::evaluate::{evaluate, evaluate_first, transition_weight, EvalOut};
 use crate::expand::{expand_node_into, ExpandScratch};
 use crate::gamepack::GamePack;
@@ -82,6 +83,16 @@ impl Acts {
     }
 }
 
+/// The committed first move's GamePack fields that `SearchAI.WriteResult` copies
+/// into the root (board @+216, hold.m @+136, btb @+412) — the state
+/// `OffsetOffAI.DecisionOffsetOff` reads after the search.
+#[derive(Clone, Copy, Default)]
+pub struct FirstMoveState {
+    pub board: Board,
+    pub hold_m: i32,
+    pub btb: i32,
+}
+
 #[derive(Clone)]
 struct NodeState {
     game: GamePack,
@@ -97,6 +108,7 @@ struct NodeState {
     first_move_delay: i32,
     first_y: i32,
     first_last_srs: i32,
+    first_state: FirstMoveState,
     acts: Acts,
 }
 
@@ -120,41 +132,54 @@ pub struct SearchOutcome {
     pub over_time: f64,
     pub move_delay: i32,
     pub first_placement: FirstPlacement,
+    pub first_state: FirstMoveState,
 }
 
 fn make_node(child: ExpandedChild, parent: Option<&NodeState>, gen_one: bool) -> NodeState {
     let lm = child.game.locked_mino;
     let md = child.game.commands.move_delay;
     let fresh = gen_one || parent.is_none();
-    let (first_x, first_r, first_m, first_hold, first_act, first_move_delay, first_y, first_last_srs, acts) =
-        if fresh {
-            (
-                child.placed_x,
-                child.placed_r,
-                child.placed_m,
-                child.hold_used,
-                child.act,
-                md,
-                lm.y,
-                lm.last_srs,
-                Acts::single(child.act),
-            )
-        } else {
-            let p = parent.expect("checked above");
-            let mut a = p.acts;
-            a.push(child.act);
-            (
-                p.first_x,
-                p.first_r,
-                p.first_m,
-                p.first_hold,
-                p.first_act,
-                p.first_move_delay,
-                p.first_y,
-                p.first_last_srs,
-                a,
-            )
-        };
+    let (
+        first_x,
+        first_r,
+        first_m,
+        first_hold,
+        first_act,
+        first_move_delay,
+        first_y,
+        first_last_srs,
+        first_state,
+        acts,
+    ) = if fresh {
+        (
+            child.placed_x,
+            child.placed_r,
+            child.placed_m,
+            child.hold_used,
+            child.act,
+            md,
+            lm.y,
+            lm.last_srs,
+            FirstMoveState { board: child.game.board, hold_m: child.game.hold.m, btb: child.game.btb },
+            Acts::single(child.act),
+        )
+    } else {
+        let p = parent.expect("checked above");
+        let mut a = p.acts;
+        a.push(child.act);
+        (
+            p.first_x,
+            p.first_r,
+            p.first_m,
+            p.first_hold,
+            p.first_act,
+            p.first_move_delay,
+            p.first_y,
+            p.first_last_srs,
+            p.first_state,
+            a,
+        )
+    };
     NodeState {
         game: child.game,
         score: 0,
@@ -168,6 +193,7 @@ fn make_node(child: ExpandedChild, parent: Option<&NodeState>, gen_one: bool) ->
         first_move_delay,
         first_y,
         first_last_srs,
+        first_state,
         acts,
     }
 }
@@ -404,6 +430,7 @@ pub fn run_search(
             y: best.first_y,
             last_srs: best.first_last_srs,
         },
+        first_state: best.first_state,
     })
 }
 

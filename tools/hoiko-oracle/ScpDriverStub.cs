@@ -5,6 +5,7 @@
 //     SearchAI.Search on a synthetic position, dumping results to console + a file.
 //
 // C#5-compatible (Wine .NET Framework csc-compatible).
+// allow: SIZE_OK — single-file oracle stub; the raw binary RVAs are the contract.
 
 using System;
 using System.Globalization;
@@ -132,6 +133,80 @@ internal static class OracleHost
     // Carried `Others` state (opt-in via `combo=` / `b2b=`), default 0 like Others.Init.
     private static int _combo;
     private static int _btb;
+    // --- OffsetOffAI driver mode (opt-in via `offsetenabled=`) ---
+    // Pending garbage rows (`garbage=`) and the virtual frame clock (`nowms=`)
+    // mirror `HSearchInput.pending_garbage` / `now_ms` in the Rust ABI.
+    private static int _pendingGarbage;
+    private static int _nowMs;
+    // -1 = legacy mode: do not touch the OffsetOffAI statics or call its methods.
+    private static int _offsetEnabled = -1;
+    // Own/opponent lock sync (mirrors HoikoOffsetDriver.sync): opt-in via `sync=1`.
+    private static int _syncEnabled;
+    private static int _syncLockId;
+    private static int _syncLastAction;
+    private static int _syncLastAttack;
+    private static int _syncHasOppLock;
+    private static int _syncOppLockId;
+    private static int _syncOppClearLines;
+    private static int _syncOppBtb;
+    private static int _syncOppCombo;
+    // Carried OffsetOffAI state (raw statics), mirrors HSearchInput.ofs_*/gb_*.
+    private static int _useOffsetOff;
+    private static int _ofsCanWait;
+    private static int _ofsCenter4;
+    private static int _ofsAtk;
+    private static int _ofsPcChance;
+    private static int _ofsNearOffset;
+    private static int _gbOpponentsAtk;
+    private static int _gbCoolTime;
+    private static int _gbRemainingTime;
+    private static int _gbOpponentsLockCount;
+    private static int _gbFirstInvalidLock;
+    // Driver-side lock bookkeeping (mirrors HSearchInput.has_last_*).
+    private static int _hasLastOwn;
+    private static int _lastOwnId;
+    private static int _hasLastOpp;
+    private static int _lastOppId;
+    // `iseven=` override (RVA 0x66382). -1 = leave the static untouched.
+    private static int _isEvenBoard = -1;
+    // Carried `EvaluateAI.weight` family index (weightList + 272*index). A fresh
+    // process always starts at 0, so the harness restores the replica's carried
+    // index and reads the post-search index back (adapter carries it too).
+    private static int _weightIndex = -1;
+    private static int _outWeightIndex = -1;
+    // Values computed by the offset decision this run.
+    private static int _garbageWait;
+    private static int _outUseOffsetOff;
+    private static int _outOfsCanWait;
+    private static int _outOfsCenter4;
+    private static int _outOfsAtk;
+    private static int _outOfsPcChance;
+    private static int _outOfsNearOffset;
+    private static int _outGbOpponentsAtk;
+    private static int _outGbCoolTime;
+    private static int _outGbRemainingTime;
+    private static int _outGbOpponentsLockCount;
+    private static int _outGbFirstInvalidLock;
+    private static MethodInfo _miUseOff;
+    private static MethodInfo _miCanOff;
+    private static MethodInfo _miDecOff;
+    private static MethodInfo _miResetAtk;
+    private static MethodInfo _miCalcAtk;
+    private static MethodInfo _miGetAtk;
+    private static MethodInfo _miSetPrev;
+    private static MethodInfo _miLockOff;
+    private static MethodInfo _miOppNew;
+    private static MethodInfo _miInvAtk;
+    private static MethodInfo _miIsLocked;
+    private static MethodInfo _miFirstInvalid;
+    private static bool _offsetMethodsResolved;
+    // Native RVAs of the OffsetOffAI statics in the loaded Hoiko module
+    // (monodis --fields: isEvenBoard 418690, useOffsetOff 418700, ofsData 418704,
+    // gbData 418720; base = Marshal.GetHINSTANCE).
+    private const int RvaIsEvenBoard = 0x66382;
+    private const int RvaUseOffsetOff = 0x6638C;
+    private const int RvaOfsData = 0x66390;
+    private const int RvaGbData = 0x663A0;
     private static FieldInfo _isEvenBoardField;
     private static bool _fieldScanDone;
     private static string _logPath;
@@ -221,6 +296,17 @@ internal static class OracleHost
         Log("  board.stackHeight @344 = " + Marshal.ReadInt32(buf, 344));
         Log("  fallingMino @152: x=" + Marshal.ReadInt32(buf, 152) + " y=" + Marshal.ReadInt32(buf, 156) + " r=" + Marshal.ReadInt32(buf, 160) + " m=" + Marshal.ReadInt32(buf, 164));
 
+        if (_offsetEnabled >= 0)
+        {
+            Log("[4b] offset driver input");
+            ApplyOffsetInput();
+        }
+        else if (_isEvenBoard >= 0)
+        {
+            SetEvenBoard(_isEvenBoard != 0);
+        }
+        if (_weightIndex >= 0) ApplyWeightIndex();
+
         if (_expandMode != 0)
         {
             Log("[5] expand probe (SearchAI.Search skipped)");
@@ -267,6 +353,8 @@ internal static class OracleHost
         }
         Invoke(miSearch, buf);
         Log("[5] returned in " + (DateTime.UtcNow - t0).TotalMilliseconds.ToString("0.0", CultureInfo.InvariantCulture) + " ms");
+        if (_weightIndex >= 0) ReadWeightIndex();
+        if (_offsetEnabled >= 0) RunOffsetDecision(buf);
         if (_treeDump != 0) DumpTree();
 
         Log("");
@@ -475,6 +563,56 @@ internal static class OracleHost
             {
                 _btb = int.Parse(val, CultureInfo.InvariantCulture);
             }
+            else if (key == "garbage" || key == "pending_garbage")
+            {
+                _pendingGarbage = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "nowms" || key == "sync_now_ms")
+            {
+                _nowMs = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "offsetenabled" || key == "offset_enabled")
+            {
+                _offsetEnabled = val != "0" ? 1 : 0;
+            }
+            else if (key == "iseven")
+            {
+                _isEvenBoard = val != "0" ? 1 : 0;
+            }
+            else if (key == "weightindex")
+            {
+                _weightIndex = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "sync" || key == "sync_enabled")
+            {
+                _syncEnabled = val != "0" ? 1 : 0;
+            }
+            else if (key == "useoffset" || key == "use_offset_off")
+            {
+                _useOffsetOff = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "ofscanwait") _ofsCanWait = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "ofscenter4") _ofsCenter4 = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "ofsatk") _ofsAtk = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "ofspcchance") _ofsPcChance = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "ofsnearoffset") _ofsNearOffset = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "gboppatk") _gbOpponentsAtk = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "gbcool") _gbCoolTime = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "gbremaining") _gbRemainingTime = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "gblockcount") _gbOpponentsLockCount = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "gbfirstinvalid") _gbFirstInvalidLock = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "haslastown") _hasLastOwn = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lastownid") _lastOwnId = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "haslastopp") _hasLastOpp = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lastoppid") _lastOppId = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lockid") _syncLockId = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lastaction") _syncLastAction = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "lastattack") _syncLastAttack = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "opplock") _syncHasOppLock = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "opplockid") _syncOppLockId = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "oppclear") _syncOppClearLines = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "oppbtb") _syncOppBtb = int.Parse(val, CultureInfo.InvariantCulture);
+            else if (key == "oppcombo") _syncOppCombo = int.Parse(val, CultureInfo.InvariantCulture);
         }
         Log("[input] loaded oracle_input.txt (board rows=" + board.Length + ", next=" + seq.Length + ")");
     }
@@ -532,6 +670,184 @@ internal static class OracleHost
             if (_isEvenBoardField == null) Log("[offset] WARNING isEvenBoard field not found");
         }
         if (_isEvenBoardField != null) _isEvenBoardField.SetValue(null, v);
+    }
+
+    private const int RvaWeightList = 0x66368;
+    private const int RvaWeight = 0x66378;
+    private const int EvalWeightSize = 272;
+
+    private static void ApplyWeightIndex()
+    {
+        IntPtr h = ModuleBase();
+        IntPtr list = Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaWeightList));
+        IntPtr ptr = new IntPtr(list.ToInt64() + (long)_weightIndex * EvalWeightSize);
+        Marshal.WriteIntPtr(new IntPtr(h.ToInt64() + RvaWeight), ptr);
+        Log("[weight] in index=" + _weightIndex + " list=0x" + list.ToInt64().ToString("x")
+            + " weight=0x" + ptr.ToInt64().ToString("x"));
+    }
+
+    private static void ReadWeightIndex()
+    {
+        IntPtr h = ModuleBase();
+        IntPtr list = Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaWeightList));
+        IntPtr ptr = Marshal.ReadIntPtr(new IntPtr(h.ToInt64() + RvaWeight));
+        _outWeightIndex = (int)((ptr.ToInt64() - list.ToInt64()) / EvalWeightSize);
+        Log("  weightIndex=" + _outWeightIndex);
+    }
+
+    private static int FrameOf(int nowMs)
+    {
+        return (int)(nowMs * 0.06);
+    }
+
+    private static IntPtr ModuleBase()
+    {
+        return Marshal.GetHINSTANCE(_asm.ManifestModule);
+    }
+
+    // Raw write of the carried OffsetOffAI statics (native memory; managed
+    // reflection only sees the opaque `alignment member`). Offsets from
+    // SPEC_OffsetOffAI.md: ofsData{canWait@0,c4@4,atk@8,pc@12,near@13},
+    // gbData{atk@0,cool@4,rem@8,lockCount@12,firstInvalid@16}.
+    private static void ApplyOffsetStatics()
+    {
+        IntPtr h = ModuleBase();
+        Marshal.WriteByte(new IntPtr(h.ToInt64() + RvaUseOffsetOff), (byte)(_useOffsetOff != 0 ? 1 : 0));
+        IntPtr ofs = new IntPtr(h.ToInt64() + RvaOfsData);
+        Marshal.WriteByte(ofs, (byte)(_ofsCanWait != 0 ? 1 : 0));
+        Marshal.WriteInt32(new IntPtr(ofs.ToInt64() + 4), _ofsCenter4);
+        Marshal.WriteInt32(new IntPtr(ofs.ToInt64() + 8), _ofsAtk);
+        Marshal.WriteByte(new IntPtr(ofs.ToInt64() + 12), (byte)(_ofsPcChance != 0 ? 1 : 0));
+        Marshal.WriteByte(new IntPtr(ofs.ToInt64() + 13), (byte)(_ofsNearOffset != 0 ? 1 : 0));
+        IntPtr gb = new IntPtr(h.ToInt64() + RvaGbData);
+        Marshal.WriteInt32(gb, _gbOpponentsAtk);
+        Marshal.WriteInt32(new IntPtr(gb.ToInt64() + 4), _gbCoolTime);
+        Marshal.WriteInt32(new IntPtr(gb.ToInt64() + 8), _gbRemainingTime);
+        Marshal.WriteInt32(new IntPtr(gb.ToInt64() + 12), _gbOpponentsLockCount);
+        Marshal.WriteByte(new IntPtr(gb.ToInt64() + 16), (byte)(_gbFirstInvalidLock != 0 ? 1 : 0));
+    }
+
+    private static void ReadOffsetStatics()
+    {
+        IntPtr h = ModuleBase();
+        _outUseOffsetOff = Marshal.ReadByte(new IntPtr(h.ToInt64() + RvaUseOffsetOff));
+        IntPtr ofs = new IntPtr(h.ToInt64() + RvaOfsData);
+        _outOfsCanWait = Marshal.ReadByte(ofs);
+        _outOfsCenter4 = Marshal.ReadInt32(new IntPtr(ofs.ToInt64() + 4));
+        _outOfsAtk = Marshal.ReadInt32(new IntPtr(ofs.ToInt64() + 8));
+        _outOfsPcChance = Marshal.ReadByte(new IntPtr(ofs.ToInt64() + 12));
+        _outOfsNearOffset = Marshal.ReadByte(new IntPtr(ofs.ToInt64() + 13));
+        IntPtr gb = new IntPtr(h.ToInt64() + RvaGbData);
+        _outGbOpponentsAtk = Marshal.ReadInt32(gb);
+        _outGbCoolTime = Marshal.ReadInt32(new IntPtr(gb.ToInt64() + 4));
+        _outGbRemainingTime = Marshal.ReadInt32(new IntPtr(gb.ToInt64() + 8));
+        _outGbOpponentsLockCount = Marshal.ReadInt32(new IntPtr(gb.ToInt64() + 12));
+        _outGbFirstInvalidLock = Marshal.ReadByte(new IntPtr(gb.ToInt64() + 16));
+    }
+
+    private static void ResolveOffsetMethods()
+    {
+        if (_offsetMethodsResolved) return;
+        _offsetMethodsResolved = true;
+        _miUseOff = Resolve(0x060001d5, "OffsetOffAI.UseOffsetOff", 1);
+        _miCanOff = Resolve(0x060001d7, "OffsetOffAI.CanOffsetOff", 1);
+        _miDecOff = Resolve(0x060001d8, "OffsetOffAI.DecisionOffsetOff", 1);
+        _miResetAtk = Resolve(0x060001d9, "OffsetOffAI.ResetOpponentsAtk", 0);
+        _miCalcAtk = Resolve(0x060001da, "OffsetOffAI.CalcOpponentsAtk", 4);
+        _miGetAtk = Resolve(0x060001db, "OffsetOffAI.GetOpponentsAtk", 0);
+        _miSetPrev = Resolve(0x060001dc, "OffsetOffAI.SetPrevAct", 1);
+        _miLockOff = Resolve(0x060001dd, "OffsetOffAI.LockOffsetAfterClearing", 3);
+        _miOppNew = Resolve(0x060001de, "OffsetOffAI.OpponentIsNewLockDown", 1);
+        _miInvAtk = Resolve(0x060001df, "OffsetOffAI.InvalidateGettingEnemysAtk", 0);
+        _miIsLocked = Resolve(0x060001e0, "OffsetOffAI.IsLocked", 1);
+        _miFirstInvalid = Resolve(0x060001e1, "OffsetOffAI.IsFirstInvalidLockDown", 0);
+        if (_miUseOff == null || _miCanOff == null || _miDecOff == null || _miIsLocked == null)
+            throw new InvalidOperationException("OffsetOffAI methods missing");
+    }
+
+    private static bool CallBool(MethodInfo mi, params object[] args)
+    {
+        return Convert.ToBoolean(Invoke(mi, args), CultureInfo.InvariantCulture);
+    }
+
+    // Mirror of rust/hoiko-core/src/offset_driver.rs::sync with the binary primitives.
+    private static void SyncOffsetDriver()
+    {
+        int frame = FrameOf(_nowMs);
+        if (_hasLastOwn != 0 && _syncLockId < _lastOwnId)
+        {
+            Invoke(_miUseOff, _offsetEnabled != 0);
+            _hasLastOwn = 0;
+            _hasLastOpp = 0;
+        }
+        if (_hasLastOwn != 0 && _syncLockId != _lastOwnId)
+        {
+            Invoke(_miSetPrev, _syncLastAction);
+            Invoke(_miLockOff, frame, _syncLastAttack, _syncLockId);
+        }
+        _hasLastOwn = 1;
+        _lastOwnId = _syncLockId;
+        if (_syncHasOppLock != 0 && (_hasLastOpp == 0 || _syncOppLockId != _lastOppId))
+        {
+            if (CallBool(_miOppNew, _syncOppLockId)) Invoke(_miResetAtk);
+            if (_syncOppClearLines > 0 && CallInt(_miGetAtk) == 0)
+            {
+                if (!CallBool(_miFirstInvalid))
+                {
+                    if (!CallBool(_miIsLocked, frame))
+                    {
+                        Invoke(_miCalcAtk, _syncOppClearLines, _syncOppBtb > 0 ? 1 : 0,
+                            _syncOppBtb > 1 ? 1 : 0, _syncOppCombo);
+                    }
+                }
+                else
+                {
+                    Invoke(_miInvAtk);
+                }
+            }
+            _hasLastOpp = 1;
+            _lastOppId = _syncOppLockId;
+        }
+    }
+
+    private static void ApplyOffsetInput()
+    {
+        ResolveOffsetMethods();
+        if (_isEvenBoard >= 0) SetEvenBoard(_isEvenBoard != 0);
+        ApplyOffsetStatics();
+        if (_syncEnabled != 0) SyncOffsetDriver();
+        ReadOffsetStatics();
+        Log("[offset] in pendingGarbage=" + _pendingGarbage + " nowMs=" + _nowMs + " enabled=" + _offsetEnabled
+            + " sync=" + _syncEnabled + " lockId=" + _syncLockId + " lastAction=" + _syncLastAction
+            + " lastAttack=" + _syncLastAttack + " oppLock=" + _syncHasOppLock + "/" + _syncOppLockId
+            + " oppClear=" + _syncOppClearLines + " oppBtb=" + _syncOppBtb + " oppCombo=" + _syncOppCombo);
+        Log("  OFFSET pre use=" + _outUseOffsetOff + " canWait=" + _outOfsCanWait + " center4=" + _outOfsCenter4
+            + " atk=" + _outOfsAtk + " pc=" + _outOfsPcChance + " near=" + _outOfsNearOffset
+            + " gbAtk=" + _outGbOpponentsAtk + " gbCool=" + _outGbCoolTime + " gbRem=" + _outGbRemainingTime
+            + " gbLock=" + _outGbOpponentsLockCount + " gbFirst=" + _outGbFirstInvalidLock);
+    }
+
+    private static void RunOffsetDecision(IntPtr root)
+    {
+        ResolveOffsetMethods();
+        int frame = FrameOf(_nowMs);
+        if (_isEvenBoard >= 0) SetEvenBoard(_isEvenBoard != 0);
+        if (_offsetEnabled != 0) Invoke(_miDecOff, root);
+        int locked = CallBool(_miIsLocked, frame) ? 1 : 0;
+        int canWait = CallBool(_miCanOff, _pendingGarbage) ? 1 : 0;
+        _garbageWait = _offsetEnabled != 0 && locked == 0 && canWait != 0 ? 1 : 0;
+        ReadOffsetStatics();
+        Log("");
+        Log("=============== OFFSET RESULT ===============");
+        Log("  garbageWait=" + _garbageWait + " locked=" + locked + " canWait=" + canWait
+            + " pendingGarbage=" + _pendingGarbage + " frame=" + frame);
+        Log("  OFFSET post use=" + _outUseOffsetOff + " canWait=" + _outOfsCanWait + " center4=" + _outOfsCenter4
+            + " atk=" + _outOfsAtk + " pc=" + _outOfsPcChance + " near=" + _outOfsNearOffset
+            + " gbAtk=" + _outGbOpponentsAtk + " gbCool=" + _outGbCoolTime + " gbRem=" + _outGbRemainingTime
+            + " gbLock=" + _outGbOpponentsLockCount + " gbFirst=" + _outGbFirstInvalidLock
+            + " hasOwn=" + _hasLastOwn + " ownId=" + _lastOwnId
+            + " hasOpp=" + _hasLastOpp + " oppId=" + _lastOppId);
+        Log("  planacts=" + Marshal.ReadInt32(root, 904) + "," + Marshal.ReadInt32(root, 908) + "," + Marshal.ReadInt32(root, 912));
     }
 
     private static void LogOffsetState(string tag)

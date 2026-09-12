@@ -21,7 +21,7 @@
  * divergence-turn<N>.log (on the first divergent move) and REPORT.md.
  */
 
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko-faithful.js";
 import type { RustHoikoFighter, RustOut } from "../../../src/ai/hoiko-rust-core.js";
 import { kindToMino, MINO_NONE } from "../../../src/ai/mino-codes.js";
@@ -30,11 +30,16 @@ import type { CorePort, GameSnapshot } from "../../../src/ui/types.js";
 import { ROWS } from "../../../src/ui/types.js";
 import { seededRandom } from "../../../src/versus/controller.js";
 import { createRustHoiko } from "../../hoiko-rust/loader.js";
+import {
+  type ExeResult,
+  exeHoldUsed,
+  nativeRowsOf,
+  parseExe,
+  rGetDelay,
+  rowsEqual,
+  runExe,
+} from "./exe.js";
 
-const ORACLE_ROOT = Bun.env.HOIKO_ORACLE_ROOT ?? "/tmp/opencode/oracle";
-const ORACLE_RUN = Bun.env.HOIKO_ORACLE_RUN ?? `${ORACLE_ROOT}/run`;
-const ORACLE_PREFIX = Bun.env.HOIKO_ORACLE_PREFIX ?? `${ORACLE_ROOT}/prefix`;
-const ORACLE_SCRIPT = new URL("../run_oracle.sh", import.meta.url).pathname;
 const EVIDENCE_DIR = new URL("../../../evidence/hoiko-fullgame/", import.meta.url);
 
 const args = Bun.argv.slice(2);
@@ -49,160 +54,6 @@ if (!Number.isInteger(cap) || cap < 1)
   throw new Error(`--cap must be a positive integer, got ${cap}`);
 if (!Number.isInteger(seed)) throw new Error(`--seed must be an integer, got ${seed}`);
 const name = argValue("--name") ?? `seed${seed}-cap${cap}`;
-
-const CLEAR_DELAY: Readonly<Record<number, number>> = {
-  0: 0,
-  1: 36,
-  5: 36,
-  8: 36,
-  2: 41,
-  3: 41,
-  6: 41,
-  7: 41,
-  4: 46,
-  9: 1,
-};
-
-function rGetDelay(moveDelay: number, act: number): number {
-  return (CLEAR_DELAY[act] ?? 0) * 16 + moveDelay;
-}
-
-function childEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(Bun.env)) {
-    if (value !== undefined) env[key] = value;
-  }
-  env.HOIKO_ORACLE_ROOT = ORACLE_ROOT;
-  env.HOIKO_ORACLE_RUN = ORACLE_RUN;
-  env.HOIKO_ORACLE_PREFIX = ORACLE_PREFIX;
-  return env;
-}
-
-function runExe(input: string): {
-  readonly ok: boolean;
-  readonly text: string;
-  readonly wallMs: number;
-} {
-  writeFileSync(`${ORACLE_RUN}/oracle_input.txt`, input);
-  const logPath = `${ORACLE_RUN}/oracle_stdout.log`;
-  rmSync(logPath, { force: true });
-  const t0 = performance.now();
-  // Wine leaves grandchildren holding inherited pipes alive for seconds after
-  // Hoiko.exe exits; redirect to a file inside the shell so Bun's spawnSync
-  // returns as soon as bash exits (~0.3-1 s per query instead of ~5 s).
-  const proc = Bun.spawnSync(["bash", "-c", `bash '${ORACLE_SCRIPT}' > '${logPath}' 2>&1`], {
-    stdout: "ignore",
-    stderr: "ignore",
-    timeout: 180000,
-    env: childEnv(),
-  });
-  const wallMs = performance.now() - t0;
-  const text = readFileSync(logPath, "utf8");
-  return { ok: proc.exitCode === 0 && text.includes("ORACLE_OK"), text, wallMs };
-}
-
-function matchInt(text: string, re: RegExp): number | null {
-  const m = text.match(re);
-  if (m === null) return null;
-  const parsed = Number.parseInt(m[1] ?? "", 10);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-interface ExeResult {
-  readonly ok: boolean;
-  readonly x: number;
-  readonly y: number;
-  readonly rot: number;
-  readonly m: number;
-  readonly srs: number;
-  readonly act: number;
-  readonly moveDelay: number;
-  readonly getDelay: number;
-  readonly depth: number;
-  readonly beam: number;
-  readonly postHold: number;
-  readonly postCombo: number;
-  readonly postBtb: number;
-  readonly postAct: number;
-  readonly postFallM: number;
-  readonly postBoard: readonly number[];
-  readonly wallMs: number;
-}
-
-function parseBoardRows(hex: string): number[] {
-  const bytes = hex
-    .trim()
-    .split(/\s+/)
-    .map((b) => Number.parseInt(b, 16));
-  const rows: number[] = [];
-  for (let i = 0; i + 3 < bytes.length; i += 4) {
-    const b0 = bytes[i] ?? 0;
-    const b1 = bytes[i + 1] ?? 0;
-    const b2 = bytes[i + 2] ?? 0;
-    const b3 = bytes[i + 3] ?? 0;
-    rows.push(b0 | (b1 << 8) | (b2 << 16) | (b3 << 24) | 0);
-  }
-  return rows;
-}
-
-function parseExe(text: string, wallMs: number): ExeResult | null {
-  const move = text.match(/firstMove @\+?456:\s*x=(-?\d+)\s+y=(-?\d+)\s+rot=(-?\d+)\s+m=(-?\d+)/);
-  const post = text.match(
-    /postmove: hold=(-?\d+) combo=(-?\d+) btb=(-?\d+) act=(-?\d+) moveDelay=(-?\d+) fallX=(-?\d+) fallY=(-?\d+) fallRot=(-?\d+) fallM=(-?\d+)/,
-  );
-  const boardHex = text.match(/final board\s+@216\.\.344:\s*((?:[0-9a-f]{2}\s*)+)/);
-  if (move === null || post === null || boardHex === null) return null;
-  const x = Number.parseInt(move[1] ?? "", 10);
-  const y = Number.parseInt(move[2] ?? "", 10);
-  const rot = Number.parseInt(move[3] ?? "", 10);
-  const m = Number.parseInt(move[4] ?? "", 10);
-  if ([x, y, rot, m].some((v) => Number.isNaN(v))) return null;
-  return {
-    ok: true,
-    x,
-    y,
-    rot,
-    m,
-    srs: matchInt(text, /firstMoveSrs @\+?472\s*=\s*(-?\d+)/) ?? 0,
-    act: matchInt(text, /act\s+@\+?416\s*=\s*(-?\d+)/) ?? -1,
-    moveDelay: matchInt(text, /moveDelay @\+?400\s*=\s*(-?\d+)/) ?? -1,
-    getDelay: matchInt(text, /GetDelay\s*=\s*(-?\d+)/) ?? -1,
-    depth: matchInt(text, /depth\s+@\+?444\s*=\s*(-?\d+)/) ?? -1,
-    beam: matchInt(text, /beamLimit\s+@\+?452\s*=\s*(-?\d+)/) ?? -1,
-    postHold: Number.parseInt(post[1] ?? "", 10),
-    postCombo: Number.parseInt(post[2] ?? "", 10),
-    postBtb: Number.parseInt(post[3] ?? "", 10),
-    postAct: Number.parseInt(post[4] ?? "", 10),
-    postFallM: Number.parseInt(post[9] ?? "", 10),
-    postBoard: parseBoardRows(boardHex[1] ?? ""),
-    wallMs,
-  };
-}
-
-function nativeRowsOf(snap: GameSnapshot): number[] {
-  const rows: number[] = [];
-  for (let y = 0; y < snap.board.rows; y += 1) {
-    const src = snap.board.grid[snap.board.rows - 1 - y];
-    let bits = 0;
-    for (let x = 0; x < 10; x += 1) {
-      if ((src?.[x] ?? 0) !== 0) bits |= 1 << (9 - x);
-    }
-    rows.push(bits);
-  }
-  return rows;
-}
-
-function rowsEqual(a: readonly number[], b: readonly number[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-function exeHoldUsed(snap: GameSnapshot, exe: ExeResult): boolean {
-  const preHoldMino = snap.hold === null ? MINO_NONE : kindToMino(snap.hold);
-  const currentMino = snap.active === null ? MINO_NONE : kindToMino(snap.active.kind);
-  return exe.postHold !== preHoldMino || exe.m !== currentMino;
-}
 
 interface ApplyResult {
   readonly ok: boolean;

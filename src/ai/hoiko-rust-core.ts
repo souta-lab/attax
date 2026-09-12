@@ -67,6 +67,16 @@ function rGetDelay(moveDelay: number, act: number): number {
   return (CLEAR_DELAY[act] ?? 0) * 16 + moveDelay;
 }
 
+/** App `LockAction` -> native `ClearAct` code (mirrors the binary enum). */
+export function lockActionCode(action: LockAction): number {
+  return LOCK_ACTION_CODE[action] ?? 0;
+}
+
+/** Deterministic frame-clock step applied once per think (mirrors `search()`). */
+export function frameStepMs(framesPerThink: number): number {
+  return Math.round(framesPerThink / GAME_FRAMES_PER_MS);
+}
+
 interface WasmExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
   h_alloc: (size: number) => number;
@@ -307,7 +317,7 @@ export class RustHoikoEngine {
     w.i32(this.lastOppLockId);
     w.i32(1); // sync_enabled
     w.i32(sync.lockId);
-    w.i32(LOCK_ACTION_CODE[sync.lastAction] ?? 0);
+    w.i32(lockActionCode(sync.lastAction));
     w.i32(sync.lastAttack);
     w.i32(sync.opponentLockId === undefined ? 0 : 1);
     w.i32(sync.opponentLockId ?? 0);
@@ -436,7 +446,7 @@ export class RustHoikoEngine {
     this.lastOwnLockId = out.lastOwnLockId;
     this.hasLastOppLock = out.hasLastOppLock;
     this.lastOppLockId = out.lastOppLockId;
-    this.frameMs += Math.round(this.framesPerThink / GAME_FRAMES_PER_MS);
+    this.frameMs += frameStepMs(this.framesPerThink);
     return out;
   }
 
@@ -540,25 +550,27 @@ export function syncFromSnapshot(s: GameSnapshot): SyncFields {
   };
 }
 
-function moveFromOut(s: GameSnapshot, out: RustOut): AiMove | null {
+/** Faithful `placeAt` execution plan for a decided placement (shared with harnesses). */
+export function makePlaceAtMove(
+  s: GameSnapshot,
+  targetX: number,
+  targetRotation: number,
+  topRow: number,
+  lastSrs: number,
+): AiMove | null {
   const active = s.active;
   if (active === null) return null;
-  const rotation = ((out.firstRRaw % 4) + 4) % 4;
-  const garbageWait = out.garbageWait === 1;
-  if (out.useHold === 1) {
-    return { targetX: out.x, targetRotation: rotation, useHold: true, garbageWait };
-  }
-  const moveSteps = cosmeticSteps(active.rotation, active.posX, rotation, out.x);
+  const moveSteps = cosmeticSteps(active.rotation, active.posX, targetRotation, targetX);
   const placeStep = {
     kind: "placeAt",
-    rotation,
-    x: out.x,
-    topRow: ROWS - 1 - out.y,
-    lastSrs: out.lastSrs,
+    rotation: targetRotation,
+    x: targetX,
+    topRow,
+    lastSrs,
   } as const;
   const execution: AiExecutionPlan = {
-    targetX: out.x,
-    targetRotation: rotation,
+    targetX,
+    targetRotation,
     steps: [...moveSteps, placeStep],
     expectedBoard: [],
     expectedLinesCleared: 0,
@@ -569,7 +581,17 @@ function moveFromOut(s: GameSnapshot, out: RustOut): AiMove | null {
     sourceHold: s.hold,
     sourceCanHold: s.canHold,
   };
-  return { targetX: out.x, targetRotation: rotation, useHold: false, garbageWait, execution };
+  return { targetX, targetRotation, useHold: false, execution };
+}
+
+function moveFromOut(s: GameSnapshot, out: RustOut): AiMove | null {
+  const rotation = ((out.firstRRaw % 4) + 4) % 4;
+  const garbageWait = out.garbageWait === 1;
+  if (out.useHold === 1) {
+    return { targetX: out.x, targetRotation: rotation, useHold: true, garbageWait };
+  }
+  const base = makePlaceAtMove(s, out.x, rotation, ROWS - 1 - out.y, out.lastSrs);
+  return base === null ? null : { ...base, garbageWait };
 }
 
 export function makeRustHoiko(
