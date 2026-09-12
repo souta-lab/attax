@@ -192,6 +192,30 @@ the carried weight family, and all 15 OffsetAI state fields — natural runs see
 The earlier 32-0/80-0 were an APM artifact of the unfair step model (#24); the
 intermediate 21-11/25-7/27-5 were measured before the replica was exe-equivalent.
 
+## Configurable options
+
+The replica runs the shipping binary's config. Ported and exe-verified:
+
+| Option | Meaning | Verification |
+|---|---|---|
+| `playStyle` (`we/wo/wd/wr/ultra2/sprint`) | weight presets | oracle diff 9/9 |
+| `useOffsetOff` (相殺外し) | accept-garbage / timing offset | garbage differential |
+| `usePCstack` (infinite-PC) | PC-stack board estimate | 18/18 at `viewNext=2`, 8/8 at `viewNext=12` |
+| `useS4W` | Side-4-Wide resource bonus (binary `GetResource`) | 18/18 |
+| `beamSize` / `minDepth` / `takeOverTime` / `viewNext` / `useHold` | search / loop | matched |
+
+Raw evidence: `evidence/hoiko-config/{pcstack,s4w}/`.
+
+**Opening templates (`useTDOpeners` / `loopTemplate`) — HELD.** The opener logic is
+reconstructible from the IL, but the shipping exe crashes nondeterministically in the
+`OpSearch`/`useHold` path (its `ExpandAI` `expandedChild` table is a fixed 40×20 with no
+bounds check and overruns under Wine), so unpatched-exe equivalence cannot be measured.
+`useTDOpeners` also requires `viewNext>=5` (`ConfigAI.UseTDOpeners() = viewNext>=5 &&
+useHold && useTDOpeners`), so it is inert at the default `viewNext=2` and does not affect
+the default gate. The `TemplateAI` control plane is ported and exe-verified 25/25; the
+remaining `SearchTDOpeners` lambdas + `OpExpand*`/`OpSearch` are scoped with IL ranges in
+`evidence/hoiko-config/tdopeners/ASSESSMENT.md`.
+
 ## Strength vs search budget (fresh seeds)
 
 `bun scripts/strength-sweep.ts` runs v2 (Rust wasm) against Rust Hoiko over a fixed
