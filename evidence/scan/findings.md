@@ -200,15 +200,15 @@ Mode: **discovery only** — no source code was modified. This file is the only 
 
 (URLs recorded after creation; one well-scoped issue per root cause, highest severity first. Checked `gh issue list --state all` first; the only overlapping existing issue is #20 "Restore GitHub Actions", which covers billing restore, not the wasm-verification gap in F5.)
 
-1. F1 — fairness: step-count asymmetry in the match harness (bug)
-2. F2 — app vs gate garbage config mismatch (bug)
-3. F3 — `bun test` red/flaky timeouts (bug)
-4. F4 — T-spin/combo attack-table correctness (bug)
-5. F5 — CI never verifies checked-in wasm (bug)
-6. F6 — doc/reality drift and unsupported 80-0 claim (documentation)
-7. F7 — tests/scripts/tools not typechecked (enhancement)
-8. F8 — test suite is a mirror, not an oracle; coverage holes (enhancement)
-9. F9/F10 + dead code + duplication — repo hygiene/portability cluster (enhancement)
+1. F1 — fairness: step-count asymmetry in the match harness (bug) — https://github.com/souta-lab/deepseek-tetris/issues/24
+2. F2 — app vs gate garbage config mismatch (bug) — https://github.com/souta-lab/deepseek-tetris/issues/25
+3. F3 — `bun test` red/flaky timeouts (bug) — https://github.com/souta-lab/deepseek-tetris/issues/26
+4. F4 — T-spin/combo attack-table correctness (bug) — https://github.com/souta-lab/deepseek-tetris/issues/27
+5. F5 — CI never verifies checked-in wasm (bug) — https://github.com/souta-lab/deepseek-tetris/issues/28
+6. F6 — doc/reality drift and unsupported 80-0 claim (documentation) — https://github.com/souta-lab/deepseek-tetris/issues/29
+7. F7 — tests/scripts/tools not typechecked (enhancement) — https://github.com/souta-lab/deepseek-tetris/issues/30
+8. F8 — test suite is a mirror, not an oracle; coverage holes (enhancement) — https://github.com/souta-lab/deepseek-tetris/issues/31
+9. F9/F10 + dead code + duplication — repo hygiene/portability cluster (enhancement) — https://github.com/souta-lab/deepseek-tetris/issues/32
 
 ---
 
