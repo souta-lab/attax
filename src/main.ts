@@ -423,7 +423,8 @@ async function boot(): Promise<void> {
   if (root === null) throw new Error("missing #app");
   const shell = buildShell(root);
 
-  const hoiko = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
+  // Faithful shipping-binary opponent: beamSize 50 + derived cap 150 + SetNextOption adaptation.
+  const hoiko = createRustHoiko();
   const deepseek = await createDeepSeekFighter();
   const renderL: BoardRenderer = createBoardOnlyRenderer(shell.sideL.canvas, {
     holdCanvas: shell.sideL.holdCanvas,

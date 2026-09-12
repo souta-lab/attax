@@ -92,7 +92,12 @@ const list = only.length > 0 ? POSITIONS.filter((p) => only.includes(p.name)) : 
 
 let mismatches = 0;
 for (const p of list) {
-  const fighter = createRustHoiko({ weightPreset: "we", depthLimit: 10, offset: false });
+  const fighter = createRustHoiko({
+    weightPreset: "we",
+    depthLimit: 10,
+    offset: false,
+    adapt: false,
+  });
   const res = fighter.searchSnapshot(snapshotFrom(p));
   const o = runOracleTwo(p);
   const ru = res?.out;

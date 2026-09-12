@@ -12,7 +12,7 @@ function lcg(seed: number): () => number {
 }
 const seeds = [1, 7, 42];
 for (const seed of seeds) {
-  const ai = createRustHoiko({ weightPreset: "we", beamSizeLimit: 500 });
+  const ai = createRustHoiko();
   const core = createEngine({ random: lcg(seed) });
   const port = core as unknown as { hardDropAt(r: number, x: number): boolean };
   let n = 0;

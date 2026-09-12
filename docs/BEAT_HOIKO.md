@@ -127,6 +127,35 @@ width. Hoiko's engine decisions are unchanged; only the harness step accounting 
 wall-clock search budget are not modeled by the wasm oracle and remain unverified (see
 `evidence/scan/findings.md` F1/F6 and `tools/hoiko-oracle/diff/REPORT.md` §6).
 
+## Faithful in-match config: beam 150 + `SetNextOption` adaptation
+
+The gate/app used to override Hoiko to a fixed beam and disable adaptation. They now run
+the shipping binary's **in-match** config via a single source of truth,
+`src/ai/hoiko-faithful.ts` (`FAITHFUL_HOIKO`), used by the app and every harness:
+
+| Field | Value | Provenance |
+|---|---|---|
+| `weightPreset` | `we` | `config.txt` `playStyle 0` |
+| `maxBeamSize` | 50 | `config.txt` `beamSize 50` (was defaulted to 500) |
+| `beamSizeLimit` | 150 | `min(1500, threads*50*3)` initial cap |
+| `adapt` | true | binary `SetNextOption` time-budget beam adaptation |
+| `depthLimit` / `viewNext` | 14 / 2 | `config.txt` |
+
+`HOIKO_BEAM` (default 150) and `HOIKO_ADAPT=0` are the only overrides (stress/ablation and
+deterministic runs). Raw records: `evidence/hoiko-faithful/`.
+
+| Fighter | Hoiko config | Result | Hoiko lines / locks | Hoiko ms/decision |
+|---|---|---|---|---|
+| DeepSeek v2 | **faithful** (beam 150 + adapt) | **25-7-0/0** | 1182 / 2576 | 239.7 |
+| DeepSeek v2 | beam 150, adapt off | 22-10-0/0 | 943 / 2158 | 33.9 |
+| DeepSeek v2 | beam 1500, adapt off | 21-11-0/0 | 1092 / 2417 | 383.5 |
+
+DeepSeek v2 wins under every configuration, including the faithful one. **Caveat:**
+`SetNextOption` is driven by real elapsed search time, so the adaptive trajectory is
+wall-clock/machine dependent (on this machine it reproduced: two 4-seed probes and a full
+re-run agreed). The wasm engine also cannot model the binary's ~107 ms early-abort, so the
+adaptive path is not oracle-verified (`tools/hoiko-oracle/diff/REPORT.md` §6).
+
 ## Strength vs search budget (fresh seeds)
 
 `bun scripts/strength-sweep.ts` runs v2 (Rust wasm) against Rust Hoiko over a fixed

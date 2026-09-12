@@ -11,7 +11,10 @@
 //   HOIKO_SHARD_INDEX   shard index over the fixed corpus (default 0)
 //   HOIKO_SHARD_COUNT   shard count over the fixed corpus (default 1)
 //   HOIKO_MAX_TICKS     default 12000
+//   HOIKO_BEAM          beam cap override (default 150, the binary-derived value)
+//   HOIKO_ADAPT         0 disables SetNextOption adaptation (default 1)
 import { createDeepSeekTetris } from "../src/ai/deepseek.js";
+import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko-faithful.js";
 import type { HoikoPreset } from "../src/ai/hoiko-weights.js";
 import type { GameSnapshot } from "../src/ui/types.js";
 import {
@@ -244,6 +247,7 @@ function makeOurFighter(): VersusFighter {
 function main(): void {
   const preset = readPreset(process.env.HOIKO_PRESET);
   const ours = "deepseek";
+  const hoiko = resolveFaithfulHoikoOptions(process.env, preset);
   const override = process.env.HOIKO_SEEDS;
   const shardIndex = readInteger("HOIKO_SHARD_INDEX", process.env.HOIKO_SHARD_INDEX, 0);
   const shardCount = readInteger("HOIKO_SHARD_COUNT", process.env.HOIKO_SHARD_COUNT, 1);
@@ -267,17 +271,13 @@ function main(): void {
       seeds,
       maxTicks: MAX_TICKS,
       tickMs: TICK_MS,
-      hoiko: { width: 50, depth: 10, topK: 50, useHold: true, useKick: true },
+      hoiko,
     }),
   );
 
   const rows: Row[] = [];
   for (const seed of seeds) {
-    const row = runMatch(
-      seed,
-      makeOurFighter(),
-      createRustHoiko({ weightPreset: preset, beamSizeLimit: 500 }),
-    );
+    const row = runMatch(seed, makeOurFighter(), createRustHoiko(hoiko));
     rows.push(row);
     console.log(JSON.stringify({ type: "HOIKO-match", preset, ours, ...row }));
   }

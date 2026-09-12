@@ -3,9 +3,11 @@
 // fighter and allows ablation knobs via env:
 //   DSV2_DEPTH, DSV2_WIDTH, DSV2_TOP_K, DSV2_KICKS=0|1,
 //   DSV2_OPPONENT=0|1, DSV2_GARBAGE=0|1, DSV2_DOWNSTACK=0|1, DSV2_RUST=0|1,
-//   DSV2_BOOK=0|1
+//   DSV2_BOOK=0|1, HOIKO_BEAM (default 150), HOIKO_ADAPT=0|1 (default 1)
 // Emits JSONL records via stdout (HOIKO-config / HOIKO-match / HOIKO-summary).
 import { createDeepSeekV2, type DeepSeekV2Options } from "../src/ai/deepseek-v2.js";
+import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko-faithful.js";
+import type { RustHoikoEngine } from "../src/ai/hoiko-rust-core.js";
 import type { HoikoPreset } from "../src/ai/hoiko-weights.js";
 import type { GameSnapshot } from "../src/ui/types.js";
 import {
@@ -15,7 +17,7 @@ import {
   type VersusFighter,
 } from "../src/versus/controller.js";
 import { createRustDeepSeekV2 } from "../tools/deepseek-rust/loader.js";
-import { createRustHoiko } from "../tools/hoiko-rust/loader.js";
+import { createRustHoiko, type RustHoikoFighter } from "../tools/hoiko-rust/loader.js";
 
 const FIXED_SEEDS = [
   1, 5555, 13, 37, 61, 89, 7, 9001, 17, 41, 67, 97, 42, 2, 19, 43, 71, 99, 3, 23, 47, 73, 777, 5,
@@ -70,6 +72,7 @@ interface SideMetrics {
   readonly maxPending: number;
   readonly maxHeight: number;
   readonly holes: number;
+  readonly maxAdaptiveBeamSize: number;
   readonly executionSourceMismatches: number;
   readonly executionExpectedBoardFailures: number;
   readonly thinkMs: number;
@@ -115,6 +118,7 @@ interface MutableMetrics {
   maxPending: number;
   maxHeight: number;
   holes: number;
+  maxAdaptiveBeamSize: number;
   executionSourceMismatches: number;
   executionExpectedBoardFailures: number;
   thinkMs: number;
@@ -122,7 +126,7 @@ interface MutableMetrics {
   previousLines: number;
 }
 
-function sampleSide(side: SideState, metrics: MutableMetrics): void {
+function sampleSide(side: SideState, metrics: MutableMetrics, engine?: RustHoikoEngine): void {
   const snapshot = side.core.getSnapshot();
   metrics.lines = snapshot.lines;
   metrics.sent = side.sentTotal;
@@ -130,6 +134,12 @@ function sampleSide(side: SideState, metrics: MutableMetrics): void {
   metrics.maxPending = Math.max(metrics.maxPending, snapshot.pendingGarbage);
   metrics.maxHeight = Math.max(metrics.maxHeight, stackHeight(snapshot.board.grid));
   metrics.holes = Math.max(metrics.holes, countHoles(snapshot.board.grid));
+  if (engine !== undefined) {
+    metrics.maxAdaptiveBeamSize = Math.max(
+      metrics.maxAdaptiveBeamSize,
+      engine.searchState.maxBeamSize,
+    );
+  }
   metrics.executionSourceMismatches = side.executionSourceMismatches;
   metrics.executionExpectedBoardFailures = side.executionExpectedBoardFailures;
   metrics.thinkMs = side.thinkMs;
@@ -155,6 +165,7 @@ function finishMetrics(side: SideState, metrics: MutableMetrics): SideMetrics {
     maxPending: metrics.maxPending,
     maxHeight: metrics.maxHeight,
     holes: metrics.holes,
+    maxAdaptiveBeamSize: metrics.maxAdaptiveBeamSize,
     executionSourceMismatches: side.executionSourceMismatches,
     executionExpectedBoardFailures: side.executionExpectedBoardFailures,
     thinkMs: side.thinkMs,
@@ -162,7 +173,7 @@ function finishMetrics(side: SideState, metrics: MutableMetrics): SideMetrics {
   };
 }
 
-function runMatch(seed: number, ourFighter: VersusFighter, hoikoFighter: VersusFighter): Row {
+function runMatch(seed: number, ourFighter: VersusFighter, hoikoFighter: RustHoikoFighter): Row {
   const controller = createVersusController(ourFighter, hoikoFighter, seed);
   const left = freshMetrics();
   const right = freshMetrics();
@@ -171,7 +182,7 @@ function runMatch(seed: number, ourFighter: VersusFighter, hoikoFighter: VersusF
     controller.tick(TICK_MS, VERSUS_DEFAULTS);
     ticks += 1;
     sampleSide(controller.left, left);
-    sampleSide(controller.right, right);
+    sampleSide(controller.right, right, hoikoFighter.engine);
   }
   const result = controller.result;
   return {
@@ -195,6 +206,7 @@ function freshMetrics(): MutableMetrics {
     maxPending: 0,
     maxHeight: 0,
     holes: 0,
+    maxAdaptiveBeamSize: 0,
     executionSourceMismatches: 0,
     executionExpectedBoardFailures: 0,
     thinkMs: 0,
@@ -227,6 +239,7 @@ function sumSide(rows: readonly Row[], key: "left" | "right"): SideMetrics {
     total.maxPending += side.maxPending;
     total.maxHeight += side.maxHeight;
     total.holes += side.holes;
+    total.maxAdaptiveBeamSize += side.maxAdaptiveBeamSize;
     total.executionSourceMismatches += side.executionSourceMismatches;
     total.executionExpectedBoardFailures += side.executionExpectedBoardFailures;
     total.thinkMs += side.thinkMs;
@@ -241,6 +254,7 @@ function sumSide(rows: readonly Row[], key: "left" | "right"): SideMetrics {
     maxPending: total.maxPending,
     maxHeight: total.maxHeight,
     holes: total.holes,
+    maxAdaptiveBeamSize: total.maxAdaptiveBeamSize,
     executionSourceMismatches: total.executionSourceMismatches,
     executionExpectedBoardFailures: total.executionExpectedBoardFailures,
     thinkMs: total.thinkMs,
@@ -284,6 +298,7 @@ function main(): void {
   const preset = readPreset(process.env.HOIKO_PRESET);
   const ours = "deepseek-v2";
   const v2 = readV2Options();
+  const hoiko = resolveFaithfulHoikoOptions(process.env, preset);
   const override = process.env.HOIKO_SEEDS;
   const shardIndex = readInteger("HOIKO_SHARD_INDEX", process.env.HOIKO_SHARD_INDEX, 0);
   const shardCount = readInteger("HOIKO_SHARD_COUNT", process.env.HOIKO_SHARD_COUNT, 1);
@@ -309,18 +324,13 @@ function main(): void {
       tickMs: TICK_MS,
       engine: USE_RUST ? "rust-wasm" : "ts",
       v2,
-      hoiko: { width: 50, depth: 10, topK: 50, useHold: true, useKick: true },
+      hoiko,
     }),
   );
 
-  const beam = readInteger("HOIKO_BEAM", process.env.HOIKO_BEAM, 500);
   const rows: Row[] = [];
   for (const seed of seeds) {
-    const row = runMatch(
-      seed,
-      makeOurFighter(v2),
-      createRustHoiko({ weightPreset: preset, beamSizeLimit: beam }),
-    );
+    const row = runMatch(seed, makeOurFighter(v2), createRustHoiko(hoiko));
     rows.push(row);
     console.log(JSON.stringify({ type: "HOIKO-match", preset, ours, ...row }));
   }
@@ -335,6 +345,7 @@ function main(): void {
       maxTicks: MAX_TICKS,
       v2,
       engine: USE_RUST ? "rust-wasm" : "ts",
+      hoiko,
       aggregate: agg,
       fingerprint: fingerprint(rows),
       winLossCap: `${agg.leftWins}-${agg.rightWins}-${agg.draws}/${agg.caps}`,
@@ -346,6 +357,7 @@ function main(): void {
         left: agg.left.locks > 0 ? agg.left.sent / agg.left.locks : 0,
         right: agg.right.locks > 0 ? agg.right.sent / agg.right.locks : 0,
       },
+      adaptiveBeamMax: Math.max(0, ...rows.map((row) => row.right.maxAdaptiveBeamSize)),
     }),
   );
 }

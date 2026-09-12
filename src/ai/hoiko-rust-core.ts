@@ -24,10 +24,11 @@ import type {
 } from "../ui/types.js";
 import { ROWS } from "../ui/types.js";
 import type { VersusFighter } from "../versus/controller.js";
+import { FAITHFUL_HOIKO } from "./hoiko-faithful.js";
 import { type HoikoPreset, type HoikoWeights, hoikoWeightList } from "./hoiko-weights.js";
 import { kindToMino, MINO_NONE, type MinoType } from "./mino-codes.js";
 
-const HOIKO_DEFAULT_PRESET: HoikoPreset = "we";
+const HOIKO_DEFAULT_PRESET: HoikoPreset = FAITHFUL_HOIKO.weightPreset;
 
 /** Binary frame clock: `Memory.GetMatchFrames()` ~= wall ms * 0.06 (60 fps). */
 const GAME_FRAMES_PER_MS = 0.06;
@@ -157,10 +158,11 @@ export interface RawSearchRequest {
 }
 
 export interface RustHoikoOptions {
+  /** Binary-derived beam cap. Default 150 (`min(1500, threads*50*3)`). */
   readonly beamSizeLimit?: number | undefined;
-  /** Initial adaptive beam coefficient (`SetNextOption` maxBeamSize). Default 500. */
+  /** Initial adaptive beam coefficient (`SetNextOption` maxBeamSize). Default 50 (binary `beamSize:50`). */
   readonly maxBeamSize?: number | undefined;
-  /** Binary `SetNextOption` time-budget beam adaptation. Default false (deterministic). */
+  /** Binary `SetNextOption` time-budget beam adaptation. Default true (faithful); false pins the initial beam (deterministic). */
   readonly adapt?: boolean | undefined;
   readonly weightPreset?: HoikoPreset | undefined;
   readonly weights?: readonly HoikoWeights[] | undefined;
@@ -187,7 +189,7 @@ export class RustHoikoEngine {
 
   // --- carried SearchState (initial = defaultSearchState) ---
   private weightIndex = 0;
-  private maxBeamSize: number = 500;
+  private maxBeamSize: number = FAITHFUL_HOIKO.maxBeamSize;
   private beamSizeLimit: number;
   private timerLimitMs = 1000;
   // --- carried OffsetOffAI ---
@@ -225,16 +227,29 @@ export class RustHoikoEngine {
     this.inPtr = ex.h_alloc(this.inSize);
     this.outPtr = ex.h_alloc(this.outSize);
     this.weights = options.weights ?? hoikoWeightList(options.weightPreset ?? HOIKO_DEFAULT_PRESET);
-    this.beamSizeLimit = options.beamSizeLimit ?? 150;
-    this.maxBeamSize = options.maxBeamSize ?? 500;
-    this.depthLimit = options.depthLimit ?? 14;
-    this.viewNext = options.viewNext ?? 2;
+    this.beamSizeLimit = options.beamSizeLimit ?? FAITHFUL_HOIKO.beamSizeLimit;
+    this.maxBeamSize = options.maxBeamSize ?? FAITHFUL_HOIKO.maxBeamSize;
+    this.depthLimit = options.depthLimit ?? FAITHFUL_HOIKO.depthLimit;
+    this.viewNext = options.viewNext ?? FAITHFUL_HOIKO.viewNext;
     this.isEvenBoard = options.isEvenBoard ?? true;
     this.framesPerThink = options.framesPerThink ?? 20;
-    this.adapt = options.adapt ?? false;
+    this.adapt = options.adapt ?? FAITHFUL_HOIKO.adapt;
     const offset = options.offset ?? true;
     this.offsetEnabled = offset ? 1 : 0;
     this.useOffsetOff = offset ? 1 : 0;
+  }
+
+  /** Read-only view of the carried adaptive SearchState: parity guards + harness metrics. */
+  get searchState(): {
+    readonly maxBeamSize: number;
+    readonly beamSizeLimit: number;
+    readonly timerLimitMs: number;
+  } {
+    return {
+      maxBeamSize: this.maxBeamSize,
+      beamSizeLimit: this.beamSizeLimit,
+      timerLimitMs: this.timerLimitMs,
+    };
   }
 
   /** Fill `HSearchInput` in exact declaration order (see ffi/layout.rs). */

@@ -15,7 +15,8 @@ describe("fitness scenario API", () => {
         },
         rightFactory: () => {
           rightFactoryCalls += 1;
-          return createRustHoiko();
+          // Deterministic scenarios: no wall-clock beam adaptation.
+          return createRustHoiko({ adapt: false });
         },
       },
       seeds: [7, 1],

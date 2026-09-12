@@ -6,6 +6,7 @@
 // generation is spread across all CPU cores.
 
 import { createDeepSeekTetris } from "../../src/ai/deepseek.js";
+import { resolveFaithfulHoikoOptions } from "../../src/ai/hoiko-faithful.js";
 import { resolveGenome } from "../../src/tuner/genome.js";
 import type { EvalJob } from "../../src/tuner/job.js";
 import { type MatchOutcome, runTunerMatch } from "../../src/tuner/match.js";
@@ -33,7 +34,7 @@ function main(): void {
   const outcomes: MatchOutcome[] = [];
   for (const seed of job.seeds) {
     const ours = makeOurFighter(job);
-    const hoiko = createRustHoiko({ weightPreset: job.hoikoPreset, beamSizeLimit: 500 });
+    const hoiko = createRustHoiko(resolveFaithfulHoikoOptions(process.env, job.hoikoPreset));
     outcomes.push(runTunerMatch(seed, ours, hoiko, job.maxTicks));
   }
   process.stdout.write(JSON.stringify({ outcomes }));

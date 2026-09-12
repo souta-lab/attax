@@ -135,7 +135,12 @@ const depth = startTimer ? 14 : 10;
 
 let mismatches = 0;
 for (const p of list) {
-  const fighter = createRustHoiko({ weightPreset: "we", depthLimit: depth, offset: false });
+  const fighter = createRustHoiko({
+    weightPreset: "we",
+    depthLimit: depth,
+    offset: false,
+    adapt: false,
+  });
   const o = runOracle(p, startTimer);
   const t = runRust(fighter, p, depth);
   const moveMatch = o.ok && t !== null && o.x === t.x && o.rot === t.rot && o.m === t.m;
