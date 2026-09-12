@@ -1,0 +1,21 @@
+CANON x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 y=4 srs=0
+TRACE x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854
+TRACE_MATCH 1
+PRUNE depth=2 children=3586 cap=150 keep=150 cutoff=-257 atCutoff=1 keptAtCutoff=1 distinct=1331
+PRUNE depth=3 children=5826 cap=150 keep=150 cutoff=-229 atCutoff=1 keptAtCutoff=1 distinct=1510
+PRUNE depth=4 children=5250 cap=150 keep=150 cutoff=-86 atCutoff=2 keptAtCutoff=2 distinct=1614
+PRUNE depth=5 children=7778 cap=150 keep=150 cutoff=-59 atCutoff=6 keptAtCutoff=5 distinct=1455
+PRUNE depth=6 children=5440 cap=150 keep=150 cutoff=-61 atCutoff=7 keptAtCutoff=2 distinct=1157
+PRUNE depth=7 children=9238 cap=150 keep=150 cutoff=-49 atCutoff=4 keptAtCutoff=2 distinct=1347
+PRUNE depth=8 children=7231 cap=75 keep=75 cutoff=-33 atCutoff=6 keptAtCutoff=6 distinct=1166
+PRUNE depth=9 children=3448 cap=75 keep=75 cutoff=-44 atCutoff=5 keptAtCutoff=5 distinct=896
+PRUNE depth=10 children=3361 cap=75 keep=75 cutoff=-89 atCutoff=3 keptAtCutoff=3 distinct=1055
+PRUNE depth=11 children=2596 cap=75 keep=75 cutoff=22 atCutoff=3 keptAtCutoff=2 distinct=1012
+PRUNE depth=12 children=3455 cap=75 keep=75 cutoff=121 atCutoff=4 keptAtCutoff=4 distinct=1086
+PRUNE depth=13 children=3952 cap=75 keep=75 cutoff=165 atCutoff=2 keptAtCutoff=2 distinct=1177
+PATH 7:0:2:0,5:2:4:6,0:3:6:0,7:0:5:0,-1:1:4:0,3:0:3:0,2:0:1:0,2:0:6:0,3:1:5:0,5:2:4:6,7:0:3:0,6:1:1:0,1:0:2:0,4:1:0:4
+
+CANON x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 y=4 srs=0
+TRACE x=7 r=2 m=2 hold=0 score=79 depth=14 nodes=64174
+TRACE_MATCH 0
+PATH 7:2:2:0,4:3:4:0,0:3:6:0,4:1:0:4,7:0:4:0,3:3:5:0,1:1:1:0,0:3:6:0,7:1:5:0,3:0:3:0,5:2:4:6,6:1:1:0,8:3:2:0,3:0:3:0

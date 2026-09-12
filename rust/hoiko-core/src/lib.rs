@@ -20,6 +20,8 @@ pub mod nextmino;
 pub mod offset;
 pub mod offset_driver;
 pub mod probe;
+pub mod probe_eval;
+pub mod probe_trace;
 pub mod search;
 pub mod shapes;
 pub mod srs;

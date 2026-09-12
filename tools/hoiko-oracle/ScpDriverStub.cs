@@ -105,6 +105,10 @@ internal static class OracleHost
     // root, then follow `path=x:rot:m,...` through the chosen children.
     private static int _expandMode;
     private static string _expandPath = "";
+    // Eval-probe mode (`eval=1`): walk `path=` through ExpandAI.ExpandNode and
+    // call EvaluateAI.EvaluateFirst / EvaluateAI.Evaluate on every child,
+    // dumping the returned score/familyScore and every accessible sub-term.
+    private static int _evalMode;
     // Batch expand mode (`expand_multi=1`): expand every `board|next|hold|combo|b2b`
     // line of `positions_file` (default expand_positions.txt) in one process.
     private static int _expandMulti;
@@ -220,6 +224,15 @@ internal static class OracleHost
         {
             Log("[5] batch expand probe (SearchAI.Search skipped)");
             RunExpandMulti(miRootInit, miUpdateMaxHeight);
+            Marshal.FreeHGlobal(buf);
+            Marshal.FreeHGlobal(nx);
+            return true;
+        }
+
+        if (_evalMode != 0)
+        {
+            Log("[5] eval probe (SearchAI.Search skipped)");
+            RunEvalProbe(buf);
             Marshal.FreeHGlobal(buf);
             Marshal.FreeHGlobal(nx);
             return true;
@@ -396,6 +409,10 @@ internal static class OracleHost
             else if (key == "expand")
             {
                 _expandMode = int.Parse(val, CultureInfo.InvariantCulture);
+            }
+            else if (key == "eval")
+            {
+                _evalMode = int.Parse(val, CultureInfo.InvariantCulture);
             }
             else if (key == "path")
             {
@@ -827,6 +844,308 @@ internal static class OracleHost
         {
             if (q > 0) sb.Append(',');
             sb.Append(Marshal.ReadInt32(mPtr, q * 4));
+        }
+        Log(sb.ToString());
+    }
+
+    private sealed class EvalMethods
+    {
+        public MethodInfo Eval;
+        public MethodInfo EvalFirst;
+        public MethodInfo ColumnHeight;
+        public MethodInfo GetHeight;
+        public MethodInfo GetWell;
+        public MethodInfo UpDown;
+        public MethodInfo Ground;
+        public MethodInfo Under;
+        public MethodInfo Resource;
+        public MethodInfo Tsd;
+        public MethodInfo Tst;
+        public MethodInfo Pc;
+        public MethodInfo Cont;
+        public MethodInfo Action;
+    }
+
+    private static int CallInt(MethodInfo mi, params object[] args)
+    {
+        if (mi == null) return -999999;
+        return Convert.ToInt32(Invoke(mi, args), CultureInfo.InvariantCulture);
+    }
+
+    private static void RunEvalProbe(IntPtr root)
+    {
+        MethodInfo miExpand = Resolve(0x060001ea, "ExpandAI.ExpandNode", 3);
+        MethodInfo miTransition = Resolve(0x060001c9, "EvaluateAI.TransitionWeight", 1);
+        MethodInfo miSetTrust = Resolve(0x060001ac, "EvaluateAI.SetTrustRate", 1);
+        MethodInfo miViewNext = Resolve(0x0600010d, "NextMino.ViewNext", 0);
+        EvalMethods em = new EvalMethods();
+        em.Eval = Resolve(0x060001ad, "EvaluateAI.Evaluate", 3);
+        em.EvalFirst = Resolve(0x060001ae, "EvaluateAI.EvaluateFirst", 2);
+        em.ColumnHeight = Resolve(0x0600025c, "Board.GetColumnHeight", 2);
+        em.GetHeight = Resolve(0x060001af, "EvaluateAI.GetHeight", 2);
+        em.GetWell = Resolve(0x060001b0, "EvaluateAI.GetWellColumn", 5);
+        em.UpDown = Resolve(0x060001b1, "EvaluateAI.GetUpDown", 4);
+        em.Ground = Resolve(0x060001b2, "EvaluateAI.GetGround", 3);
+        em.Under = Resolve(0x060001b3, "EvaluateAI.GetUnderground", 3);
+        em.Resource = Resolve(0x060001b4, "EvaluateAI.GetResource", 3);
+        em.Tsd = Resolve(0x060001bb, "EvaluateAI.SearchTsd", 3);
+        em.Tst = Resolve(0x060001bc, "EvaluateAI.SearchTst", 4);
+        em.Pc = Resolve(0x060001b6, "EvaluateAI.SearchPcBoard", 2);
+        em.Cont = Resolve(0x060001c6, "EvaluateAI.GetContBonus", 1);
+        em.Action = Resolve(0x060001c7, "EvaluateAI.GetFinalAction", 1);
+
+        Log("");
+        Log("=============== EVAL PROBES ===============");
+        Log("[eval] expand=" + (miExpand != null) + " transition=" + (miTransition != null)
+            + " setTrust=" + (miSetTrust != null) + " eval=" + (em.Eval != null)
+            + " first=" + (em.EvalFirst != null) + " colH=" + (em.ColumnHeight != null)
+            + " height=" + (em.GetHeight != null) + " well=" + (em.GetWell != null)
+            + " updown=" + (em.UpDown != null) + " ground=" + (em.Ground != null)
+            + " under=" + (em.Under != null) + " res=" + (em.Resource != null)
+            + " tsd=" + (em.Tsd != null) + " tst=" + (em.Tst != null) + " pc=" + (em.Pc != null)
+            + " cont=" + (em.Cont != null) + " action=" + (em.Action != null));
+        if (miExpand == null || em.Eval == null || em.EvalFirst == null) return;
+
+        int viewNext = miViewNext != null ? Convert.ToInt32(Invoke(miViewNext), CultureInfo.InvariantCulture) : -1;
+        Log("[eval] NextMino.ViewNext = " + viewNext);
+        Invoke(miTransition, root);
+        IntPtr rootGame = new IntPtr(root.ToInt64() + 120);
+
+        int[][] path = ParseExpandPath();
+        IntPtr chPtr = Marshal.AllocHGlobal(40);
+        IntPtr wcPtr = Marshal.AllocHGlobal(4);
+        IntPtr wdPtr = Marshal.AllocHGlobal(4);
+        IntPtr scorePtr = Marshal.AllocHGlobal(4);
+        IntPtr fsPtr = Marshal.AllocHGlobal(4);
+        if (_evalMode == 2)
+        {
+            RunEvalBfs(rootGame, miExpand, miSetTrust, viewNext, em, chPtr, wcPtr, wdPtr, scorePtr, fsPtr);
+        }
+        else
+        {
+            RunEvalWalk(rootGame, miExpand, miSetTrust, viewNext, path, em, chPtr, wcPtr, wdPtr, scorePtr, fsPtr);
+        }
+        Marshal.FreeHGlobal(chPtr);
+        Marshal.FreeHGlobal(wcPtr);
+        Marshal.FreeHGlobal(wdPtr);
+        Marshal.FreeHGlobal(scorePtr);
+        Marshal.FreeHGlobal(fsPtr);
+    }
+
+    private static void RunEvalWalk(IntPtr rootGame, MethodInfo miExpand, MethodInfo miSetTrust,
+        int viewNext, int[][] path, EvalMethods em, IntPtr chPtr, IntPtr wcPtr, IntPtr wdPtr,
+        IntPtr scorePtr, IntPtr fsPtr)
+    {
+        IntPtr rootNext = Marshal.ReadIntPtr(rootGame, 0);
+        IntPtr bufA = Marshal.AllocHGlobal(NodeStride * NodeCap);
+        IntPtr bufB = Marshal.AllocHGlobal(NodeStride * NodeCap);
+        IntPtr countPtr = Marshal.AllocHGlobal(4);
+
+        IntPtr game = rootGame;
+        int gens = path.Length + 1;
+        for (int k = 0; k < gens; k++)
+        {
+            IntPtr outBuf = (k % 2 == 0) ? bufA : bufB;
+            Marshal.WriteInt32(countPtr, 0);
+            Invoke(miExpand, game, outBuf, countPtr);
+            int count = Marshal.ReadInt32(countPtr);
+            if (count < 0) count = 0;
+            if (count > NodeCap) count = NodeCap;
+            int depth = k + 1;
+            bool first = k == 0;
+            int trust = first ? 10 : (depth > viewNext + 2 ? 9 : 10);
+            if (!first) Invoke(miSetTrust, depth);
+            Log("GEN " + k + " depth=" + depth + " mode=" + (first ? "first" : "eval")
+                + " trust=" + trust + " count=" + count
+                + " curFallM=" + Marshal.ReadInt32(game, 44)
+                + " curHoldM=" + Marshal.ReadInt32(game, 16)
+                + " curCombo=" + Marshal.ReadInt32(game, 288)
+                + " curBtb=" + Marshal.ReadInt32(game, 292)
+                + " curStack=" + Marshal.ReadInt32(game, 224));
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr child = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                DumpEvalChild("E " + k + " " + i, child, first, rootNext, em, chPtr, wcPtr, wdPtr, scorePtr, fsPtr);
+            }
+            if (k >= path.Length) break;
+            int sel = -1;
+            int matches = 0;
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr child = new IntPtr(outBuf.ToInt64() + i * NodeStride);
+                if (Marshal.ReadInt32(child, 64) == path[k][0]
+                    && (Marshal.ReadInt32(child, 72) & 3) == path[k][1]
+                    && (path[k][2] < 0 || Marshal.ReadInt32(child, 76) == path[k][2])
+                    && (path[k][3] < 0 || Marshal.ReadInt32(child, 296) == path[k][3]))
+                {
+                    if (sel < 0) sel = i;
+                    matches++;
+                }
+            }
+            if (sel < 0)
+            {
+                Log("PATH " + k + " NOT_FOUND x=" + path[k][0] + " rot=" + path[k][1] + " m=" + path[k][2]);
+                break;
+            }
+            Log("PATH " + k + " sel=" + sel + " matches=" + matches + " x=" + path[k][0] + " rot=" + path[k][1] + " m=" + path[k][2]);
+            game = new IntPtr(outBuf.ToInt64() + sel * NodeStride);
+        }
+
+        Marshal.FreeHGlobal(countPtr);
+        Marshal.FreeHGlobal(bufA);
+        Marshal.FreeHGlobal(bufB);
+    }
+
+    private static void RunEvalBfs(IntPtr rootGame, MethodInfo miExpand, MethodInfo miSetTrust,
+        int viewNext, EvalMethods em, IntPtr chPtr, IntPtr wcPtr, IntPtr wdPtr, IntPtr scorePtr, IntPtr fsPtr)
+    {
+        IntPtr bufA = Marshal.AllocHGlobal(NodeStride * NodeCap);
+        IntPtr bufB = Marshal.AllocHGlobal(NodeStride * NodeCap);
+        IntPtr countPtr = Marshal.AllocHGlobal(4);
+        IntPtr rootNext = Marshal.ReadIntPtr(rootGame, 0);
+
+        Marshal.WriteInt32(countPtr, 0);
+        Invoke(miExpand, rootGame, bufA, countPtr);
+        int count1 = Marshal.ReadInt32(countPtr);
+        if (count1 < 0) count1 = 0;
+        if (count1 > NodeCap) count1 = NodeCap;
+        Log("GEN 0 depth=1 mode=first trust=10 count=" + count1
+            + " curFallM=" + Marshal.ReadInt32(rootGame, 44)
+            + " curHoldM=" + Marshal.ReadInt32(rootGame, 16)
+            + " curCombo=" + Marshal.ReadInt32(rootGame, 288)
+            + " curBtb=" + Marshal.ReadInt32(rootGame, 292)
+            + " curStack=" + Marshal.ReadInt32(rootGame, 224));
+        for (int i = 0; i < count1; i++)
+        {
+            IntPtr child = new IntPtr(bufA.ToInt64() + i * NodeStride);
+            DumpEvalChild("E 0 " + i, child, true, rootNext, em, chPtr, wcPtr, wdPtr, scorePtr, fsPtr);
+        }
+
+        int trust = 2 > viewNext + 2 ? 9 : 10;
+        Invoke(miSetTrust, 2);
+        for (int p = 0; p < count1; p++)
+        {
+            IntPtr parent = new IntPtr(bufA.ToInt64() + p * NodeStride);
+            Marshal.WriteInt32(countPtr, 0);
+            Invoke(miExpand, parent, bufB, countPtr);
+            int count2 = Marshal.ReadInt32(countPtr);
+            if (count2 < 0) count2 = 0;
+            if (count2 > NodeCap) count2 = NodeCap;
+            Log("B " + p + " depth=2 trust=" + trust + " count=" + count2
+                + " curFallM=" + Marshal.ReadInt32(parent, 44)
+                + " curHoldM=" + Marshal.ReadInt32(parent, 16)
+                + " curCombo=" + Marshal.ReadInt32(parent, 288)
+                + " curBtb=" + Marshal.ReadInt32(parent, 292)
+                + " curStack=" + Marshal.ReadInt32(parent, 224));
+            for (int i = 0; i < count2; i++)
+            {
+                IntPtr child = new IntPtr(bufB.ToInt64() + i * NodeStride);
+                DumpEvalChild("EB " + p + " " + i, child, false, rootNext, em, chPtr, wcPtr, wdPtr, scorePtr, fsPtr);
+            }
+        }
+
+        Marshal.FreeHGlobal(countPtr);
+        Marshal.FreeHGlobal(bufA);
+        Marshal.FreeHGlobal(bufB);
+    }
+
+    private static void DumpEvalChild(string label, IntPtr child, bool first, IntPtr rootNext,
+        EvalMethods em, IntPtr chPtr, IntPtr wcPtr, IntPtr wdPtr, IntPtr scorePtr, IntPtr fsPtr)
+    {
+        int score;
+        int fscore;
+        Marshal.WriteInt32(fsPtr, 0);
+        if (first)
+        {
+            Invoke(em.EvalFirst, child, fsPtr);
+            fscore = Marshal.ReadInt32(fsPtr);
+            score = fscore;
+        }
+        else
+        {
+            Marshal.WriteInt32(scorePtr, 0);
+            Invoke(em.Eval, child, scorePtr, fsPtr);
+            score = Marshal.ReadInt32(scorePtr);
+            fscore = Marshal.ReadInt32(fsPtr);
+        }
+
+        for (int c = 0; c < 10; c++) Marshal.WriteInt32(chPtr, c * 4, -1);
+        int minH = CallInt(em.ColumnHeight, new IntPtr(child.ToInt64() + 96), chPtr);
+        int height = CallInt(em.GetHeight, child, chPtr);
+        Marshal.WriteInt32(wcPtr, -1);
+        Marshal.WriteInt32(wdPtr, 0);
+        int well = CallInt(em.GetWell, child, chPtr, minH, wcPtr, wdPtr);
+        int wellCol = Marshal.ReadInt32(wcPtr);
+        int wellDepth = Marshal.ReadInt32(wdPtr);
+        int updown = CallInt(em.UpDown, child, chPtr, wellCol, wellDepth);
+        int under = CallInt(em.Under, child, chPtr, minH);
+        int y0 = wellDepth + minH;
+        int ground = CallInt(em.Ground, child, chPtr, y0);
+        int res = CallInt(em.Resource, child, chPtr, minH);
+        int tsd = CallInt(em.Tsd, child, chPtr, y0);
+        int tst = CallInt(em.Tst, child, chPtr, y0, minH);
+        int pc = CallInt(em.Pc, child, minH);
+        int cont = CallInt(em.Cont, child);
+        int action = CallInt(em.Action, child);
+        int board = height + well + updown + under + ground + res + tsd + tst + pc + cont;
+
+        IntPtr nextPtr = Marshal.ReadIntPtr(child, 0);
+        IntPtr trustPtr = Marshal.ReadIntPtr(child, 8);
+        long baseRel = (nextPtr.ToInt64() - rootNext.ToInt64()) / 4L;
+        long win = (trustPtr.ToInt64() - nextPtr.ToInt64()) / 4L;
+
+        StringBuilder sb = new StringBuilder(640);
+        sb.Append(label);
+        sb.Append(" hold=0 x=").Append(Marshal.ReadInt32(child, 64));
+        sb.Append(" y=").Append(Marshal.ReadInt32(child, 68));
+        sb.Append(" rot=").Append(Marshal.ReadInt32(child, 72) & 3);
+        sb.Append(" m=").Append(Marshal.ReadInt32(child, 76));
+        sb.Append(" act=").Append(Marshal.ReadInt32(child, 296));
+        sb.Append(" delay=").Append(Marshal.ReadInt32(child, 280));
+        sb.Append(" combo=").Append(Marshal.ReadInt32(child, 288));
+        sb.Append(" btb=").Append(Marshal.ReadInt32(child, 292));
+        sb.Append(" stack=").Append(Marshal.ReadInt32(child, 224));
+        sb.Append(" nextBase=").Append(baseRel);
+        sb.Append(" trustEnd=").Append(baseRel + win);
+        sb.Append(" win=").Append(win);
+        sb.Append(" fall=").Append(Marshal.ReadInt32(child, 32)).Append(',')
+            .Append(Marshal.ReadInt32(child, 36)).Append(',')
+            .Append(Marshal.ReadInt32(child, 40)).Append(',')
+            .Append(Marshal.ReadInt32(child, 44)).Append(',')
+            .Append(Marshal.ReadInt32(child, 48));
+        sb.Append(" lock=").Append(Marshal.ReadInt32(child, 64)).Append(',')
+            .Append(Marshal.ReadInt32(child, 68)).Append(',')
+            .Append(Marshal.ReadInt32(child, 72)).Append(',')
+            .Append(Marshal.ReadInt32(child, 76)).Append(',')
+            .Append(Marshal.ReadInt32(child, 80));
+        sb.Append(" | ch=");
+        for (int c = 0; c < 10; c++)
+        {
+            if (c > 0) sb.Append(',');
+            sb.Append(Marshal.ReadInt32(chPtr, c * 4));
+        }
+        sb.Append(" | minH=").Append(minH);
+        sb.Append(" height=").Append(height);
+        sb.Append(" well=").Append(well);
+        sb.Append(" wellCol=").Append(wellCol);
+        sb.Append(" wellDepth=").Append(wellDepth);
+        sb.Append(" updown=").Append(updown);
+        sb.Append(" under=").Append(under);
+        sb.Append(" ground=").Append(ground);
+        sb.Append(" res=").Append(res);
+        sb.Append(" tsd=").Append(tsd);
+        sb.Append(" tst=").Append(tst);
+        sb.Append(" pc=").Append(pc);
+        sb.Append(" cont=").Append(cont);
+        sb.Append(" action=").Append(action);
+        sb.Append(" board=").Append(board);
+        sb.Append(" fscore=").Append(fscore);
+        sb.Append(" score=").Append(score);
+        sb.Append(" rows=");
+        for (int r = 0; r < 32; r++)
+        {
+            if (r > 0) sb.Append(',');
+            sb.Append(Marshal.ReadInt32(child, 96 + r * 4));
         }
         Log(sb.ToString());
     }

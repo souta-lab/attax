@@ -1,0 +1,1588 @@
+{
+  "experiment": "E4 EvaluateAI.Evaluate/EvaluateFirst differential",
+  "turn": 183,
+  "snapshot": {
+    "board": [
+      1015,
+      1015,
+      995,
+      960,
+      448,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "current": 2,
+    "next": [
+      2,
+      0,
+      1,
+      5,
+      6,
+      5,
+      2,
+      0,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7
+    ],
+    "hold": 4,
+    "combo": 0,
+    "btb": 24
+  },
+  "exeSearch": {
+    "nodeCount": 64174,
+    "depth": 14,
+    "plan": [
+      {
+        "index": 0,
+        "isBreak": false,
+        "x": 7,
+        "rot": 2,
+        "m": 2,
+        "act": 0
+      },
+      {
+        "index": 1,
+        "isBreak": false,
+        "x": 4,
+        "rot": 3,
+        "m": 4,
+        "act": 0
+      },
+      {
+        "index": 2,
+        "isBreak": false,
+        "x": 0,
+        "rot": 3,
+        "m": 6,
+        "act": 0
+      },
+      {
+        "index": 3,
+        "isBreak": false,
+        "x": 4,
+        "rot": 1,
+        "m": 0,
+        "act": 4
+      },
+      {
+        "index": 4,
+        "isBreak": true,
+        "x": 7,
+        "rot": 0,
+        "m": 7,
+        "act": -1
+      },
+      {
+        "index": 5,
+        "isBreak": false,
+        "x": 3,
+        "rot": 3,
+        "m": 5,
+        "act": 0
+      },
+      {
+        "index": 6,
+        "isBreak": false,
+        "x": 1,
+        "rot": 1,
+        "m": 1,
+        "act": 0
+      },
+      {
+        "index": 7,
+        "isBreak": false,
+        "x": 0,
+        "rot": 3,
+        "m": 6,
+        "act": 0
+      },
+      {
+        "index": 8,
+        "isBreak": false,
+        "x": 7,
+        "rot": 1,
+        "m": 5,
+        "act": 0
+      },
+      {
+        "index": 9,
+        "isBreak": false,
+        "x": 3,
+        "rot": 0,
+        "m": 3,
+        "act": 0
+      },
+      {
+        "index": 10,
+        "isBreak": false,
+        "x": 5,
+        "rot": 2,
+        "m": 4,
+        "act": 6
+      },
+      {
+        "index": 11,
+        "isBreak": false,
+        "x": 6,
+        "rot": 1,
+        "m": 1,
+        "act": 0
+      },
+      {
+        "index": 12,
+        "isBreak": false,
+        "x": 8,
+        "rot": 3,
+        "m": 2,
+        "act": 0
+      },
+      {
+        "index": 13,
+        "isBreak": false,
+        "x": 3,
+        "rot": 0,
+        "m": 3,
+        "act": 0
+      }
+    ],
+    "path": [
+      "7:2:2:0",
+      "4:3:4:0",
+      "0:3:6:0",
+      "4:1:0:4",
+      "7:0:-1:-1",
+      "3:3:5:0",
+      "1:1:1:0",
+      "0:3:6:0",
+      "7:1:5:0",
+      "3:0:3:0",
+      "5:2:4:6",
+      "6:1:1:0",
+      "8:3:2:0",
+      "3:0:3:0"
+    ]
+  },
+  "replicaTrace": {
+    "canon": "x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 y=4 srs=0",
+    "trace": "x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854",
+    "traceMatch": "1",
+    "path": [
+      "7:0:2:0",
+      "5:2:4:6",
+      "0:3:6:0",
+      "7:0:5:0",
+      "-1:1:4:0",
+      "3:0:3:0",
+      "2:0:1:0",
+      "2:0:6:0",
+      "3:1:5:0",
+      "5:2:4:6",
+      "7:0:3:0",
+      "6:1:1:0",
+      "1:0:2:0",
+      "4:1:0:4"
+    ]
+  },
+  "h3Test": {
+    "stdTrace": "x=7 r=2 m=2 hold=0 score=79 depth=14 nodes=64174",
+    "stdPath": [
+      "7:2:2:0",
+      "4:3:4:0",
+      "0:3:6:0",
+      "4:1:0:4",
+      "7:0:4:0",
+      "3:3:5:0",
+      "1:1:1:0",
+      "0:3:6:0",
+      "7:1:5:0",
+      "3:0:3:0",
+      "5:2:4:6",
+      "6:1:1:0",
+      "8:3:2:0",
+      "3:0:3:0"
+    ],
+    "moveReproduced": true,
+    "nodesReproduced": true,
+    "stdNodes": 64174,
+    "pathPliesReproduced": 14,
+    "pathPliesTotal": 14,
+    "pathDiffs": [],
+    "pruneLines": [
+      "PRUNE depth=2 children=3586 cap=150 keep=150 cutoff=-257 atCutoff=1 keptAtCutoff=1 distinct=1331",
+      "PRUNE depth=3 children=5826 cap=150 keep=150 cutoff=-229 atCutoff=1 keptAtCutoff=1 distinct=1510",
+      "PRUNE depth=4 children=5250 cap=150 keep=150 cutoff=-86 atCutoff=2 keptAtCutoff=2 distinct=1614",
+      "PRUNE depth=5 children=7778 cap=150 keep=150 cutoff=-59 atCutoff=6 keptAtCutoff=5 distinct=1455",
+      "PRUNE depth=6 children=5440 cap=150 keep=150 cutoff=-61 atCutoff=7 keptAtCutoff=2 distinct=1157",
+      "PRUNE depth=7 children=9238 cap=150 keep=150 cutoff=-49 atCutoff=4 keptAtCutoff=2 distinct=1347",
+      "PRUNE depth=8 children=7231 cap=75 keep=75 cutoff=-33 atCutoff=6 keptAtCutoff=6 distinct=1166",
+      "PRUNE depth=9 children=3448 cap=75 keep=75 cutoff=-44 atCutoff=5 keptAtCutoff=5 distinct=896",
+      "PRUNE depth=10 children=3361 cap=75 keep=75 cutoff=-89 atCutoff=3 keptAtCutoff=3 distinct=1055",
+      "PRUNE depth=11 children=2596 cap=75 keep=75 cutoff=22 atCutoff=3 keptAtCutoff=2 distinct=1012",
+      "PRUNE depth=12 children=3455 cap=75 keep=75 cutoff=121 atCutoff=4 keptAtCutoff=4 distinct=1086",
+      "PRUNE depth=13 children=3952 cap=75 keep=75 cutoff=165 atCutoff=2 keptAtCutoff=2 distinct=1177"
+    ]
+  },
+  "exePathRun": {
+    "tag": "exe-path",
+    "exeNodes": 594,
+    "repNodes": 594,
+    "evalMismatchContainers": [],
+    "stateMismatchContainers": [],
+    "firstEvalDiff": null,
+    "firstStateDiff": null,
+    "containers": [
+      {
+        "label": "GEN 0",
+        "depth": 1,
+        "trust": 10,
+        "count": 68,
+        "cur": {
+          "curFallM": 2,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 1",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 2",
+        "depth": 3,
+        "trust": 10,
+        "count": 34,
+        "cur": {
+          "curFallM": 6,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 3",
+        "depth": 4,
+        "trust": 10,
+        "count": 34,
+        "cur": {
+          "curFallM": 5,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "GEN 4",
+        "depth": 5,
+        "trust": 9,
+        "count": 51,
+        "cur": {
+          "curFallM": 4,
+          "curHoldM": 5,
+          "curCombo": 1,
+          "curBtb": 25,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "GEN 5",
+        "depth": 6,
+        "trust": 9,
+        "count": 26,
+        "cur": {
+          "curFallM": 3,
+          "curHoldM": 5,
+          "curCombo": -1,
+          "curBtb": 25,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "GEN 6",
+        "depth": 7,
+        "trust": 9,
+        "count": 43,
+        "cur": {
+          "curFallM": 1,
+          "curHoldM": 3,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "GEN 7",
+        "depth": 8,
+        "trust": 9,
+        "count": 26,
+        "cur": {
+          "curFallM": 6,
+          "curHoldM": 3,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 3
+        }
+      },
+      {
+        "label": "GEN 8",
+        "depth": 9,
+        "trust": 9,
+        "count": 26,
+        "cur": {
+          "curFallM": 5,
+          "curHoldM": 3,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 9",
+        "depth": 10,
+        "trust": 9,
+        "count": 43,
+        "cur": {
+          "curFallM": 4,
+          "curHoldM": 3,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 10",
+        "depth": 11,
+        "trust": 9,
+        "count": 46,
+        "cur": {
+          "curFallM": 3,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 11",
+        "depth": 12,
+        "trust": 9,
+        "count": 43,
+        "cur": {
+          "curFallM": 1,
+          "curHoldM": 3,
+          "curCombo": 1,
+          "curBtb": 26,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "GEN 12",
+        "depth": 13,
+        "trust": 9,
+        "count": 43,
+        "cur": {
+          "curFallM": 2,
+          "curHoldM": 3,
+          "curCombo": -1,
+          "curBtb": 26,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "GEN 13",
+        "depth": 14,
+        "trust": 9,
+        "count": 26,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 3,
+          "curCombo": 0,
+          "curBtb": 26,
+          "curStack": 3
+        }
+      },
+      {
+        "label": "GEN 14",
+        "depth": 15,
+        "trust": 9,
+        "count": 34,
+        "cur": {
+          "curFallM": 6,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 26,
+          "curStack": 3
+        }
+      }
+    ]
+  },
+  "replicaPathRun": {
+    "tag": "replica-path",
+    "exeNodes": 619,
+    "repNodes": 619,
+    "evalMismatchContainers": [],
+    "stateMismatchContainers": [],
+    "firstEvalDiff": null,
+    "firstStateDiff": null,
+    "containers": [
+      {
+        "label": "GEN 0",
+        "depth": 1,
+        "trust": 10,
+        "count": 68,
+        "cur": {
+          "curFallM": 2,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 1",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 2",
+        "depth": 3,
+        "trust": 10,
+        "count": 34,
+        "cur": {
+          "curFallM": 6,
+          "curHoldM": 0,
+          "curCombo": 1,
+          "curBtb": 25,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "GEN 3",
+        "depth": 4,
+        "trust": 10,
+        "count": 34,
+        "cur": {
+          "curFallM": 5,
+          "curHoldM": 0,
+          "curCombo": -1,
+          "curBtb": 25,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 4",
+        "depth": 5,
+        "trust": 9,
+        "count": 51,
+        "cur": {
+          "curFallM": 4,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 5",
+        "depth": 6,
+        "trust": 9,
+        "count": 26,
+        "cur": {
+          "curFallM": 3,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "GEN 6",
+        "depth": 7,
+        "trust": 9,
+        "count": 51,
+        "cur": {
+          "curFallM": 1,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "GEN 7",
+        "depth": 8,
+        "trust": 9,
+        "count": 34,
+        "cur": {
+          "curFallM": 6,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "GEN 8",
+        "depth": 9,
+        "trust": 9,
+        "count": 34,
+        "cur": {
+          "curFallM": 5,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "GEN 9",
+        "depth": 10,
+        "trust": 9,
+        "count": 54,
+        "cur": {
+          "curFallM": 4,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 25,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "GEN 10",
+        "depth": 11,
+        "trust": 9,
+        "count": 26,
+        "cur": {
+          "curFallM": 3,
+          "curHoldM": 0,
+          "curCombo": 1,
+          "curBtb": 26,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 11",
+        "depth": 12,
+        "trust": 9,
+        "count": 51,
+        "cur": {
+          "curFallM": 1,
+          "curHoldM": 0,
+          "curCombo": -1,
+          "curBtb": 26,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 12",
+        "depth": 13,
+        "trust": 9,
+        "count": 51,
+        "cur": {
+          "curFallM": 2,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 26,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "GEN 13",
+        "depth": 14,
+        "trust": 9,
+        "count": 17,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 0,
+          "curCombo": 0,
+          "curBtb": 26,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "GEN 14",
+        "depth": 15,
+        "trust": 9,
+        "count": 34,
+        "cur": {
+          "curFallM": 6,
+          "curHoldM": 0,
+          "curCombo": 1,
+          "curBtb": 27,
+          "curStack": 1
+        }
+      }
+    ]
+  },
+  "bfsRun": {
+    "tag": "bfs-depth2",
+    "exeNodes": 3654,
+    "repNodes": 3654,
+    "evalMismatchContainers": [],
+    "stateMismatchContainers": [],
+    "firstEvalDiff": null,
+    "firstStateDiff": null,
+    "containers": [
+      {
+        "label": "E0",
+        "depth": 1,
+        "trust": 10,
+        "count": 68,
+        "cur": {
+          "curFallM": 2,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 0",
+        "depth": 2,
+        "trust": 10,
+        "count": 60,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 1",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 2",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 3",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 4",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 5",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 1,
+          "curBtb": 0,
+          "curStack": 3
+        }
+      },
+      {
+        "label": "B 6",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 7",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 8",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 9",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 10",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 11",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 12",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 13",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 14",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 15",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 16",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 17",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 18",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 19",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 20",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 21",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 22",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 1,
+          "curBtb": 0,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "B 23",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 24",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 25",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 26",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 27",
+        "depth": 2,
+        "trust": 10,
+        "count": 53,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 28",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 29",
+        "depth": 2,
+        "trust": 10,
+        "count": 61,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 30",
+        "depth": 2,
+        "trust": 10,
+        "count": 60,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 31",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 32",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 33",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 4,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 34",
+        "depth": 2,
+        "trust": 10,
+        "count": 60,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 35",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 36",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 37",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 38",
+        "depth": 2,
+        "trust": 10,
+        "count": 52,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 39",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 1,
+          "curBtb": 0,
+          "curStack": 3
+        }
+      },
+      {
+        "label": "B 40",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 41",
+        "depth": 2,
+        "trust": 10,
+        "count": 52,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 42",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 43",
+        "depth": 2,
+        "trust": 10,
+        "count": 53,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 44",
+        "depth": 2,
+        "trust": 10,
+        "count": 52,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 45",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 46",
+        "depth": 2,
+        "trust": 10,
+        "count": 55,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 47",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 48",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 1,
+          "curBtb": 0,
+          "curStack": 3
+        }
+      },
+      {
+        "label": "B 49",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 50",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 51",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 52",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 53",
+        "depth": 2,
+        "trust": 10,
+        "count": 53,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 7
+        }
+      },
+      {
+        "label": "B 54",
+        "depth": 2,
+        "trust": 10,
+        "count": 53,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 55",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 56",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 1,
+          "curBtb": 0,
+          "curStack": 3
+        }
+      },
+      {
+        "label": "B 57",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 58",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 59",
+        "depth": 2,
+        "trust": 10,
+        "count": 53,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 60",
+        "depth": 2,
+        "trust": 10,
+        "count": 53,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 61",
+        "depth": 2,
+        "trust": 10,
+        "count": 52,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 62",
+        "depth": 2,
+        "trust": 10,
+        "count": 57,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 6
+        }
+      },
+      {
+        "label": "B 63",
+        "depth": 2,
+        "trust": 10,
+        "count": 58,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 5
+        }
+      },
+      {
+        "label": "B 64",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 65",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 1,
+          "curBtb": 0,
+          "curStack": 2
+        }
+      },
+      {
+        "label": "B 66",
+        "depth": 2,
+        "trust": 10,
+        "count": 51,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      },
+      {
+        "label": "B 67",
+        "depth": 2,
+        "trust": 10,
+        "count": 54,
+        "cur": {
+          "curFallM": 0,
+          "curHoldM": 2,
+          "curCombo": 0,
+          "curBtb": 24,
+          "curStack": 4
+        }
+      }
+    ]
+  }
+}
