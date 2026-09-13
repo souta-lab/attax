@@ -2,7 +2,7 @@
 //! (SPEC_EvaluateAI §2): GetHeight, GetWellColumn, GetUpDown, GetUnderground,
 //! GetGround, GetResource.
 
-use crate::board::{log2, popcount, Board, FULL_ROW};
+use crate::board::{log2, popcount, Board, BOARD_HEIGHT, FULL_ROW};
 use crate::gamepack::GamePack;
 use crate::weight_index::{
     column_at, combo_at, weight_at, WI_ANABARA, WI_BAD_ROOF, WI_COVER, WI_DONATE_COVER, WI_MAX_HEIGHT,
@@ -60,17 +60,18 @@ pub fn get_well_column(
     if column == -1 {
         return WellColumn { score: 0, well_column: -1, well_depth: 0 };
     }
+    let start = ((garbage_height + 2).max(0) as usize).min(BOARD_HEIGHT);
     let mut depth = 1;
-    for y in (garbage_height + 2).max(0)..32 {
-        if board.row_at(y) != line {
+    for &row in &board.line[start..] {
+        if row != line {
             break;
         }
         depth += 1;
     }
     let mut hint = 1;
     let mask = (1280 >> column) & FULL_ROW;
-    for y in (garbage_height + 2).max(0)..32 {
-        if (board.row_at(y) & mask) != mask {
+    for &row in &board.line[start..] {
+        if (row & mask) != mask {
             break;
         }
         hint += 1;
@@ -126,7 +127,8 @@ pub fn get_underground(
     }
     let mut y = garbage_height - 1;
     while y >= 0 {
-        bit = board.row_at(y) ^ FULL_ROW;
+        let neg = board.row_at(y) ^ FULL_ROW;
+        bit = neg;
         if (bit & !prev_bit) != 0 {
             let mut x = bit & -bit;
             if (bit & !x) == 0 {
@@ -144,7 +146,7 @@ pub fn get_underground(
                 }
             }
         }
-        prev_bit = board.row_at(y) ^ FULL_ROW;
+        prev_bit = neg;
         y -= 1;
     }
     donate_cover * w(ew, WI_DONATE_COVER) + cover * w(ew, WI_COVER)
@@ -297,7 +299,8 @@ pub fn get_ground(g: &GamePack, ch: &[i32; 10], y0: i32, ew: &HoikoWeights) -> i
     if y > y0 {
         let mut count = y - y0;
         loop {
-            let mut empty = !bd.row_at(y) & cover;
+            let row = bd.row_at(y);
+            let mut empty = !row & cover;
             let mut row_max = 0;
             while empty != 0 {
                 let x = log2(empty & -empty);
@@ -322,7 +325,7 @@ pub fn get_ground(g: &GamePack, ch: &[i32; 10], y0: i32, ew: &HoikoWeights) -> i
                 empty &= !(512 >> x);
             }
             pierce += row_max;
-            cover |= bd.row_at(y);
+            cover |= row;
             y -= 1;
             count -= 1;
             if count == 0 {

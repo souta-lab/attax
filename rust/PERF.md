@@ -146,3 +146,122 @@ boards).
 - **No behavioral drift**: a 150-position random differential across the
   original, pre-pass and post-pass wasm produced identical
   `(x, y, rotation, hold, score, node)` on every position (0 mismatches).
+
+---
+
+# Third pass — branchy primitives → masks, and node-layout slimming
+
+Goal: same zero-drift engine, faster again. Measurement is pinned and repeated
+because wall-clock alone is noisy (`load ≈ 2-3`):
+
+- Native: `BENCH_REPS=300 taskset -c 2 cargo run --release -p hoiko-core --example bench_search`
+  (env var added; default stays 30), hardware counters with
+  `perf stat -r 3 -e cycles,instructions,branches` and the same 300 reps.
+- Wasm: `bun rust/bench_wasm.mjs 100` (new Bun bench, 5 warmup calls, median +
+  trimmed mean; it writes `HSearchInput` in declaration order, mirroring
+  `bench_search`). `HOIKO_WASM=<path>` selects the artifact.
+- All builds report exactly **71 624 nodes/move** before and after.
+
+## Results
+
+Native (depth-14, empty board, 71 624 nodes):
+
+| | before | after | Δ |
+|---|---|---|---|
+| ms/move (300 reps, pinned, perf `-r 3`) | 30.7–30.9 | 28.1–28.4 | **−8 %** |
+| cycles/search | 116.52 M | 106.92 M | **−8.2 %** |
+| instructions/search | 237.29 M | 214.11 M | **−9.8 %** |
+| branches/search | 39.68 M | 35.17 M | **−11.4 %** |
+| nodes/s | ~2.32 M | ~2.52 M | +8.8 % |
+
+Wasm (`bun bench_wasm.mjs 100`, warmup, pinned):
+
+| | median ms/move | trim-mean | nodes/s | artifact |
+|---|---|---|---|---|
+| before (raw cargo wasm) | 38.3–38.9 | 38.2–38.9 | ~1.83–1.86 M | 86 878 B |
+| after (engine only) | 36.0–36.1 | 36.0–36.1 | ~1.98 M | 84 704 B |
+| **after + `wasm-opt -O4`** | **35.6–35.9** | **35.5–35.8** | ~2.00 M | **71 921 B** |
+
+That is ≈**−7.4 %** wasm wall time and **−17 %** artifact size; the engine alone
+accounts for ≈−6.6 % of the wall time, `wasm-opt -O4` for the last ≈0.8 % plus
+the size win (see `build.sh`, which applies it when binaryen is installed).
+
+## What changed
+
+1. **`board.rs` — collision tests on per-row masks.** `hit_at` (used by
+   `collision_bottom/left/right`) and `hit_at_cols_in_board` (used by
+   `collision_board`/SRS spins) iterated the four cells, doing a column bounds
+   check and a per-cell shift each. They now shift the shape's precomputed
+   `row_mask` once per local row: right-shift drops cells right of the board,
+   left-shift puts cells left of it above bit 9 (where `line` is always clear).
+   `collision_distance` builds its footprint the same way. New pinning test
+   `row_mask_collision_and_lock_match_reference` (20 k random boards × pieces)
+   compares all four collision queries and `lock_mino` against the original
+   per-cell loops.
+2. **`board.rs` — `lock_mino` on row masks.** The same shift trick replaces the
+   per-cell write loop (out-of-range cells are dropped or masked with
+   `FULL_ROW`, so no bit above column 9 is ever written).
+3. **`search.rs` — gen-1 origin record.** Every node's first-move identity
+   (`first_x/r/m/hold/act/delay/y/last_srs` + the 136-byte `FirstMoveState`
+   board) came from its gen-1 ancestor but was copied onto every node. It is now
+   one `Origin` record per gen-1 child, referenced by a `u32` index.
+4. **`search.rs` — plan by parent index.** The 68-byte `Acts` chain was copied
+   onto every child (71 k/move) even though only beam survivors need it.
+   `NodeState` now stores `(parent, act)`; survivor plans are rebuilt at
+   selection time (150/gen) and the winner's plan is `plans[parent] + act`.
+   `NodeState` shrank from ≈517 B to ≈276 B, cutting the `children` vector
+   traffic roughly in half.
+5. **`baby.rs`/`expand*.rs` — `NextCursor` instead of `Rc` in `Baby`.** All
+   babies of an expansion share the same `NextMino`; carrying an `Rc` in each
+   `Baby` meant an inc/dec pair on every one of the ~5 clones per baby in
+   `expand_base_node`/`expand_derive_node`. `Baby` now stores a `Copy`
+   `{base, trust_end}` cursor; the iterator (with its `Rc`) is materialised once
+   per child in `regist_child_node` (and once for the hold pass).
+6. **`expand.rs` — packed dedup key.** `delete_same_node` compared four board
+   rows + `act` per bucket entry; the bucket now stores a `u64` packing exactly
+   those five fields, so a scan is one comparison (same first-match, same
+   `move_delay` replacement rule).
+7. **`mino.rs` — `add_commands` uses one `copy_from_slice`** instead of a
+   bounds-checked `push` per command byte.
+8. **`board.rs` — `get_column_height_zeroed`** iterates `line[..=stack_height]`
+   with a slice iterator (removes the per-row bound check).
+9. **`evaluate/terms.rs` — hoisted row reads** in `get_well_column` (slice
+   loops), `get_underground` (one row read per row), `get_ground` (one row read
+   per row).
+10. **`build.sh` — `wasm-opt -O4` post-processing** when binaryen is present
+    (with a raw-copy fallback), plus a rustup-toolchain fallback for distro
+    rustc builds whose wasm32 `std` is from a different compiler build (E0514).
+
+## Tried and reverted (measured, did not help)
+
+- `Shape.occ` occupied-row list in `collision_distance` (+2.7 % instructions):
+  the fixed four-row loop unrolls better than a variable-length list.
+- Local row hoists in `search_tsd` / `search_tst` (neutral to +0.5 %):
+  LLVM already CSEs the `row_at` calls.
+- Parallel `scores: Vec<i32>` for `std_partial_sort` (+1.1 % cycles): the extra
+  pass over `children` cost more than the better comparison locality saved.
+- Building `expand_template_node`'s `Baby` field-by-field to skip
+  `Baby::default()` zeroing (neutral).
+- Routing `collision_board` through the general `hit_at` (neutral; the
+  columns-bounded variant is kept).
+- `#[inline(always)]` on `row_at` (kept: neutral in wall clock, tiny
+  instruction win, removes out-of-line calls).
+
+## Verification (all after the final build)
+
+- `cargo test --manifest-path rust/Cargo.toml` → **hoiko-core 60 passed**
+  (incl. the new row-mask/lock differential), deepseek green.
+- `bench_search` → exactly **71 624 nodes/move**, depth 14.
+- Oracle (`bun tools/hoiko-oracle/diff/...`): `diff.ts` **9/9** (depth 10),
+  `diff.ts --timer` **9/9** (depth 14), `twosearch.ts` **9/9**,
+  `eval.ts` **no eval mismatch** (partial_sort emulation reproduces the exe
+  move + node count), `nextcarry.ts --ts-only` matches.
+- `fullgame.ts --cap=500 --seed=1` → **500/500 moves**, `actMismatches=0`,
+  `stateMismatches=0`.
+- `expand.ts`'s synthetic H1/H2 fuzz still shows its pre-existing pos-8
+  `tall#2` mismatch; verified identical on a clean-baseline rebuild, so it is
+  not a regression (the E3 turn-183 child-set differential passes).
+- `bunx tsc --noEmit`, `bun test` (**124 passed**), `bun run lint`,
+  `bun run build` all green; `rust/verify.mjs` primitives unchanged; FFI
+  `size_of` unchanged.
+

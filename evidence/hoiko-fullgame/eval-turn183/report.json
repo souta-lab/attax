@@ -206,9 +206,9 @@
     ]
   },
   "replicaTrace": {
-    "canon": "x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 y=4 srs=0",
+    "canon": "x=7 r=2 m=2 hold=0 score=79 depth=14 nodes=64174 y=4 srs=0",
     "trace": "x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854",
-    "traceMatch": "1",
+    "traceMatch": "0",
     "path": [
       "7:0:2:0",
       "5:2:4:6",

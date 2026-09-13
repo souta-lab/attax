@@ -1,6 +1,6 @@
-CANON x=3 r=1 m=0 hold=0 score=42 depth=14 nodes=64282 y=3 srs=0
+CANON x=7 r=1 m=0 hold=0 score=42 depth=14 nodes=64393 y=4 srs=0
 TRACE x=3 r=1 m=0 hold=0 score=42 depth=14 nodes=64282
-TRACE_MATCH 1
+TRACE_MATCH 0
 PRUNE depth=2 children=896 cap=150 keep=150 cutoff=-708 atCutoff=2 keptAtCutoff=1 distinct=653
 PRUNE depth=3 children=5820 cap=150 keep=150 cutoff=-728 atCutoff=6 keptAtCutoff=6 distinct=1643
 PRUNE depth=4 children=5357 cap=150 keep=150 cutoff=-761 atCutoff=4 keptAtCutoff=2 distinct=1440
@@ -13,9 +13,33 @@ PRUNE depth=10 children=3640 cap=75 keep=75 cutoff=-416 atCutoff=2 keptAtCutoff=
 PRUNE depth=11 children=2862 cap=75 keep=75 cutoff=-429 atCutoff=8 keptAtCutoff=4 distinct=736
 PRUNE depth=12 children=4447 cap=75 keep=75 cutoff=-429 atCutoff=2 keptAtCutoff=2 distinct=974
 PRUNE depth=13 children=4948 cap=75 keep=75 cutoff=-457 atCutoff=3 keptAtCutoff=1 distinct=952
+TERM idx=113 score=42 max=1 x=3 r=1 m=0 act=0 hold=0
+TERM idx=164 score=42 max=1 x=7 r=1 m=0 act=0 hold=0
+TERM idx=827 score=-23 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=853 score=-23 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=1501 score=-49 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=1552 score=-49 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=1807 score=-49 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=1834 score=-49 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=1964 score=-55 max=0 x=3 r=3 m=0 act=0 hold=0
+TERM idx=2015 score=-55 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=2881 score=-57 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=2932 score=-57 max=0 x=7 r=1 m=0 act=0 hold=0
 PATH 3:1:0:0,7:1:0:0,6:1:6:0,5:1:1:0,2:3:5:0,5:0:3:0,5:2:2:0,7:1:6:0,3:2:4:6,6:1:5:0,0:0:3:0,-1:1:1:0,2:3:2:0,3:3:0:4
 
-CANON x=3 r=1 m=0 hold=0 score=42 depth=14 nodes=64282 y=3 srs=0
+CANON x=7 r=1 m=0 hold=0 score=42 depth=14 nodes=64393 y=4 srs=0
 TRACE x=7 r=1 m=0 hold=0 score=42 depth=14 nodes=64393
-TRACE_MATCH 0
+TRACE_MATCH 1
+TERM idx=113 score=42 max=1 x=7 r=1 m=0 act=0 hold=0
+TERM idx=164 score=42 max=1 x=3 r=1 m=0 act=0 hold=0
+TERM idx=623 score=-23 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=751 score=-23 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=1246 score=-49 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=1348 score=-49 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=1603 score=-49 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=1630 score=-49 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=1760 score=-55 max=0 x=7 r=1 m=0 act=0 hold=0
+TERM idx=1811 score=-55 max=0 x=3 r=3 m=0 act=0 hold=0
+TERM idx=2371 score=-57 max=0 x=3 r=1 m=0 act=0 hold=0
+TERM idx=1399 score=-58 max=0 x=7 r=1 m=0 act=0 hold=0
 PATH 7:1:0:0,3:1:0:0,6:1:6:0,5:1:1:0,2:3:5:0,5:0:3:0,5:2:2:0,7:1:6:0,3:2:4:6,6:1:5:0,0:0:3:0,-1:1:1:0,2:3:2:0,3:3:0:4

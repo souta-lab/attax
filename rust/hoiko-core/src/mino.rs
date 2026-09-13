@@ -144,9 +144,11 @@ impl Command {
     }
 
     pub fn add_commands(&mut self, cmds: &str) {
-        for ch in cmds.bytes() {
-            self.push(ch);
-        }
+        let bytes = cmds.as_bytes();
+        let n = bytes.len().min(COMMAND_CAP - self.len as usize);
+        let end = self.len as usize + n;
+        self.s[self.len as usize..end].copy_from_slice(&bytes[..n]);
+        self.len = end as u8;
     }
 
     pub fn is_first_hold(&self) -> bool {

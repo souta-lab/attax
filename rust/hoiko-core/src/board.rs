@@ -62,7 +62,7 @@ impl Board {
     }
 
     /// `Board.rowAt` — out-of-range rows read as 0 (JS typed-array semantics).
-    #[inline]
+    #[inline(always)]
     pub fn row_at(&self, y: i32) -> i32 {
         if (y as u32) < BOARD_HEIGHT as u32 { self.line[y as usize] } else { 0 }
     }
@@ -84,17 +84,26 @@ impl Board {
     }
 
     /// General hit test: caller has *not* established column bounds, so test
-    /// both coordinates. `base = 9 - x` factors the per-cell bit shift.
+    /// both coordinates. `row_mask` folds the per-cell shifts into one mask per
+    /// local row; cells whose column falls outside `0..10` vanish from the
+    /// shifted mask (bits above 9 are never set in `line`).
     #[inline]
     fn hit_at(&self, sh: &Shape, x: i32, y: i32) -> i32 {
-        let base = 9 - x;
-        for cell in sh.cells() {
-            let col = x + cell.x;
-            let row = y - cell.y;
-            if (col as u32) >= BOARD_WIDTH as u32 || (row as u32) >= BOARD_HEIGHT as u32 {
+        // All shape cells span columns `x..=x+3` (every native cell has
+        // `cell.x` in `0..=3`), so these are the only x that can hit.
+        if x < -3 || x > 9 {
+            return 0;
+        }
+        let right = x >= 0;
+        let shift = if right { x } else { -x };
+        for cy in 0..4usize {
+            let base = sh.row_mask[cy];
+            if base == 0 {
                 continue;
             }
-            if (self.line[row as usize] & (1 << (base - cell.x))) != 0 {
+            let m = if right { base >> shift } else { base << shift };
+            let row = y - cy as i32;
+            if (row as u32) < BOARD_HEIGHT as u32 && (self.line[row as usize] & m) != 0 {
                 return 1;
             }
         }
@@ -105,13 +114,16 @@ impl Board {
     /// lowest cell is not below the floor, so only `row < 32` remains to check.
     #[inline]
     fn hit_at_cols_in_board(&self, sh: &Shape, x: i32, y: i32) -> i32 {
-        let base = 9 - x;
-        for cell in sh.cells() {
-            let row = y - cell.y;
-            if (row as u32) >= BOARD_HEIGHT as u32 {
+        let right = x >= 0;
+        let shift = if right { x } else { -x };
+        for cy in 0..4usize {
+            let base = sh.row_mask[cy];
+            if base == 0 {
                 continue;
             }
-            if (self.line[row as usize] & (1 << (base - cell.x))) != 0 {
+            let m = if right { base >> shift } else { base << shift };
+            let row = y - cy as i32;
+            if (row as u32) < BOARD_HEIGHT as u32 && (self.line[row as usize] & m) != 0 {
                 return 1;
             }
         }
@@ -161,11 +173,18 @@ impl Board {
     /// `Board.CollisionDistance` — rows the piece can still fall.
     pub fn collision_distance(&self, mino: &FallMino) -> i32 {
         let sh = shape_for(mino.m, mino.r);
+        // The reference builds the footprint by skipping out-of-range columns;
+        // shifting each row mask by `x` reproduces it (underflow drops cells
+        // right of the board, overflow lands above bit 9 where `line` is clear).
         let mut masks = [0i32; 4];
-        for cell in sh.cells() {
-            let col = mino.x + cell.x;
-            if (col as u32) < BOARD_WIDTH as u32 {
-                masks[cell.y as usize] |= 1 << (9 - col);
+        if (0..32).contains(&mino.x) {
+            for (mask, &row_mask) in masks.iter_mut().zip(sh.row_mask.iter()) {
+                *mask = row_mask >> mino.x;
+            }
+        } else if mino.x < 0 && mino.x >= -31 {
+            let s = -mino.x;
+            for (mask, &row_mask) in masks.iter_mut().zip(sh.row_mask.iter()) {
+                *mask = row_mask << s;
             }
         }
         let limit = mino.y.min(self.stack_height + 40) + 4;
@@ -283,13 +302,31 @@ impl Board {
         if mino.y - sh.max_y > 19 {
             return -1;
         }
-        for cell in sh.cells() {
-            let row = mino.y - cell.y;
-            let col = mino.x + cell.x;
-            if row < 0 || row >= BOARD_HEIGHT as i32 || col < 0 || col >= BOARD_WIDTH as i32 {
-                continue;
+        // Per-row masks: right-shift drops cells right of the board, left-shift
+        // puts cells left of it above bit 9 where the `FULL_ROW` mask clears them.
+        if (0..32).contains(&mino.x) {
+            for cy in 0..4usize {
+                let m = sh.row_mask[cy] >> mino.x;
+                if m == 0 {
+                    continue;
+                }
+                let row = mino.y - cy as i32;
+                if (row as u32) < BOARD_HEIGHT as u32 {
+                    self.line[row as usize] |= m;
+                }
             }
-            self.line[row as usize] |= 1 << (9 - col);
+        } else if mino.x < 0 && mino.x >= -31 {
+            let s = -mino.x;
+            for cy in 0..4usize {
+                let m = (sh.row_mask[cy] << s) & FULL_ROW;
+                if m == 0 {
+                    continue;
+                }
+                let row = mino.y - cy as i32;
+                if (row as u32) < BOARD_HEIGHT as u32 {
+                    self.line[row as usize] |= m;
+                }
+            }
         }
         let mut cleared = 0;
         for k in (0..4).rev() {
@@ -567,6 +604,79 @@ mod tests {
         f.m = MINO_I;
         f.y = 20;
         assert_eq!(b.collision_distance(&f), 19);
+    }
+
+    /// The row-mask collision/lock paths must match the original per-cell loops
+    /// on every random board/piece (including out-of-range columns and rows).
+    #[test]
+    fn row_mask_collision_and_lock_match_reference() {
+        fn ref_hit(b: &Board, mino: &FallMino, x: i32, y: i32) -> i32 {
+            for cell in shape_for(mino.m, mino.r).cells() {
+                let col = x + cell.x;
+                let row = y - cell.y;
+                if (col as u32) >= BOARD_WIDTH as u32 || (row as u32) >= BOARD_HEIGHT as u32 {
+                    continue;
+                }
+                if (b.line[row as usize] & (1 << (9 - col))) != 0 {
+                    return 1;
+                }
+            }
+            0
+        }
+        fn ref_lock(mut b: Board, mino: &FallMino) -> Board {
+            for cell in shape_for(mino.m, mino.r).cells() {
+                let row = mino.y - cell.y;
+                let col = mino.x + cell.x;
+                if row < 0 || row >= BOARD_HEIGHT as i32 || col < 0 || col >= BOARD_WIDTH as i32 {
+                    continue;
+                }
+                b.line[row as usize] |= 1 << (9 - col);
+            }
+            b
+        }
+        let mut seed = 0xfeed_beefu32;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for _ in 0..20_000 {
+            let mut b = Board::default();
+            for y in 0..32 {
+                b.line[y] = (rnd() & 0x3ff) as i32;
+            }
+            b.update_max_height();
+            let mut f = FallMino::default();
+            f.m = (rnd() % 7) as i32;
+            f.r = (rnd() % 8) as i32 - 1;
+            f.x = (rnd() % 22) as i32 - 6;
+            f.y = (rnd() % 36) as i32 - 3;
+
+            let sh = shape_for(f.m, f.r);
+            let expect_left =
+                if f.x + sh.min_x < 1 { 1 } else { ref_hit(&b, &f, f.x - 1, f.y) };
+            let expect_right =
+                if f.x + sh.max_x >= BOARD_WIDTH as i32 - 1 { 1 } else { ref_hit(&b, &f, f.x + 1, f.y) };
+            let expect_bottom =
+                if f.y - sh.max_y < 1 { 1 } else { ref_hit(&b, &f, f.x, f.y - 1) };
+            assert_eq!(b.collision_left(&f), expect_left);
+            assert_eq!(b.collision_right(&f), expect_right);
+            assert_eq!(b.collision_bottom(&f), expect_bottom);
+
+            let board_ok = f.x + sh.min_x >= 0
+                && f.x + sh.max_x < BOARD_WIDTH as i32
+                && f.y - sh.max_y >= 0;
+            let expect_board = if board_ok { ref_hit(&b, &f, f.x, f.y) } else { 1 };
+            assert_eq!(b.collision_board(&f), expect_board);
+
+            let mut locked = b;
+            let cleared = locked.lock_mino(&f);
+            let reference = ref_lock(b, &f);
+            if cleared != -1 {
+                assert_eq!(locked.line, reference.line, "m={} r={} x={} y={}", f.m, f.r, f.x, f.y);
+            }
+        }
     }
 
     /// Turn-196 (seed 1) witness: the exe's search arena holds a locked T at

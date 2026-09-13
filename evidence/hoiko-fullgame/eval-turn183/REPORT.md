@@ -6,7 +6,7 @@ Every compared node's `score`, `familyScore` and all sub-terms are **identical**
 Running the exe's exact `std::partial_sort` beam policy (transcribed from IL 16239/16367/16455/16509) on the replica's identical evaluation scores reproduces the exe **exactly**: move x=7 rot=2 m=2, nodeCount=64174, and 14/14 plan plies. Leaf evaluation is not the divergence; beam tie-breaking is (H3).
 
 Exe search: nodeCount=64174, depth=14, plan=14 plies.
-Replica trace (replica policy): x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 (TRACE_MATCH acc. to replica's own comparator = 1).
+Replica trace (replica policy): x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 (TRACE_MATCH acc. to replica's own comparator = 0).
 Replica trace (exe std::partial_sort policy): x=7 r=2 m=2 hold=0 score=79 depth=14 nodes=64174.
 
 Exe plan: `7:2:2:0,4:3:4:0,0:3:6:0,4:1:0:4,7:0:-1:-1,3:3:5:0,1:1:1:0,0:3:6:0,7:1:5:0,3:0:3:0,5:2:4:6,6:1:1:0,8:3:2:0,3:0:3:0`
@@ -38,9 +38,9 @@ std::partial_sort plan: `7:2:2:0,4:3:4:0,0:3:6:0,4:1:0:4,7:0:4:0,3:3:5:0,1:1:1:0
 
 | seed | turn | exe move | exe nodes | std::partial_sort move | std nodes | replica move | replica nodes | std reproduces exe |
 |-----:|-----:|:---------|----------:|:-----------------------|----------:|:-------------|--------------:|:------------------:|
-| 1 | 183 | (7,2,2) | 64174 | (7,2,2) | 64174 | (7,0,2) | 63854 | yes |
-| 2 | 132 | (0,3,4) | 67311 | (0,3,4) | 67311 | (5,1,5) | 67232 | yes |
-| 7 | 135 | (7,1,0) | 64393 | (7,1,0) | 64393 | (3,1,0) | 64282 | yes |
+| 1 | 183 | (7,2,2) | 64174 | (7,2,2) | 64174 | (7,2,2) | 64174 | yes |
+| 2 | 132 | (0,3,4) | 67311 | (0,3,4) | 67311 | (0,3,4) | 67311 | yes |
+| 7 | 135 | (7,1,0) | 64393 | (7,1,0) | 64393 | (7,1,0) | 64393 | yes |
 
 On all three divergent seeds the exe's `std::partial_sort` beam policy applied to the replica's identical evaluations reproduces the exe move and total node count exactly, while the replica's own selection differs.
 

@@ -1,6 +1,6 @@
 # Full-game differential — shipping Hoiko.exe vs Rust/WASM replica
 
-Run: `verify2-seed1-cap500` (seed 1, cap 500, design A per-move wine invocation).
+Run: `seed1-cap500` (seed 1, cap 500, design A per-move wine invocation).
 
 ## Verdict
 
@@ -21,10 +21,10 @@ Run: `verify2-seed1-cap500` (seed 1, cap 500, design A per-move wine invocation)
 - First divergence: none.
 - Engine-vs-exe state mismatches (board/hold after applying the exe move): **0**.
 - act mismatches (with matching move): **0**.
-- faithful (adapt:true) replica move mismatches vs exe: **86**.
+- faithful (adapt:true) replica move mismatches vs exe: **80**.
 
 Artifacts:
 
-- `verify2-seed1-cap500.jsonl` — per-move raw records (snapshot, exe, rust, rustAdapt, state).
-- `summary-verify2-seed1-cap500.jsonl` — machine-readable summary (one JSON object).
+- `seed1-cap500.jsonl` — per-move raw records (snapshot, exe, rust, rustAdapt, state).
+- `summary-seed1-cap500.jsonl` — machine-readable summary (one JSON object).
 

@@ -16,30 +16,37 @@ use crate::nextmino::NextIterator;
 pub const MAX_BABYS: usize = 300;
 pub const BABY_BUCKETS: usize = 48;
 
-#[derive(Clone, Default)]
+/// Cursor into the expansion's shared `NextMino` (see `NextIterator`). Babies
+/// only ever carry the cursor, so copying one never touches the `Rc`.
+#[derive(Clone, Copy, Default)]
+pub struct NextCursor {
+    pub base: i32,
+    pub trust_end: i32,
+}
+
+/// Iterator positioned at `cursor` over the same source as `it`.
+pub fn cursor_iterator(it: &NextIterator, cursor: NextCursor) -> NextIterator {
+    let mut out = it.clone();
+    out.base = cursor.base;
+    out.trust_end = cursor.trust_end;
+    out
+}
+
+#[derive(Clone, Copy, Default)]
 pub struct Baby {
     pub falling_mino: FallMino,
     pub commands: Command,
     pub hold: HoldMino,
-    pub next_it: NextIterator,
-}
-
-impl Baby {
-    pub fn copy_from(&mut self, src: &Baby) {
-        self.falling_mino = src.falling_mino;
-        self.commands.copy_from(&src.commands);
-        self.hold = src.hold;
-        self.next_it.copy_from(&src.next_it);
-    }
+    pub next: NextCursor,
 }
 
 pub fn make_root_baby(parent: &GamePack) -> Baby {
-    let mut b = Baby::default();
-    b.falling_mino = parent.falling_mino;
-    b.hold = parent.hold;
-    b.next_it.copy_from(&parent.next_it);
-    b.commands.init();
-    b
+    Baby {
+        falling_mino: parent.falling_mino,
+        commands: Command::default(),
+        hold: parent.hold,
+        next: NextCursor { base: parent.next_it.base, trust_end: parent.next_it.trust_end },
+    }
 }
 
 pub type Buckets = Vec<Vec<usize>>;
@@ -81,7 +88,7 @@ pub fn override_same_node(buckets: &mut [Vec<usize>], babies: &mut [Baby], targe
             continue;
         }
         if s.commands.move_delay > target.commands.move_delay {
-            s.copy_from(target);
+            *s = *target;
         }
         return 1;
     }

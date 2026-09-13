@@ -123,7 +123,7 @@ pub fn expand_template_node(babies: &mut Vec<Baby>, root: &Baby) -> i32 {
         dst.falling_mino.r = entry.r;
         dst.falling_mino.last_srs = 0;
         dst.falling_mino.bug_gravity = 0;
-        dst.next_it.copy_from(&root.next_it);
+        dst.next = root.next;
         if !inherit {
             dst.commands.init();
             dst.commands.move_delay = entry.delay;

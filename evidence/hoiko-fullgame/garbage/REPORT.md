@@ -1,6 +1,6 @@
 # Versus garbage/OffsetAI differential — shipping Hoiko.exe vs Rust/WASM replica
 
-Run: 2026-09-12T12:18:11.471Z
+Run: 2026-09-12T18:59:53.697Z
 Args: seeds=1,2,3,7,11 cap=150 maxTicks=20000 tick=16 pressure=0 pressureEvery=96 garbageDelay=1
 
 ## Verdict
@@ -24,35 +24,35 @@ Args: seeds=1,2,3,7,11 cap=150 maxTicks=20000 tick=16 pressure=0 pressureEvery=9
 
 - Right thinks: **62**; pieces: **96**; pressure: 0; winner: left; reason: **KO**.
 - Pending-garbage turns: **10**; garbageWait=1 turns: exe **0**, replica **0**.
-- Exe wall time: 22s.
+- Exe wall time: 75s.
 - **All compared fields agreed.**
 
 ### seed 2
 
 - Right thinks: **101**; pieces: **150**; pressure: 0; winner: n/a; reason: **cap**.
 - Pending-garbage turns: **14**; garbageWait=1 turns: exe **0**, replica **0**.
-- Exe wall time: 35s.
+- Exe wall time: 115s.
 - **All compared fields agreed.**
 
 ### seed 3
 
 - Right thinks: **97**; pieces: **150**; pressure: 0; winner: n/a; reason: **cap**.
 - Pending-garbage turns: **10**; garbageWait=1 turns: exe **0**, replica **0**.
-- Exe wall time: 34s.
+- Exe wall time: 112s.
 - **All compared fields agreed.**
 
 ### seed 7
 
 - Right thinks: **95**; pieces: **150**; pressure: 0; winner: n/a; reason: **cap**.
 - Pending-garbage turns: **16**; garbageWait=1 turns: exe **0**, replica **0**.
-- Exe wall time: 34s.
+- Exe wall time: 100s.
 - **All compared fields agreed.**
 
 ### seed 11
 
 - Right thinks: **51**; pieces: **79**; pressure: 0; winner: left; reason: **KO**.
 - Pending-garbage turns: **8**; garbageWait=1 turns: exe **1**, replica **1**.
-- Exe wall time: 17s.
+- Exe wall time: 49s.
 - **All compared fields agreed.**
 
 ## Artifacts

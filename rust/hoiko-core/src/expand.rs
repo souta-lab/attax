@@ -6,8 +6,8 @@
 //! pass follows when the current piece != hold.
 
 use crate::baby::{
-    add_baby, clear_baby_buckets, copy_game, make_root_baby, new_baby_buckets, override_same_node,
-    Baby, Buckets, ExpandedChild, MAX_BABYS,
+    add_baby, clear_baby_buckets, copy_game, cursor_iterator, make_root_baby, new_baby_buckets,
+    override_same_node, Baby, Buckets, ExpandedChild, MAX_BABYS,
 };
 use crate::board::Board;
 use crate::expand_derive::expand_derive_node;
@@ -103,9 +103,24 @@ pub fn expand_base_node(babies: &mut Vec<Baby>, board: &Board, buckets: &mut Buc
     babies.len() as i32
 }
 
+/// Bucket key for `delete_same_node`: the four rows at `locked_bottom` plus
+/// `act`, packed into one word so a bucket scan compares one value (the
+/// reference compares exactly these five fields).
+#[inline]
+fn dedup_key(cand: &ExpandedChild) -> u64 {
+    let b = &cand.game.board;
+    let lb = b.locked_bottom;
+    (b.row_at(lb) as u64 & 0x3FF)
+        | ((b.row_at(lb + 1) as u64 & 0x3FF) << 10)
+        | ((b.row_at(lb + 2) as u64 & 0x3FF) << 20)
+        | ((b.row_at(lb + 3) as u64 & 0x3FF) << 30)
+        | ((cand.game.act as u64) << 40)
+}
+
 fn delete_same_node(
-    child_buckets: &mut [Vec<usize>],
+    child_buckets: &mut [Vec<(u64, usize)>],
     out: &mut [ExpandedChild],
+    key: u64,
     cand: &ExpandedChild,
 ) -> i32 {
     let lb = cand.game.board.locked_bottom;
@@ -115,18 +130,8 @@ fn delete_same_node(
         return 0;
     }
     let bucket = &child_buckets[idx as usize];
-    for &si in bucket {
-        let matches = {
-            let s = &out[si];
-            let sb = &s.game.board;
-            let cb = &cand.game.board;
-            sb.row_at(lb) == cb.row_at(lb)
-                && sb.row_at(lb + 1) == cb.row_at(lb + 1)
-                && sb.row_at(lb + 2) == cb.row_at(lb + 2)
-                && sb.row_at(lb + 3) == cb.row_at(lb + 3)
-                && s.game.act == cand.game.act
-        };
-        if !matches {
+    for &(k, si) in bucket {
+        if k != key {
             continue;
         }
         if out[si].game.commands.move_delay > cand.game.commands.move_delay {
@@ -146,7 +151,7 @@ fn regist_child_node(
     babies: &[Baby],
     parent: &GamePack,
     hold_used: bool,
-    child_buckets: &mut [Vec<usize>],
+    child_buckets: &mut [Vec<(u64, usize)>],
     out: &mut Vec<ExpandedChild>,
 ) {
     for bucket in child_buckets.iter_mut() {
@@ -155,7 +160,7 @@ fn regist_child_node(
     out.clear();
     for baby in babies {
         let mut g = GamePack {
-            next_it: baby.next_it.clone(),
+            next_it: cursor_iterator(&parent.next_it, baby.next),
             hold: baby.hold,
             falling_mino: baby.falling_mino,
             locked_mino: FallMino::default(),
@@ -180,12 +185,13 @@ fn regist_child_node(
             act: g.act,
             game: g,
         };
-        if delete_same_node(child_buckets, out, &cand) == 1 {
+        let key = dedup_key(&cand);
+        if delete_same_node(child_buckets, out, key, &cand) == 1 {
             continue;
         }
         let idx = cand.game.board.locked_bottom * 2 + (cand.game.locked_mino.r & 1);
         if idx >= 0 && idx < CHILD_BUCKETS as i32 {
-            child_buckets[idx as usize].push(out.len());
+            child_buckets[idx as usize].push((key, out.len()));
         }
         out.push(cand);
     }
@@ -196,7 +202,7 @@ fn regist_child_node(
 pub struct ExpandScratch {
     babies: Vec<Baby>,
     buckets: Buckets,
-    child_buckets: Vec<Vec<usize>>,
+    child_buckets: Vec<Vec<(u64, usize)>>,
     hold_out: Vec<ExpandedChild>,
 }
 
@@ -244,12 +250,14 @@ pub fn expand_node_into(
 
     if allow_hold && parent.falling_mino.m != parent.hold.m {
         let mut hold_baby = make_root_baby(parent);
+        let mut hold_it = cursor_iterator(&parent.next_it, hold_baby.next);
         hold_baby.commands.swap_hold(
             &mut hold_baby.falling_mino,
             &mut hold_baby.hold,
             &parent.board,
-            &mut hold_baby.next_it,
+            &mut hold_it,
         );
+        hold_baby.next.base = hold_it.base;
         babies.clear();
         clear_baby_buckets(buckets);
         babies.push(hold_baby.clone());

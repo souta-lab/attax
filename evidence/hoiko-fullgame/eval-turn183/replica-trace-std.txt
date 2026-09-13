@@ -1,4 +1,16 @@
-CANON x=7 r=0 m=2 hold=0 score=716 depth=14 nodes=63854 y=4 srs=0
+CANON x=7 r=2 m=2 hold=0 score=79 depth=14 nodes=64174 y=4 srs=0
 TRACE x=7 r=2 m=2 hold=0 score=79 depth=14 nodes=64174
-TRACE_MATCH 0
+TRACE_MATCH 1
+TERM idx=1577 score=79 max=1 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1603 score=78 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1663 score=71 max=0 x=4 r=3 m=4 act=0 hold=1
+TERM idx=1689 score=70 max=0 x=4 r=3 m=4 act=0 hold=1
+TERM idx=1580 score=67 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1606 score=66 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1749 score=66 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1775 score=65 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1835 score=63 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1895 score=62 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1581 score=59 max=0 x=7 r=2 m=2 act=0 hold=0
+TERM idx=1629 score=59 max=0 x=7 r=2 m=2 act=0 hold=0
 PATH 7:2:2:0,4:3:4:0,0:3:6:0,4:1:0:4,7:0:4:0,3:3:5:0,1:1:1:0,0:3:6:0,7:1:5:0,3:0:3:0,5:2:4:6,6:1:1:0,8:3:2:0,3:0:3:0

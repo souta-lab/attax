@@ -93,23 +93,32 @@ pub struct FirstMoveState {
     pub btb: i32,
 }
 
+/// Every node's first-move identity comes from its gen-1 ancestor, so the
+/// ~200-byte first-move record is stored once per gen-1 child and referenced by
+/// index instead of being copied onto every node.
+#[derive(Clone, Copy)]
+struct Origin {
+    x: i32,
+    r: i32,
+    m: i32,
+    hold: bool,
+    act: i32,
+    move_delay: i32,
+    y: i32,
+    last_srs: i32,
+    state: FirstMoveState,
+}
+
 #[derive(Clone)]
 struct NodeState {
     game: GamePack,
     score: i32,
     family_score: i32,
-    #[allow(dead_code)]
-    child_count: i32,
-    first_x: i32,
-    first_r: i32,
-    first_m: i32,
-    first_hold: bool,
-    first_act: i32,
-    first_move_delay: i32,
-    first_y: i32,
-    first_last_srs: i32,
-    first_state: FirstMoveState,
-    acts: Acts,
+    origin: u32,
+    /// Index into the generation's `parents` (only meaningful for beam
+    /// survivors; the winner's plan is rebuilt from `plans` at the end).
+    parent: u32,
+    act: i32,
 }
 
 pub struct FirstPlacement {
@@ -135,66 +144,14 @@ pub struct SearchOutcome {
     pub first_state: FirstMoveState,
 }
 
-fn make_node(child: ExpandedChild, parent: Option<&NodeState>, gen_one: bool) -> NodeState {
-    let lm = child.game.locked_mino;
-    let md = child.game.commands.move_delay;
-    let fresh = gen_one || parent.is_none();
-    let (
-        first_x,
-        first_r,
-        first_m,
-        first_hold,
-        first_act,
-        first_move_delay,
-        first_y,
-        first_last_srs,
-        first_state,
-        acts,
-    ) = if fresh {
-        (
-            child.placed_x,
-            child.placed_r,
-            child.placed_m,
-            child.hold_used,
-            child.act,
-            md,
-            lm.y,
-            lm.last_srs,
-            FirstMoveState { board: child.game.board, hold_m: child.game.hold.m, btb: child.game.btb },
-            Acts::single(child.act),
-        )
-    } else {
-        let p = parent.expect("checked above");
-        let mut a = p.acts;
-        a.push(child.act);
-        (
-            p.first_x,
-            p.first_r,
-            p.first_m,
-            p.first_hold,
-            p.first_act,
-            p.first_move_delay,
-            p.first_y,
-            p.first_last_srs,
-            p.first_state,
-            a,
-        )
-    };
+fn make_node(child: ExpandedChild, parent: u32, origin: u32) -> NodeState {
     NodeState {
         game: child.game,
         score: 0,
         family_score: 0,
-        child_count: 0,
-        first_x,
-        first_r,
-        first_m,
-        first_hold,
-        first_act,
-        first_move_delay,
-        first_y,
-        first_last_srs,
-        first_state,
-        acts,
+        origin,
+        parent,
+        act: child.act,
     }
 }
 
@@ -336,16 +293,33 @@ pub fn run_search(
         return None;
     }
 
-    let mut parents: Vec<NodeState> = expanded
-        .drain(..)
-        .map(|child| {
-            let mut node = make_node(child, None, true);
-            let ev = evaluate_first(&node.game, ew, weight_index, flags);
-            node.family_score = ev.family_score;
-            node.score = ev.family_score;
-            node
-        })
-        .collect();
+    let mut origins: Vec<Origin> = Vec::new();
+    let mut parents: Vec<NodeState> = Vec::new();
+    for child in expanded.drain(..) {
+        let lm = child.game.locked_mino;
+        origins.push(Origin {
+            x: child.placed_x,
+            r: child.placed_r,
+            m: child.placed_m,
+            hold: child.hold_used,
+            act: child.act,
+            move_delay: child.game.commands.move_delay,
+            y: lm.y,
+            last_srs: lm.last_srs,
+            state: FirstMoveState {
+                board: child.game.board,
+                hold_m: child.game.hold.m,
+                btb: child.game.btb,
+            },
+        });
+        let mut node = make_node(child, u32::MAX, (origins.len() - 1) as u32);
+        let ev = evaluate_first(&node.game, ew, weight_index, flags);
+        node.family_score = ev.family_score;
+        node.score = ev.family_score;
+        parents.push(node);
+    }
+    let mut plans: Vec<Acts> =
+        parents.iter().map(|p| Acts::single(p.act)).collect();
     let mut total = parents.len() as i32;
     let mut depth = 1i32;
     let mut children: Vec<NodeState> = Vec::new();
@@ -359,10 +333,9 @@ pub fn run_search(
         children.clear();
         for i in 0..parents.len() {
             expand_node_into(&parents[i].game, allow_hold, &mut scratch, &mut expanded);
-            parents[i].child_count = expanded.len() as i32;
             num_children += expanded.len() as i32;
             for c in expanded.drain(..) {
-                let mut node = make_node(c, Some(&parents[i]), false);
+                let mut node = make_node(c, i as u32, parents[i].origin);
                 let ev = evaluate(&node.game, ew, weight_index, flags, trust_rate);
                 apply_eval(&mut node, &ev, parents[i].family_score);
                 children.push(node);
@@ -393,6 +366,13 @@ pub fn run_search(
         // a score-only comparison; the heap permutation (not index order) decides
         // which equal-score children survive the cutoff. See `std_partial_sort`.
         std_partial_sort(&children, &mut order, 0, next_beam, clen);
+        let old_plans = std::mem::take(&mut plans);
+        for &idx in &order[..next_beam] {
+            let c = &children[idx as usize];
+            let mut a = old_plans[c.parent as usize];
+            a.push(c.act);
+            plans.push(a);
+        }
         parents.clear();
         for &idx in &order[..next_beam] {
             parents.push(children[idx as usize].clone());
@@ -411,25 +391,29 @@ pub fn run_search(
     }
 
     let over_time = now() - t0 - limit as f64;
+    let best_parent = &parents[best.parent as usize];
+    let o = origins[best_parent.origin as usize];
+    let mut plan = plans[best.parent as usize];
+    plan.push(best.act);
     Some(SearchOutcome {
-        first_x: best.first_x,
-        first_r: best.first_r,
-        first_m: best.first_m,
-        first_hold: best.first_hold,
-        first_act: best.first_act,
-        plan_acts: best.acts.as_slice().to_vec(),
+        first_x: o.x,
+        first_r: o.r,
+        first_m: o.m,
+        first_hold: o.hold,
+        first_act: o.act,
+        plan_acts: plan.as_slice().to_vec(),
         score: best.score,
         depth,
         node: total,
         over_time,
-        move_delay: best.first_move_delay,
+        move_delay: o.move_delay,
         first_placement: FirstPlacement {
-            rotation: ((best.first_r % 4) + 4) % 4,
-            x: best.first_x,
-            y: best.first_y,
-            last_srs: best.first_last_srs,
+            rotation: ((o.r % 4) + 4) % 4,
+            x: o.x,
+            y: o.y,
+            last_srs: o.last_srs,
         },
-        first_state: best.first_state,
+        first_state: o.state,
     })
 }
 

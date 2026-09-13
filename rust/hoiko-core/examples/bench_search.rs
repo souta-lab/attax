@@ -8,7 +8,7 @@ pub fn we() -> HoikoWeights { HoikoWeights { weight: [-15, -30, -100, -4, -25, -
 
 fn main() {
     let w = vec![we()];
-    let reps = 30;
+    let reps: usize = std::env::var("BENCH_REPS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
     let mut ms = 0f64; let mut nodes = 0i64;
     for _ in 0..reps {
         let root = build_root(&ProbeInput {
