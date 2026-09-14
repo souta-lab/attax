@@ -15,6 +15,7 @@ import {
   createVersusController,
   type SideState,
   VERSUS_DEFAULTS,
+  type VersusControllerOptions,
   type VersusFighter,
 } from "../src/versus/controller.js";
 import { createRustDeepSeekV2 } from "../tools/deepseek-rust/loader.js";
@@ -47,6 +48,56 @@ function readInteger(name: string, raw: string | undefined, fallback: number): n
 function readFlag(raw: string | undefined, fallback: boolean): boolean {
   if (raw === undefined || raw.trim() === "") return fallback;
   return raw !== "0";
+}
+
+function readNumber(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new Error(`${name} must be a number, got ${raw}`);
+  return value;
+}
+
+interface TimingConfig {
+  readonly mode: "shared" | "independent";
+  readonly inputMs: number;
+  readonly leftLatencyMs: number | null;
+  readonly rightLatencyMs: number | null;
+}
+
+function readTimingConfig(): TimingConfig {
+  const mode = process.env.VERSUS_TIMING ?? "shared";
+  if (mode !== "shared" && mode !== "independent") {
+    throw new Error(`VERSUS_TIMING must be shared|independent, got ${mode}`);
+  }
+  const left = process.env.VERSUS_LATENCY_LEFT_MS;
+  const right = process.env.VERSUS_LATENCY_RIGHT_MS;
+  return {
+    mode,
+    inputMs: readNumber(
+      "VERSUS_INPUT_MS",
+      process.env.VERSUS_INPUT_MS,
+      VERSUS_DEFAULTS.stepIntervalMs,
+    ),
+    leftLatencyMs:
+      left === undefined || left.trim() === ""
+        ? null
+        : readNumber("VERSUS_LATENCY_LEFT_MS", left, 0),
+    rightLatencyMs:
+      right === undefined || right.trim() === ""
+        ? null
+        : readNumber("VERSUS_LATENCY_RIGHT_MS", right, 0),
+  };
+}
+
+function controllerOptions(timing: TimingConfig): VersusControllerOptions {
+  if (timing.mode === "shared") return VERSUS_DEFAULTS;
+  return {
+    ...VERSUS_DEFAULTS,
+    timing: "independent",
+    inputLatencyMs: timing.inputMs,
+    ...(timing.leftLatencyMs === null ? {} : { fixedLeftLatencyMs: timing.leftLatencyMs }),
+    ...(timing.rightLatencyMs === null ? {} : { fixedRightLatencyMs: timing.rightLatencyMs }),
+  };
 }
 
 const USE_RUST = readFlag(process.env.DSV2_RUST, false);
@@ -174,13 +225,21 @@ function finishMetrics(side: SideState, metrics: MutableMetrics): SideMetrics {
   };
 }
 
-function runMatch(seed: number, ourFighter: VersusFighter, hoikoFighter: RustHoikoFighter): Row {
+interface MatchSetup {
+  readonly seed: number;
+  readonly ourFighter: VersusFighter;
+  readonly hoikoFighter: RustHoikoFighter;
+  readonly options: VersusControllerOptions;
+}
+
+function runMatch(setup: MatchSetup): Row {
+  const { seed, ourFighter, hoikoFighter, options } = setup;
   const controller = createVersusController(ourFighter, hoikoFighter, seed, resolveVersusConfig());
   const left = freshMetrics();
   const right = freshMetrics();
   let ticks = 0;
   while (controller.result === null && ticks < MAX_TICKS) {
-    controller.tick(TICK_MS, VERSUS_DEFAULTS);
+    controller.tick(TICK_MS, options);
     ticks += 1;
     sampleSide(controller.left, left);
     sampleSide(controller.right, right, hoikoFighter.engine);
@@ -300,6 +359,8 @@ function main(): void {
   const ours = "deepseek-v2";
   const v2 = readV2Options();
   const hoiko = resolveFaithfulHoikoOptions(process.env, preset);
+  const timing = readTimingConfig();
+  const options = controllerOptions(timing);
   const override = process.env.HOIKO_SEEDS;
   const shardIndex = readInteger("HOIKO_SHARD_INDEX", process.env.HOIKO_SHARD_INDEX, 0);
   const shardCount = readInteger("HOIKO_SHARD_COUNT", process.env.HOIKO_SHARD_COUNT, 1);
@@ -326,12 +387,18 @@ function main(): void {
       engine: USE_RUST ? "rust-wasm" : "ts",
       v2,
       hoiko,
+      timing,
     }),
   );
 
   const rows: Row[] = [];
   for (const seed of seeds) {
-    const row = runMatch(seed, makeOurFighter(v2), createRustHoiko(hoiko));
+    const row = runMatch({
+      seed,
+      ourFighter: makeOurFighter(v2),
+      hoikoFighter: createRustHoiko(hoiko),
+      options,
+    });
     rows.push(row);
     console.log(JSON.stringify({ type: "HOIKO-match", preset, ours, ...row }));
   }
@@ -347,6 +414,7 @@ function main(): void {
       v2,
       engine: USE_RUST ? "rust-wasm" : "ts",
       hoiko,
+      timing,
       aggregate: agg,
       fingerprint: fingerprint(rows),
       winLossCap: `${agg.leftWins}-${agg.rightWins}-${agg.draws}/${agg.caps}`,

@@ -6,17 +6,43 @@
 
 use ai_fighters::{DeepSeekFighterOptions, HoikoFighterOptions};
 use game::contract::WeightPreset;
+use game::{VersusControllerOptions, VersusTiming};
 
 /// `scripts/gate-v2.ts` `MAX_TICKS`.
 pub const DEFAULT_FRAMES: u64 = 12_000;
 /// `scripts/gate-v2.ts` `TICK_MS`.
 pub const DEFAULT_TICK_MS: f64 = 16.0;
 
+/// `VERSUS_TIMING` / `VERSUS_INPUT_MS` / `VERSUS_LATENCY_*` mirror for the
+/// native app: the same independent-timing knobs the scoreboard gate exposes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimingArgs {
+    pub timing: VersusTiming,
+    pub input_ms: Option<f64>,
+    pub left_latency_ms: Option<f64>,
+    pub right_latency_ms: Option<f64>,
+}
+
+impl TimingArgs {
+    /// Apply the timing flags on top of a base option set (gate shape:
+    /// `scripts/gate-v2.ts` `controllerOptions`).
+    pub fn apply(&self, base: VersusControllerOptions) -> VersusControllerOptions {
+        VersusControllerOptions {
+            timing: self.timing,
+            input_latency_ms: self.input_ms,
+            fixed_left_latency_ms: self.left_latency_ms,
+            fixed_right_latency_ms: self.right_latency_ms,
+            ..base
+        }
+    }
+}
+
 /// Spectator window options.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GuiArgs {
     pub seed: i32,
     pub speed: f64,
+    pub timing: TimingArgs,
 }
 
 impl Default for GuiArgs {
@@ -24,6 +50,7 @@ impl Default for GuiArgs {
         GuiArgs {
             seed: 1,
             speed: 1.0,
+            timing: TimingArgs::default(),
         }
     }
 }
@@ -35,6 +62,7 @@ pub struct HeadlessArgs {
     pub frames: u64,
     pub tick_ms: f64,
     pub json: bool,
+    pub timing: TimingArgs,
     pub hoiko: HoikoFighterOptions,
     pub deepseek: DeepSeekFighterOptions,
 }
@@ -46,6 +74,7 @@ impl Default for HeadlessArgs {
             frames: DEFAULT_FRAMES,
             tick_ms: DEFAULT_TICK_MS,
             json: false,
+            timing: TimingArgs::default(),
             // Deterministic by default: the honest 23-9 gate is adapt = 0.
             hoiko: HoikoFighterOptions {
                 adapt: false,
@@ -102,6 +131,16 @@ fn parse_bool(name: &str, value: &str) -> Result<bool, CliError> {
     }
 }
 
+fn parse_timing(value: &str) -> Result<VersusTiming, CliError> {
+    match value {
+        "shared" => Ok(VersusTiming::Shared),
+        "independent" => Ok(VersusTiming::Independent),
+        _ => Err(CliError(format!(
+            "--timing must be shared|independent, got {value}"
+        ))),
+    }
+}
+
 fn parse_seeds(value: &str) -> Result<Vec<i32>, CliError> {
     let seeds: Vec<i32> = value
         .split(',')
@@ -122,6 +161,7 @@ pub fn parse(args: &[String]) -> Result<Command, CliError> {
     let mut tick_ms: Option<f64> = None;
     let mut speed: Option<f64> = None;
     let mut json = false;
+    let mut timing = TimingArgs::default();
     let mut hoiko = HeadlessArgs::default().hoiko;
     let mut deepseek = DeepSeekFighterOptions::default();
     let mut index = 0;
@@ -153,6 +193,18 @@ pub fn parse(args: &[String]) -> Result<Command, CliError> {
             "--frames" => frames = Some(parse_u64("--frames", &take("--frames")?)?),
             "--tick-ms" => tick_ms = Some(parse_f64("--tick-ms", &take("--tick-ms")?)?),
             "--speed" => speed = Some(parse_f64("--speed", &take("--speed")?)?),
+            "--timing" => timing.timing = parse_timing(&take("--timing")?)?,
+            "--input-ms" => {
+                timing.input_ms = Some(parse_f64("--input-ms", &take("--input-ms")?)?);
+            }
+            "--latency-left-ms" => {
+                timing.left_latency_ms =
+                    Some(parse_f64("--latency-left-ms", &take("--latency-left-ms")?)?);
+            }
+            "--latency-right-ms" => {
+                timing.right_latency_ms =
+                    Some(parse_f64("--latency-right-ms", &take("--latency-right-ms")?)?);
+            }
             "--hoiko-beam" => {
                 hoiko.beam_size_limit = parse_i32("--hoiko-beam", &take("--hoiko-beam")?)?;
             }
@@ -197,6 +249,7 @@ pub fn parse(args: &[String]) -> Result<Command, CliError> {
             frames: frames.unwrap_or(DEFAULT_FRAMES),
             tick_ms: tick_ms.unwrap_or(DEFAULT_TICK_MS),
             json,
+            timing,
             hoiko,
             deepseek,
         };
@@ -205,6 +258,7 @@ pub fn parse(args: &[String]) -> Result<Command, CliError> {
     Ok(Command::Gui(GuiArgs {
         seed: seed.unwrap_or(1),
         speed: speed.unwrap_or(1.0),
+        timing,
     }))
 }
 
@@ -212,12 +266,16 @@ pub fn parse(args: &[String]) -> Result<Command, CliError> {
 pub fn usage() -> String {
     [
         "usage: hoiko-app [--seed N] [--speed 0.5|1|2|4]",
+        "       hoiko-app [--timing shared|independent] [--input-ms MS]",
+        "                 [--latency-left-ms MS] [--latency-right-ms MS]",
         "       hoiko-app --headless [--seeds 1,2,3] [--frames N] [--tick-ms MS]",
         "                          [--hoiko-beam N] [--hoiko-depth N] [--hoiko-adapt 0|1]",
         "                          [--hoiko-preset we|wo|wd|wr] [--ds-depth N]",
         "                          [--ds-width N] [--ds-top-k N] [--json]",
         "",
         "no flags opens the spectator window; --headless runs matches and prints a summary.",
+        "--timing independent locks each side after its own decision + --input-ms latency;",
+        "--latency-left-ms/--latency-right-ms pin a side for deterministic runs.",
     ]
     .join("\n")
 }

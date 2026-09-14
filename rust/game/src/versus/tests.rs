@@ -145,28 +145,104 @@ fn accumulator_keeps_the_leftover_instead_of_dropping_it() {
     assert_eq!(ctrl.right.acc, 200.0 - VERSUS_DEFAULTS.step_interval_ms);
 }
 
+fn plan_fighter(steps: Vec<AiStep>) -> Box<dyn AiFighter> {
+    fighter(move |snapshot| snapshot.active.map(|_| plan_move(snapshot, steps.clone())))
+}
+
+fn place_at_step() -> AiStep {
+    AiStep::PlaceAt { rotation: 0, x: 0, top_row: Some(18), last_srs: Some(0) }
+}
+
 #[test]
 fn cosmetic_execution_steps_do_not_delay_locks_relative_to_a_bare_place_at() {
-    let bare = fighter(|snapshot| {
-        snapshot
-            .active
-            .map(|_| plan_move(snapshot, vec![AiStep::PlaceAt { rotation: 0, x: 0, top_row: Some(18), last_srs: Some(0) }]))
-    });
-    let cosmetic = fighter(|snapshot| {
-        snapshot.active.map(|_| {
-            plan_move(
-                snapshot,
-                vec![
-                    AiStep::Left,
-                    AiStep::Left,
-                    AiStep::PlaceAt { rotation: 0, x: 0, top_row: Some(18), last_srs: Some(0) },
-                ],
-            )
-        })
-    });
+    let bare = plan_fighter(vec![place_at_step()]);
+    let cosmetic = plan_fighter(vec![AiStep::Left, AiStep::Left, place_at_step()]);
     let mut ctrl = controller(bare, cosmetic, 1);
     for tick in 1..=8 {
         ctrl.tick(VERSUS_DEFAULTS.step_interval_ms, &VERSUS_DEFAULTS);
+        assert_eq!(ctrl.left.core.snapshot().lock_id, tick);
+        assert_eq!(ctrl.right.core.snapshot().lock_id, tick);
+    }
+}
+
+#[test]
+fn independent_timing_locks_each_side_at_its_own_fixed_latency() {
+    let options = VersusControllerOptions {
+        timing: VersusTiming::Independent,
+        fixed_left_latency_ms: Some(100.0),
+        fixed_right_latency_ms: Some(200.0),
+        ..VERSUS_DEFAULTS
+    };
+    let mut ctrl = controller(drop_at_fighter(), drop_at_fighter(), 1);
+    for _ in 0..4 {
+        ctrl.tick(100.0, &options);
+    }
+
+    assert_eq!(ctrl.left.core.snapshot().lock_id, 4);
+    assert_eq!(ctrl.right.core.snapshot().lock_id, 2);
+    assert_eq!(ctrl.left.next_lock_latency_ms, 100.0);
+    assert_eq!(ctrl.right.next_lock_latency_ms, 200.0);
+}
+
+#[test]
+fn independent_timing_fixed_latency_overrides_input_and_measurement() {
+    let options = VersusControllerOptions {
+        timing: VersusTiming::Independent,
+        input_latency_ms: Some(1000.0),
+        fixed_left_latency_ms: Some(100.0),
+        fixed_right_latency_ms: Some(100.0),
+        ..VERSUS_DEFAULTS
+    };
+    let mut ctrl = controller(drop_at_fighter(), drop_at_fighter(), 1);
+    for _ in 0..4 {
+        ctrl.tick(100.0, &options);
+    }
+
+    assert_eq!(ctrl.left.core.snapshot().lock_id, 4);
+    assert_eq!(ctrl.right.core.snapshot().lock_id, 4);
+    assert_eq!(ctrl.left.next_lock_latency_ms, 100.0);
+    assert_eq!(ctrl.right.next_lock_latency_ms, 100.0);
+}
+
+#[test]
+fn independent_timing_charges_the_measured_decision_on_top_of_input() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let options = VersusControllerOptions {
+        timing: VersusTiming::Independent,
+        input_latency_ms: Some(100.0),
+        ..VERSUS_DEFAULTS
+    };
+    let mut ctrl = controller(drop_at_fighter(), drop_at_fighter(), 1);
+    let now = Rc::new(Cell::new(0.0));
+    let clock = Rc::clone(&now);
+    ctrl.set_clock(Box::new(move || {
+        clock.set(clock.get() + 5.0);
+        clock.get()
+    }));
+
+    ctrl.tick(16.0, &options);
+
+    assert_eq!(ctrl.left.next_lock_latency_ms, 105.0);
+    assert_eq!(ctrl.right.next_lock_latency_ms, 105.0);
+    assert_eq!(ctrl.left.core.snapshot().lock_id, 0);
+    assert_eq!(ctrl.right.core.snapshot().lock_id, 0);
+}
+
+#[test]
+fn independent_timing_does_not_delay_locks_for_cosmetic_execution_steps() {
+    let options = VersusControllerOptions {
+        timing: VersusTiming::Independent,
+        fixed_left_latency_ms: Some(100.0),
+        fixed_right_latency_ms: Some(100.0),
+        ..VERSUS_DEFAULTS
+    };
+    let bare = plan_fighter(vec![place_at_step()]);
+    let cosmetic = plan_fighter(vec![AiStep::Left, AiStep::Left, place_at_step()]);
+    let mut ctrl = controller(bare, cosmetic, 1);
+    for tick in 1..=4 {
+        ctrl.tick(100.0, &options);
         assert_eq!(ctrl.left.core.snapshot().lock_id, tick);
         assert_eq!(ctrl.right.core.snapshot().lock_id, tick);
     }

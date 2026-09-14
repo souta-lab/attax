@@ -1,7 +1,8 @@
 //! CLI parsing tests: the headless/gui dispatch, defaults and typed errors.
 
 use game::contract::WeightPreset;
-use hoiko_app::cli::{Command, HeadlessArgs, parse, usage};
+use game::{VersusTiming, VERSUS_DEFAULTS};
+use hoiko_app::cli::{Command, HeadlessArgs, TimingArgs, parse, usage};
 use hoiko_app::headless;
 
 fn args(list: &[&str]) -> Vec<String> {
@@ -28,6 +29,61 @@ fn gui_accepts_seed_and_speed() {
         }
         other => panic!("expected Gui, got {other:?}"),
     }
+}
+
+#[test]
+fn headless_reads_timing_knobs() {
+    match parse(&args(&[
+        "--headless",
+        "--timing",
+        "independent",
+        "--input-ms",
+        "60",
+        "--latency-left-ms",
+        "86",
+        "--latency-right-ms",
+        "92",
+    ]))
+    .unwrap()
+    {
+        Command::Headless(args) => {
+            assert_eq!(args.timing.timing, VersusTiming::Independent);
+            assert_eq!(args.timing.input_ms, Some(60.0));
+            assert_eq!(args.timing.left_latency_ms, Some(86.0));
+            assert_eq!(args.timing.right_latency_ms, Some(92.0));
+        }
+        other => panic!("expected Headless, got {other:?}"),
+    }
+}
+
+#[test]
+fn gui_reads_timing_knobs() {
+    match parse(&args(&["--timing", "independent", "--input-ms", "150"])).unwrap() {
+        Command::Gui(gui) => {
+            assert_eq!(gui.timing.timing, VersusTiming::Independent);
+            assert_eq!(gui.timing.input_ms, Some(150.0));
+            assert_eq!(gui.timing.left_latency_ms, None);
+        }
+        other => panic!("expected Gui, got {other:?}"),
+    }
+}
+
+#[test]
+fn timing_args_apply_to_controller_options() {
+    let timing = TimingArgs {
+        timing: VersusTiming::Independent,
+        input_ms: Some(60.0),
+        left_latency_ms: Some(86.0),
+        right_latency_ms: None,
+    };
+    let options = timing.apply(VERSUS_DEFAULTS);
+
+    assert_eq!(options.timing, VersusTiming::Independent);
+    assert_eq!(options.input_latency_ms, Some(60.0));
+    assert_eq!(options.fixed_left_latency_ms, Some(86.0));
+    assert_eq!(options.fixed_right_latency_ms, None);
+    assert_eq!(options.step_interval_ms, VERSUS_DEFAULTS.step_interval_ms);
+    assert_eq!(options.gravity_ms, VERSUS_DEFAULTS.gravity_ms);
 }
 
 #[test]
@@ -121,6 +177,7 @@ fn malformed_values_are_typed_errors() {
         args(&["--headless", "--hoiko-adapt", "2"]),
         args(&["--headless", "--hoiko-preset", "nope"]),
         args(&["--headless", "--seeds", "1,x"]),
+        args(&["--headless", "--timing", "sideways"]),
         args(&["--nope"]),
     ] {
         assert!(parse(&bad).is_err(), "{bad:?} must fail");

@@ -15,7 +15,7 @@ use game::{
     speed_options,
 };
 
-use crate::cli::GuiArgs;
+use crate::cli::{GuiArgs, TimingArgs};
 use crate::view;
 
 const SPEEDS: [f64; 4] = [0.5, 1.0, 2.0, 4.0];
@@ -67,6 +67,7 @@ pub fn run(args: GuiArgs) -> eframe::Result<()> {
 pub struct HoikoApp {
     controller: VersusController,
     options: VersusControllerOptions,
+    timing: TimingArgs,
     speed: f64,
     paused: bool,
     auto_rematch: bool,
@@ -97,7 +98,8 @@ impl HoikoApp {
         let speed = if args.speed > 0.0 { args.speed } else { 1.0 };
         HoikoApp {
             controller,
-            options: speed_options(speed),
+            options: args.timing.apply(speed_options(speed)),
+            timing: args.timing,
             speed,
             paused: false,
             auto_rematch: true,
@@ -215,10 +217,11 @@ impl HoikoApp {
                 let selected = (self.speed - speed).abs() < f64::EPSILON;
                 if ui.selectable_label(selected, format!("{speed}x")).clicked() {
                     self.speed = speed;
-                    self.options = speed_options(speed);
+                    self.options = self.timing.apply(speed_options(speed));
                     self.paused = false;
                 }
             }
+            ui.label(format!("timing: {}", self.timing.timing.as_str()));
             ui.checkbox(&mut self.auto_rematch, "auto rematch");
             ui.separator();
             ui.label("seed");

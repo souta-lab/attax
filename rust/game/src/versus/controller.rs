@@ -8,7 +8,7 @@ use super::state::{make_side, reset_side, SideState, VersusController, VersusRes
 use super::step::{apply_step, execution_matches, locks_piece, plan_steps, ApplyStepResult};
 use super::{
     resolve_versus_config, AiFighter, ResolvedVersusConfig, Side, VersusConfig,
-    VersusControllerOptions, MAX_CATCHUP_ITERATIONS, MAX_TICK_MS,
+    VersusControllerOptions, VersusTiming, MAX_CATCHUP_ITERATIONS, MAX_TICK_MS,
 };
 use crate::types::{AiStep, OpponentView};
 
@@ -151,7 +151,8 @@ fn think(side: &mut SideState, opponent: &SideState, clock: &dyn Fn() -> f64) {
     });
     let t0 = clock();
     let mv = side.fighter.find_best_move(&decision);
-    side.think_ms += clock() - t0;
+    side.last_decision_ms = clock() - t0;
+    side.think_ms += side.last_decision_ms;
     side.think_count += 1;
     let Some(mv) = mv else {
         side.garbage_wait = false;
@@ -178,6 +179,19 @@ fn think(side: &mut SideState, opponent: &SideState, clock: &dyn Fn() -> f64) {
     side.queue = plan_steps(active.rotation, active.pos_x, &mv);
 }
 
+/// `src/versus/controller.ts` `independentIntervalMs`.
+fn independent_interval_ms(side: &SideState, options: &VersusControllerOptions) -> f64 {
+    let fixed = match side.side {
+        Side::Left => options.fixed_left_latency_ms,
+        Side::Right => options.fixed_right_latency_ms,
+    };
+    if let Some(fixed) = fixed {
+        return fixed;
+    }
+    let input = options.input_latency_ms.unwrap_or(options.step_interval_ms);
+    input + side.last_decision_ms
+}
+
 /// `src/versus/controller.ts` `stepSide`.
 pub fn step_side(
     side: &mut SideState,
@@ -194,13 +208,20 @@ pub fn step_side(
     if side.pending_think && side.queue.is_empty() && snap.active.is_some() {
         side.pending_think = false;
         think(side, opponent, clock);
+        if options.timing == VersusTiming::Independent {
+            side.next_lock_latency_ms = independent_interval_ms(side, options);
+        }
     }
+    let step_interval_ms = match options.timing {
+        VersusTiming::Independent => side.next_lock_latency_ms,
+        VersusTiming::Shared => options.step_interval_ms,
+    };
     side.acc += dt;
     let mut locked = 0;
     let mut iterations = 0;
     while !side.queue.is_empty()
-        && options.step_interval_ms > 0.0
-        && side.acc >= options.step_interval_ms
+        && step_interval_ms > 0.0
+        && side.acc >= step_interval_ms
         && locked == 0
         && iterations < MAX_CATCHUP_ITERATIONS
     {
@@ -209,7 +230,7 @@ pub fn step_side(
         let head = side.queue.remove(0);
         let terminal = locks_piece(&head) || matches!(head, AiStep::Hold);
         if terminal {
-            side.acc -= options.step_interval_ms;
+            side.acc -= step_interval_ms;
         }
         if locks_piece(&head) {
             side.core.set_garbage_wait(side.garbage_wait);

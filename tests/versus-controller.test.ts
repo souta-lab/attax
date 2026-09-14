@@ -166,6 +166,8 @@ function makeSide(
     execution: null,
     garbageWait: false,
     acc: 0,
+    lastDecisionMs: 0,
+    nextLockLatencyMs: 0,
     gravityAcc: 0,
     sentTotal: 0,
     blockedTotal: 0,
@@ -296,6 +298,86 @@ describe("versus controller lock fairness (issue #24)", () => {
 
     expect(bareCounter.steps).toBe(ticks);
     expect(cosmeticCounter.steps).toBe(3 * ticks);
+  });
+});
+
+describe("versus controller independent timing", () => {
+  function independentOptions(
+    overrides: Partial<VersusControllerOptions> = {},
+  ): VersusControllerOptions {
+    return { ...OPTIONS, timing: "independent", ...overrides };
+  }
+
+  test("each side locks at its own fixed latency instead of a shared beat", () => {
+    const leftCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const rightCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const left = makeSide("left", makeCore(leftCounter, true), immediateDropFighter);
+    const right = makeSide("right", makeCore(rightCounter, true), immediateDropFighter);
+    const ctrl = makeController(left, right);
+    const options = independentOptions({ fixedLeftLatencyMs: 100, fixedRightLatencyMs: 200 });
+
+    for (let tick = 0; tick < 4; tick += 1) tickVersus(ctrl, 100, options);
+
+    expect(leftCounter.locks).toBe(4);
+    expect(rightCounter.locks).toBe(2);
+    expect(left.nextLockLatencyMs).toBe(100);
+    expect(right.nextLockLatencyMs).toBe(200);
+  });
+
+  test("a fixed per-side latency overrides the measured decision plus input cost", () => {
+    const leftCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const rightCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const left = makeSide("left", makeCore(leftCounter, true), immediateDropFighter);
+    const right = makeSide("right", makeCore(rightCounter, true), immediateDropFighter);
+    const ctrl = makeController(left, right);
+    const options = independentOptions({
+      inputLatencyMs: 1000,
+      fixedLeftLatencyMs: 100,
+      fixedRightLatencyMs: 100,
+    });
+
+    for (let tick = 0; tick < 4; tick += 1) tickVersus(ctrl, 100, options);
+
+    expect(leftCounter.locks).toBe(4);
+    expect(rightCounter.locks).toBe(4);
+    expect(left.nextLockLatencyMs).toBe(100);
+    expect(right.nextLockLatencyMs).toBe(100);
+  });
+
+  test("the measured decision time is charged on top of the input cost", () => {
+    const leftCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const rightCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const left = makeSide("left", makeCore(leftCounter, true), immediateDropFighter);
+    const right = makeSide("right", makeCore(rightCounter, true), immediateDropFighter);
+    const ctrl = makeController(left, right);
+
+    tickVersus(ctrl, 16, independentOptions({ inputLatencyMs: 100 }));
+
+    expect(left.nextLockLatencyMs).toBeGreaterThanOrEqual(100);
+    expect(right.nextLockLatencyMs).toBeGreaterThanOrEqual(100);
+    expect(leftCounter.locks).toBe(0);
+    expect(rightCounter.locks).toBe(0);
+  });
+
+  test("cosmetic execution steps still do not delay locks in independent mode", () => {
+    const bareCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const cosmeticCounter: Counter = { steps: 0, locks: 0, gravity: 0 };
+    const bare = makeSide("left", makeCore(bareCounter, true), executionPlanFighter([]));
+    const cosmetic = makeSide(
+      "right",
+      makeCore(cosmeticCounter, true),
+      executionPlanFighter([{ kind: "left" }, { kind: "left" }]),
+    );
+    const ctrl = makeController(bare, cosmetic);
+    const options = independentOptions({ fixedLeftLatencyMs: 100, fixedRightLatencyMs: 100 });
+
+    for (let tick = 1; tick <= 4; tick += 1) {
+      tickVersus(ctrl, 100, options);
+      expect(bareCounter.locks).toBe(tick);
+      expect(cosmeticCounter.locks).toBe(tick);
+    }
+
+    expect(cosmeticCounter.steps).toBe(12);
   });
 });
 

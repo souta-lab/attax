@@ -20,6 +20,8 @@ pub struct SideState {
     pub execution: Option<AiExecutionPlan>,
     pub garbage_wait: bool,
     pub acc: f64,
+    pub last_decision_ms: f64,
+    pub next_lock_latency_ms: f64,
     pub gravity_acc: f64,
     pub sent_total: i32,
     pub blocked_total: i32,
@@ -88,6 +90,8 @@ pub(super) fn make_side(
         execution: None,
         garbage_wait: false,
         acc: 0.0,
+        last_decision_ms: 0.0,
+        next_lock_latency_ms: 0.0,
         gravity_acc: 0.0,
         sent_total: 0,
         blocked_total: 0,
@@ -116,6 +120,8 @@ pub(super) fn reset_side(side: &mut SideState, seed: i32, config: &ResolvedVersu
     side.execution = None;
     side.garbage_wait = false;
     side.acc = 0.0;
+    side.last_decision_ms = 0.0;
+    side.next_lock_latency_ms = 0.0;
     side.gravity_acc = 0.0;
     side.sent_total = 0;
     side.blocked_total = 0;

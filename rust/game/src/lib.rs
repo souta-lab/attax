@@ -45,5 +45,6 @@ pub use types::*;
 pub use versus::{
     speed_options, Winner,
     board_fingerprint, plan_steps, resolve_versus_config, AiFighter, Side, SideState,
-    VersusConfig, VersusController, VersusControllerOptions, VersusResult, VERSUS_DEFAULTS,
+    VersusConfig, VersusController, VersusControllerOptions, VersusResult, VersusTiming,
+    VERSUS_DEFAULTS,
 };

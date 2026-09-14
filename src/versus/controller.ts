@@ -42,6 +42,8 @@ export interface SideState {
   execution: AiExecutionPlan | null;
   garbageWait: boolean;
   acc: number;
+  lastDecisionMs: number;
+  nextLockLatencyMs: number;
   gravityAcc: number;
   sentTotal: number;
   blockedTotal: number;
@@ -67,10 +69,16 @@ export interface VersusResult {
   readonly rightError: string | null;
 }
 
+export type VersusTimingMode = "shared" | "independent";
+
 export interface VersusControllerOptions {
   readonly stepIntervalMs: number;
   readonly gravityMs: number;
   readonly autoRematchMs: number;
+  readonly timing?: VersusTimingMode;
+  readonly inputLatencyMs?: number;
+  readonly fixedLeftLatencyMs?: number;
+  readonly fixedRightLatencyMs?: number;
 }
 
 export const VERSUS_DEFAULTS: VersusControllerOptions = {
@@ -142,7 +150,8 @@ function think(side: SideState, opponent: SideState): void {
     side.errorCount += 1;
     move = null;
   }
-  side.thinkMs += performance.now() - t0;
+  side.lastDecisionMs = performance.now() - t0;
+  side.thinkMs += side.lastDecisionMs;
   side.thinkCount += 1;
   if (move === null) {
     side.garbageWait = false;
@@ -291,6 +300,8 @@ export function createVersusController(
     pendingThink: true,
     queue: [],
     acc: 0,
+    lastDecisionMs: 0,
+    nextLockLatencyMs: 0,
     execution: null,
     garbageWait: false,
     gravityAcc: 0,
@@ -335,6 +346,8 @@ function resetSide(side: SideState, seed: number, engineOptions: EngineOptions =
   side.execution = null;
   side.garbageWait = false;
   side.acc = 0;
+  side.lastDecisionMs = 0;
+  side.nextLockLatencyMs = 0;
   side.gravityAcc = 0;
   side.sentTotal = 0;
   side.blockedTotal = 0;
@@ -353,6 +366,13 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
+function independentIntervalMs(side: SideState, options: VersusControllerOptions): number {
+  const fixed = side.side === "left" ? options.fixedLeftLatencyMs : options.fixedRightLatencyMs;
+  if (fixed !== undefined) return fixed;
+  const input = options.inputLatencyMs ?? options.stepIntervalMs;
+  return input + side.lastDecisionMs;
+}
+
 export function stepSide(
   side: SideState,
   opponent: SideState,
@@ -365,14 +385,19 @@ export function stepSide(
   if (side.pendingThink && side.queue.length === 0 && snap.active !== null) {
     side.pendingThink = false;
     think(side, opponent);
+    if (options.timing === "independent") {
+      side.nextLockLatencyMs = independentIntervalMs(side, options);
+    }
   }
+  const stepIntervalMs =
+    options.timing === "independent" ? side.nextLockLatencyMs : options.stepIntervalMs;
   side.acc += dt;
   let locked = 0;
   let iterations = 0;
   while (
     side.queue.length > 0 &&
-    options.stepIntervalMs > 0 &&
-    side.acc >= options.stepIntervalMs &&
+    stepIntervalMs > 0 &&
+    side.acc >= stepIntervalMs &&
     locked === 0 &&
     iterations < MAX_CATCHUP_ITERATIONS
   ) {
@@ -383,7 +408,7 @@ export function stepSide(
       // step budget. Cosmetic plan steps (rotate/move/softDrop) are applied for
       // free so two fighters with different plan lengths lock at the same rate.
       const terminal = locksPiece(head.kind) || head.kind === "hold";
-      if (terminal) side.acc -= options.stepIntervalMs;
+      if (terminal) side.acc -= stepIntervalMs;
       if (locksPiece(head.kind)) side.core.setGarbageWait?.(side.garbageWait);
       const stepResult = applyStep(side.core, head, side.execution);
       switch (stepResult.kind) {

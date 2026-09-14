@@ -39,12 +39,33 @@ pub trait AiFighter {
     fn reset(&mut self) {}
 }
 
+/// `src/versus/controller.ts` `VersusTimingMode`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VersusTiming {
+    #[default]
+    Shared,
+    Independent,
+}
+
+impl VersusTiming {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VersusTiming::Shared => "shared",
+            VersusTiming::Independent => "independent",
+        }
+    }
+}
+
 /// `src/versus/controller.ts` `VersusControllerOptions`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VersusControllerOptions {
     pub step_interval_ms: f64,
     pub gravity_ms: f64,
     pub auto_rematch_ms: f64,
+    pub timing: VersusTiming,
+    pub input_latency_ms: Option<f64>,
+    pub fixed_left_latency_ms: Option<f64>,
+    pub fixed_right_latency_ms: Option<f64>,
 }
 
 /// `src/versus/controller.ts` `VERSUS_DEFAULTS`.
@@ -52,6 +73,10 @@ pub const VERSUS_DEFAULTS: VersusControllerOptions = VersusControllerOptions {
     step_interval_ms: 120.0,
     gravity_ms: 500.0,
     auto_rematch_ms: 2500.0,
+    timing: VersusTiming::Shared,
+    input_latency_ms: None,
+    fixed_left_latency_ms: None,
+    fixed_right_latency_ms: None,
 };
 
 /// `src/versus/controller.ts` `VersusControllerConfig` (partial overrides).
@@ -90,7 +115,7 @@ pub fn speed_options(multiplier: f64) -> VersusControllerOptions {
     VersusControllerOptions {
         step_interval_ms: VERSUS_DEFAULTS.step_interval_ms / multiplier,
         gravity_ms: VERSUS_DEFAULTS.gravity_ms / multiplier,
-        auto_rematch_ms: VERSUS_DEFAULTS.auto_rematch_ms,
+        ..VERSUS_DEFAULTS
     }
 }
 

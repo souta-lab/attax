@@ -5,7 +5,7 @@ use ai_fighters::{
     DeepSeekFighter, HoikoFighter, MatchFighters, MatchOutcome, MatchReport, MatchRun, SideReport,
     run_match,
 };
-use game::Side;
+use game::{Side, VERSUS_DEFAULTS};
 use serde_json::json;
 
 use crate::cli::HeadlessArgs;
@@ -24,6 +24,12 @@ pub fn run(args: &HeadlessArgs) {
                 "seeds": args.seeds,
                 "frames": args.frames,
                 "tickMs": args.tick_ms,
+                "timing": {
+                    "mode": args.timing.timing.as_str(),
+                    "inputMs": args.timing.input_ms,
+                    "leftLatencyMs": args.timing.left_latency_ms,
+                    "rightLatencyMs": args.timing.right_latency_ms,
+                },
                 "hoiko": {
                     "beamSizeLimit": args.hoiko.beam_size_limit,
                     "depthLimit": args.hoiko.depth_limit,
@@ -68,6 +74,7 @@ pub fn run_seed(args: &HeadlessArgs, seed: i32) -> MatchReport {
     run_match(MatchRun {
         max_ticks: args.frames,
         tick_ms: args.tick_ms,
+        options: args.timing.apply(VERSUS_DEFAULTS),
         ..MatchRun::new(seed, fighters)
     })
 }
