@@ -1,0 +1,15 @@
+[package]
+name = "ai-fighters"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+game = { path = "../game" }
+hoiko-core = { path = "../hoiko-core" }
+deepseek-rust = { path = "../deepseek-rust" }
+
+[dev-dependencies]
+serde_json = "1"

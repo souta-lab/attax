@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["game", "hoiko-core", "hoiko-wasm", "deepseek-rust", "deepseek-wasm"]
+members = [
+    "game",
+    "hoiko-core",
+    "hoiko-wasm",
+    "deepseek-rust",
+    "deepseek-wasm",
+    "ai-fighters",
+    "hoiko-app",
+]
 
 [profile.release]
 opt-level = 3
