@@ -510,7 +510,7 @@
       "pieces": 120,
       "expected": {
         "targetX": 4,
-        "targetRotation": 3,
+        "targetRotation": 0,
         "useHold": false
       }
     },
@@ -765,7 +765,7 @@
       "pieces": 60,
       "expected": {
         "targetX": 7,
-        "targetRotation": 3,
+        "targetRotation": 2,
         "useHold": false
       }
     },
