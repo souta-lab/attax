@@ -7,8 +7,9 @@ use crate::deepseek_score::ds_heights;
 use crate::evaluation::{Evaluation, PlyContext};
 use crate::features::extract_features;
 use crate::pieces::{PieceKind, bottom_cells};
-use crate::scorer::fire_score;
+use crate::scorer::{engine_kind, fire_score};
 use crate::kick::enumerate_kick_placements;
+use crate::tspin::{TspinKind, classify_placement};
 use crate::search::{ScoredPlacement, enumerate_scored};
 use crate::weights::{FireWeights, Weights, score_placement};
 
@@ -324,6 +325,7 @@ fn rank_with_evaluation(
     for s in list {
         let tspin = piece == PieceKind::T
             && is_tspin_shape(&s.after, &bottom_cells(piece, s.rotation), s.x, s.y);
+        let tspin_kind = classify_placement(&node.board, piece, s.rotation, s.x, s.y);
         let pending_after = (node.pending - s.lines_cleared as i32).max(0);
         let ctx = PlyContext {
             ply: 0,
@@ -336,6 +338,7 @@ fn rank_with_evaluation(
             piece: Some(piece),
             hold: ctx_hold,
             next_piece,
+            tspin_kind,
         };
         if options.evaluation.veto(&s.after, s.lines_cleared, tspin) {
             continue;
@@ -373,6 +376,8 @@ fn apply_placement(
     let test = transition.after;
     let before_rows = count_filled_rows(&node.board);
     let tspin = piece == PieceKind::T && is_tspin_shape(&test, &cells, s.x, y);
+    // Engine verdict (what the lock awards) vs. the post-clear shape heuristic.
+    let tspin_kind = classify_placement(&node.board, piece, s.rotation, s.x, y);
     let lines = transition.lines_cleared;
     let pending_after = (node.pending - lines as i32).max(0);
     let next_hold = if used_hold { Some(piece) } else { node.hold };
@@ -387,6 +392,7 @@ fn apply_placement(
         piece: Some(piece),
         hold: next_hold,
         next_piece,
+        tspin_kind,
     };
     if options.evaluation.veto(&test, lines, tspin) {
         return None;
@@ -403,6 +409,7 @@ fn apply_placement(
     let fscore = fire_score(
         lines,
         tspin,
+        tspin_kind == TspinKind::Mini,
         node.b2b,
         next_combo,
         perfect_clear,
@@ -415,10 +422,9 @@ fn apply_placement(
         + setup_credit(&test, lines, tspin, ply, options.fire)
         + sustain_credit(&test, lines, tspin, ply)
         + options.evaluation.score(&test, lines, tspin, &ctx);
-    let next_b2b = if lines == 4 || (tspin && lines > 0) {
-        true
-    } else if lines > 0 {
-        false
+    // Same predicate the engine applies on lock (issue #27).
+    let next_b2b = if lines > 0 {
+        game::garbage::is_difficult_clear(lines as i32, engine_kind(tspin_kind))
     } else {
         node.b2b
     };

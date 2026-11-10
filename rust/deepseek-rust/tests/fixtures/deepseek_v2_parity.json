@@ -31,8 +31,8 @@
       "pendingGarbage": 11,
       "pieces": 2,
       "expected": {
-        "targetX": 0,
-        "targetRotation": 2,
+        "targetX": -1,
+        "targetRotation": 1,
         "useHold": false
       }
     },
@@ -428,7 +428,7 @@
       },
       "expected": {
         "targetX": 4,
-        "targetRotation": 1,
+        "targetRotation": 0,
         "useHold": false
       }
     },
@@ -820,8 +820,8 @@
       "pieces": 31,
       "expected": {
         "targetX": 6,
-        "targetRotation": 1,
-        "useHold": true
+        "targetRotation": 0,
+        "useHold": false
       }
     },
     {
@@ -980,7 +980,7 @@
         "lastRawAttack": 2
       },
       "expected": {
-        "targetX": 4,
+        "targetX": 0,
         "targetRotation": 1,
         "useHold": false
       }
@@ -1064,7 +1064,7 @@
       "pendingGarbage": 9,
       "pieces": 15,
       "expected": {
-        "targetX": 3,
+        "targetX": 2,
         "targetRotation": 0,
         "useHold": false
       }
@@ -1211,8 +1211,8 @@
       "pendingGarbage": 0,
       "pieces": 1,
       "expected": {
-        "targetX": 7,
-        "targetRotation": 0,
+        "targetX": 5,
+        "targetRotation": 2,
         "useHold": false
       }
     },
@@ -1745,9 +1745,9 @@
         "lastRawAttack": 5
       },
       "expected": {
-        "targetX": 3,
+        "targetX": 0,
         "targetRotation": 0,
-        "useHold": true
+        "useHold": false
       }
     },
     {
@@ -1960,7 +1960,7 @@
         "useKicks": false
       },
       "expected": {
-        "targetX": 7,
+        "targetX": 1,
         "targetRotation": 0,
         "useHold": true
       }

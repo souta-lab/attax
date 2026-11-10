@@ -1,7 +1,9 @@
 import type { Board } from "../core/board.js";
 import { cloneBoard, collides, computeLockAfterstate, dropY } from "../core/board.js";
+import { isDifficultClear } from "../core/garbage.js";
 import type { PieceKind } from "../core/pieces.js";
 import { bottomCellsOf } from "../core/pieces.js";
+import { classifyPlacement } from "../core/tspin.js";
 import type { AiExecutionPlan } from "../ui/types.js";
 import { DEFAULTS } from "./config.js";
 import {
@@ -519,8 +521,9 @@ function rankWithEvaluation(
   const rescored = list.map((s) => {
     const tspin =
       piece === "T" && isTspinShape(s.after, bottomCellsOf(piece, s.rotation), s.x, s.y);
+    const tspinKind = classifyPlacement(node.board, piece, s.rotation, s.x, s.y);
     const pendingAfter = Math.max(0, node.pending - s.linesCleared);
-    const c: PlyContext = { ...ctx, pendingAfter };
+    const c: PlyContext = { ...ctx, pendingAfter, tspinKind };
     const input = { after: s.after, lines: s.linesCleared, tspin, context: c };
     if (evaluation.veto(input)) return { s, total: Number.NEGATIVE_INFINITY };
     return {
@@ -565,6 +568,8 @@ function applyPlacement(
   const test = transition.after;
   const beforeRows = countFilledRows(node.board);
   const tspin = piece === "T" && isTspinShape(test, cells, s.x, y);
+  // Engine verdict (what the lock awards) vs. the post-clear shape heuristic.
+  const tspinKind = classifyPlacement(node.board, piece, s.rotation, s.x, y);
   const pendingAfter = Math.max(0, node.pending - transition.linesCleared);
   const nextHold: PieceKind | null = usedHold ? piece : node.hold;
   const ctx: PlyContext = {
@@ -578,6 +583,7 @@ function applyPlacement(
     piece,
     hold: nextHold,
     nextPiece,
+    tspinKind,
   };
   const evaluationInput = { after: test, lines: transition.linesCleared, tspin, context: ctx };
   if (evaluation.veto(evaluationInput)) return null;
@@ -590,7 +596,7 @@ function applyPlacement(
     extractFireFeatures({
       linesCleared: transition.linesCleared,
       tspin,
-      tspinLines: tspin ? transition.linesCleared : 0,
+      tspinLines: tspin && tspinKind !== "mini" ? transition.linesCleared : 0,
       b2bActive: node.b2b,
       combo: nextCombo,
       perfectClear,
@@ -605,12 +611,9 @@ function applyPlacement(
     setupCredit(test, transition.linesCleared, tspin, ply, fire) +
     sustainCredit(test, transition.linesCleared, tspin, ply) +
     evaluation.score(evaluationInput);
+  // Same predicate the engine applies on lock (issue #27).
   const nextB2b =
-    transition.linesCleared === 4 || (tspin && transition.linesCleared > 0)
-      ? true
-      : transition.linesCleared > 0
-        ? false
-        : node.b2b;
+    transition.linesCleared > 0 ? isDifficultClear(transition.linesCleared, tspinKind) : node.b2b;
   return {
     board: test,
     hold: nextHold,

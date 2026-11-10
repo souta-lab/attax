@@ -34,8 +34,8 @@ pub mod versus;
 pub use board::{compute_lock_afterstate, lock_and_clear, BitBoard, LockAfterstate, LockResult};
 pub use engine::{EngineConfig, Game};
 pub use garbage::{
-    attack_for_clear, combo_bonus, gen_garbage_holes, push_incoming, tick_pending, ClearInfo,
-    PendingChunk, GARBAGE_DELAY,
+    attack_for_clear, combo_bonus, gen_garbage_holes, is_difficult_clear, push_incoming,
+    tick_pending, ClearInfo, PendingChunk, GARBAGE_DELAY,
 };
 pub use pieces::{bottom_cells_of, cells_for, piece_cell_value, rotation_count};
 pub use rng::{seeded_random, Rng, SeededRng};

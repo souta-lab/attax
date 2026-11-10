@@ -1,6 +1,7 @@
 use crate::board::Board;
 use crate::pieces::PieceKind;
 use crate::search::ScoredPlacement;
+use crate::tspin::TspinKind;
 use crate::weights::{FireWeights, Weights};
 
 #[derive(Clone, Copy)]
@@ -15,6 +16,10 @@ pub struct PlyContext<'a> {
     pub piece: Option<PieceKind>,
     pub hold: Option<PieceKind>,
     pub next_piece: Option<PieceKind>,
+    /// `src/ai/evaluation.ts` `tspinKind`: the engine's T-spin verdict for
+    /// the placement (`classify_placement`), used for attack/B2B prediction
+    /// (issue #27). The `tspin` scorer argument stays the shape heuristic.
+    pub tspin_kind: TspinKind,
 }
 
 pub trait Evaluation {

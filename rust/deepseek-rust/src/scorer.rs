@@ -7,6 +7,7 @@ use crate::evaluation::{Evaluation, PlyContext};
 use crate::features::{FireContext, extract_features, extract_fire_features};
 use crate::pieces::PieceKind;
 use crate::search::ScoredPlacement;
+use crate::tspin::TspinKind;
 use crate::weights::{FireWeights, score_fire};
 
 pub const ATK_W: f64 = 142.0;
@@ -58,56 +59,40 @@ pub const B2B_TSLOT_EXTRA: f64 = 50.0;
 pub const WELL_REBUILD_STEP: f64 = 22.0;
 pub const REN_CALM_KEEP: f64 = 30.0;
 
+/// Thin `f64` view of the canonical `game::garbage::combo_bonus`.
 pub fn combo_bonus(combo: i32) -> f64 {
-    if combo <= 1 {
-        0.0
-    } else if combo <= 3 {
-        1.0
-    } else if combo <= 5 {
-        2.0
-    } else if combo <= 7 {
-        3.0
-    } else if combo <= 10 {
-        4.0
-    } else {
-        5.0
-    }
+    f64::from(game::garbage::combo_bonus(combo))
 }
 
+/// AI-side attack prediction: delegates to the engine's
+/// `game::garbage::attack_for_clear` (the port of `src/core/garbage.ts`), so
+/// the search scores exactly the attack the lock will send (issue #27).
 pub fn attack_for_clear(
     lines: u32,
-    tspin_lines: u32,
+    tspin: TspinKind,
     combo: i32,
     b2b_active: bool,
     perfect_clear: bool,
 ) -> f64 {
-    if lines == 0 {
-        return 0.0;
+    let kind = engine_kind(tspin);
+    let lines = lines as i32;
+    f64::from(game::garbage::attack_for_clear(&game::garbage::ClearInfo {
+        lines,
+        tspin_lines: if kind == game::TspinKind::Full { lines } else { 0 },
+        combo,
+        b2b_active,
+        perfect_clear,
+        tspin_kind: Some(kind),
+    }))
+}
+
+/// The AI's `TspinKind` as the `game` crate's (same three variants).
+pub fn engine_kind(kind: TspinKind) -> game::TspinKind {
+    match kind {
+        TspinKind::None => game::TspinKind::None,
+        TspinKind::Mini => game::TspinKind::Mini,
+        TspinKind::Full => game::TspinKind::Full,
     }
-    let base = if tspin_lines > 0 {
-        match tspin_lines {
-            1 => 2.0,
-            2 => 4.0,
-            3 => 6.0,
-            _ => 0.0,
-        }
-    } else {
-        match lines {
-            1 => 0.0,
-            2 => 1.0,
-            3 => 2.0,
-            4 => 4.0,
-            _ => 0.0,
-        }
-    };
-    let b2b = if b2b_active && (lines == 4 || tspin_lines > 0) {
-        1.0
-    } else {
-        0.0
-    };
-    let combo_b = combo_bonus(combo);
-    let pc = if perfect_clear { 10.0 } else { 0.0 };
-    base + b2b + combo_b + pc
 }
 
 fn has_i(hold: Option<PieceKind>, can_hold: bool, queue: &[PieceKind]) -> bool {
@@ -144,16 +129,18 @@ impl DeepSeekScorer {
         let ncombo = if lines > 0 { ctx.combo + 1 } else { -1 };
         let atk = attack_for_clear(
             lines,
-            if tspin { lines } else { 0 },
+            ctx.tspin_kind,
             ncombo,
             ctx.b2b,
             feat.max_height == 0.0,
         );
+        // Full T-spin execution credit; a mini only keeps B2B.
+        let full_tspin = tspin && ctx.tspin_kind != TspinKind::Mini;
         let h = ds_heights(after);
         let well = ds_well(after, &h, 6);
         let emerg = ds_emergency(ctx.pending, well.global_max);
         let mut s = atk * ATK_W * self.late;
-        if tspin && lines > 0 {
+        if full_tspin && lines > 0 {
             s += TSD_EXEC;
         }
         if lines == 4 {
@@ -237,7 +224,7 @@ impl DeepSeekScorer {
                 s -= FILL_PEN + w0.depth as f64 * WELL_FILL_LOSS;
             }
         }
-        if lines > 0 && tspin {
+        if lines > 0 && full_tspin {
             s += TSD_ARRIVAL / (ctx.ply + 1) as f64;
         }
         if lines == 4 {
@@ -247,7 +234,7 @@ impl DeepSeekScorer {
             if lines == 4 {
                 s += TETRIS_EXEC_DEEP;
             }
-            if tspin && lines > 0 {
+            if full_tspin && lines > 0 {
                 s += TSD_EXEC_DEEP;
             }
         }
@@ -370,6 +357,7 @@ impl Evaluation for DeepSeekEvaluation<'_> {
 pub fn fire_score(
     lines_cleared: u32,
     tspin: bool,
+    tspin_mini: bool,
     b2b_active: bool,
     combo: i32,
     perfect_clear: bool,
@@ -379,7 +367,7 @@ pub fn fire_score(
         &extract_fire_features(FireContext {
             lines_cleared,
             tspin,
-            tspin_lines: if tspin { lines_cleared } else { 0 },
+            tspin_lines: if tspin && !tspin_mini { lines_cleared } else { 0 },
             b2b_active,
             combo,
             perfect_clear,

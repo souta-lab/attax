@@ -26,7 +26,7 @@ pub mod weights;
 pub use api::{BestMoveInput, Move, SEARCH_DEPTH, best_move};
 pub use board::{Board, COLS, ROWS};
 pub use pieces::PieceKind;
-pub use tspin::{TspinKind, classify_tspin, is_v2_tspin};
+pub use tspin::{TspinKind, classify_placement, classify_tspin, is_v2_tspin};
 pub use v2::{
     V2_DEFAULT_DEPTH, V2_DEFAULT_TOP_K, V2_DEFAULT_WIDTH, V2Input, V2Move, V2MoveDetails,
     V2Options, find_best_move_v2, find_best_move_v2_details,
