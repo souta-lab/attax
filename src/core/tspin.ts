@@ -1,4 +1,5 @@
-import type { Board } from "./board.js";
+import { type Board, COLS, cloneBoard } from "./board.js";
+import { bottomCellsOf, type PieceKind } from "./pieces.js";
 
 export type TspinKind = "none" | "mini" | "full";
 
@@ -53,4 +54,29 @@ export function classifyTspin(
   const index = ((rotation % 4) + 4) % 4;
   const [frontA, frontB] = FRONT_CORNER_PAIRS[index] ?? [0, 1];
   return occupied[frontA] !== occupied[frontB] && lastSrs !== 5 ? "mini" : "full";
+}
+
+/**
+ * Engine verdict for a piece resting at (rotation, x, y) on the pre-lock
+ * `board`, assuming it arrives by a non-final SRS kick (`lastSrs = 1`) — the
+ * way the AI executes spins with `placeAt`. AI search uses this so its
+ * attack/B2B predictions match what `classifyTspin` awards on lock (in
+ * particular, a mini is never valued as a full T-spin).
+ */
+export function classifyPlacement(
+  board: Board,
+  kind: PieceKind,
+  rotation: number,
+  x: number,
+  y: number,
+): TspinKind {
+  if (kind !== "T") return "none";
+  const cells = bottomCellsOf(kind, rotation);
+  const pre = cloneBoard(board);
+  for (const c of cells) {
+    const cx = x + c.x;
+    const cy = y + c.y;
+    if (cx >= 0 && cx < COLS && cy >= 0 && cy < pre.length) pre[cy] = (pre[cy] ?? 0) | (1 << cx);
+  }
+  return classifyTspin(pre, cells, x, y, rotation, 1);
 }

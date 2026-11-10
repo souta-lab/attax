@@ -186,16 +186,18 @@ impl V2Scorer {
         let ncombo = if lines > 0 { ctx.combo + 1 } else { -1 };
         let atk = attack_for_clear(
             lines,
-            if tspin { lines } else { 0 },
+            ctx.tspin_kind,
             ncombo,
             ctx.b2b,
             feat.max_height == 0.0,
         );
+        // Full T-spin execution credit; a mini only keeps B2B.
+        let full_tspin = tspin && ctx.tspin_kind != crate::tspin::TspinKind::Mini;
         let stats = v2_board_stats(after);
         let well = ds_well(after, &stats.heights, 6);
         let emerg = ds_emergency(ctx.pending, well.global_max);
         let mut s = atk * V2_ATK_W * self.late;
-        if tspin && lines > 0 {
+        if full_tspin && lines > 0 {
             s += V2_TSD_EXEC;
         }
         if lines == 4 {
@@ -282,7 +284,7 @@ impl V2Scorer {
                 s -= V2_FILL_PEN + w0.depth as f64 * V2_WELL_FILL_LOSS;
             }
         }
-        if lines > 0 && tspin {
+        if lines > 0 && full_tspin {
             s += V2_TSD_ARRIVAL / (ctx.ply + 1) as f64;
         }
         if lines == 4 {
@@ -292,7 +294,7 @@ impl V2Scorer {
             if lines == 4 {
                 s += V2_TETRIS_EXEC_DEEP;
             }
-            if tspin && lines > 0 {
+            if full_tspin && lines > 0 {
                 s += V2_TSD_EXEC_DEEP;
             }
         }

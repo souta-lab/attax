@@ -18,6 +18,7 @@ import {
   attackForClear,
   cancelPending,
   genGarbageHoles,
+  isDifficultClear,
   type PendingChunk,
   pendingTotal,
   pushIncoming,
@@ -177,7 +178,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     lines += cleared;
     const base = LINE_SCORES[cleared] ?? cleared * 200;
     const tspinLines = tspin === "full" ? cleared : 0;
-    const difficult = cleared === 4 || tspin !== "none";
+    const difficult = isDifficultClear(cleared, tspin);
     const b2bBefore = b2b;
     let gained = base * level;
     if (difficult && b2bBefore) gained = Math.floor(gained * 1.5);

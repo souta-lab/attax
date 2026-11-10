@@ -424,9 +424,9 @@
       "pendingGarbage": 1,
       "pieces": 44,
       "expected": {
-        "targetX": 2,
-        "targetRotation": 0,
-        "useHold": true
+        "targetX": -1,
+        "targetRotation": 1,
+        "useHold": false
       }
     },
     {
@@ -594,8 +594,8 @@
       "pendingGarbage": 0,
       "pieces": 1,
       "expected": {
-        "targetX": 7,
-        "targetRotation": 1,
+        "targetX": 6,
+        "targetRotation": 0,
         "useHold": false
       }
     },
@@ -849,7 +849,7 @@
       "pendingGarbage": 4,
       "pieces": 151,
       "expected": {
-        "targetX": 6,
+        "targetX": -2,
         "targetRotation": 1,
         "useHold": false
       }
@@ -866,7 +866,7 @@
       "pendingGarbage": 4,
       "pieces": 151,
       "expected": {
-        "targetX": 6,
+        "targetX": -2,
         "targetRotation": 1,
         "useHold": true
       }

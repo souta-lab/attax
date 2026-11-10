@@ -106,7 +106,7 @@ impl Game {
             .copied()
             .unwrap_or(cleared * 200);
         let tspin_lines = if tspin == TspinKind::Full { cleared } else { 0 };
-        let difficult = cleared == 4 || tspin != TspinKind::None;
+        let difficult = crate::garbage::is_difficult_clear(cleared, tspin);
         let b2b_before = self.b2b;
         let mut gained = base * self.level;
         if difficult && b2b_before {

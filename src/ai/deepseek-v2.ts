@@ -9,10 +9,10 @@
 //   (c) incoming-garbage defense (Cold Clear style height + pending safety).
 //   (d) principled downstack/burst selection from board messiness.
 //   (e) configurable, deeper beam search.
-import { type Board, COLS, cloneBoard } from "../core/board.js";
+import type { Board } from "../core/board.js";
 import { attackForClear } from "../core/garbage.js";
-import { bottomCellsOf, cellsFor, type PieceKind } from "../core/pieces.js";
-import { classifyTspin } from "../core/tspin.js";
+import { cellsFor, type PieceKind } from "../core/pieces.js";
+import { classifyPlacement } from "../core/tspin.js";
 import type { AiDebug, AiExecutionPlan, AiMove, GameSnapshot } from "../ui/types.js";
 import { type BeamMove, beamBestMove, createBeamEvaluation, type PlyContext } from "./beam.js";
 import { toBoard } from "./deepseek.js";
@@ -150,15 +150,7 @@ export function isV2Tspin(
   x: number,
   y: number,
 ): boolean {
-  if (kind !== "T") return false;
-  const cells = bottomCellsOf(kind, rotation);
-  const pre = cloneBoard(board);
-  for (const c of cells) {
-    const cx = x + c.x;
-    const cy = y + c.y;
-    if (cx >= 0 && cx < COLS && cy >= 0 && cy < pre.length) pre[cy] = (pre[cy] ?? 0) | (1 << cx);
-  }
-  return classifyTspin(pre, cells, x, y, rotation, 1) !== "none";
+  return classifyPlacement(board, kind, rotation, x, y) !== "none";
 }
 
 /**
@@ -230,18 +222,23 @@ function v2Scorer(
   return (after, lines, tspin, ctx) => {
     const feat = extractFeatures(after, 0, 0);
     const ncombo = lines > 0 ? ctx.combo + 1 : -1;
+    // Engine verdict drives the attack prediction (issue #27).
+    const spinKind = ctx.tspinKind ?? (tspin ? "full" : "none");
     const atk = attackForClear({
       lines,
       tspinLines: tspin ? lines : 0,
       combo: ncombo,
       b2bActive: ctx.b2b,
       perfectClear: feat.maxHeight === 0,
+      tspinKind: spinKind,
     });
+    // Full T-spin execution credit; a mini only keeps B2B (handled below).
+    const fullTspin = tspin && spinKind !== "mini";
     const stats = v2BoardStats(after);
     const well = dsWell(after, stats.heights, 6);
     const emerg = dsEmergency(ctx.pending, well.globalMax);
     let s = atk * ATK_W * late;
-    if (tspin && lines > 0) s += TSD_EXEC;
+    if (fullTspin && lines > 0) s += TSD_EXEC;
     if (lines === 4) s += TETRIS_EXEC;
     if (lines === 3) s += TRIPLE_EXEC + TRIPLE_ARRIVAL / (ctx.ply + 1);
     if ((lines === 4 || (tspin && lines > 0)) && ctx.b2b) s += B2B_CHAIN;
@@ -293,11 +290,11 @@ function v2Scorer(
       const w0 = dsWell(after, h0, 6);
       if (w0.depth >= READY_DEPTH && w0.edge && iAvail) s -= FILL_PEN + w0.depth * WELL_FILL_LOSS;
     }
-    if (lines > 0 && tspin) s += TSD_ARRIVAL / (ctx.ply + 1);
+    if (lines > 0 && fullTspin) s += TSD_ARRIVAL / (ctx.ply + 1);
     if (lines === 4) s += TETRIS_ARRIVAL / (ctx.ply + 1);
     if (ctx.ply >= 1 && ctx.ply <= 3) {
       if (lines === 4) s += TETRIS_EXEC_DEEP;
-      if (tspin && lines > 0) s += TSD_EXEC_DEEP;
+      if (fullTspin && lines > 0) s += TSD_EXEC_DEEP;
     }
     if (lines > 0 && ncombo >= REN_START) {
       const renStep = pieces >= REN_LATE_N ? REN_LATE_STEP : REN_STEP;

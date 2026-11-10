@@ -70,18 +70,23 @@ function tunedScorer(
   return (after, lines, tspin, ctx) => {
     const feat = extractFeatures(after, 0, 0);
     const ncombo = lines > 0 ? ctx.combo + 1 : -1;
+    // Engine verdict drives the attack prediction (issue #27).
+    const spinKind = ctx.tspinKind ?? (tspin ? "full" : "none");
     const atk = attackForClear({
       lines,
       tspinLines: tspin ? lines : 0,
       combo: ncombo,
       b2bActive: ctx.b2b,
       perfectClear: feat.maxHeight === 0,
+      tspinKind: spinKind,
     });
+    // Full T-spin execution credit; a mini only keeps B2B (handled below).
+    const fullTspin = tspin && spinKind !== "mini";
     const h = dsHeights(after);
     const well = dsWell(after, h, 6);
     const emerg = dsEmergency(ctx.pending, well.globalMax);
     let s = atk * P.ATK_W * late;
-    if (tspin && lines > 0) s += P.TSD_EXEC;
+    if (fullTspin && lines > 0) s += P.TSD_EXEC;
     if (lines === 4) s += P.TETRIS_EXEC;
     if (lines === 3) s += P.TRIPLE_EXEC + P.TRIPLE_ARRIVAL / (ctx.ply + 1);
     if ((lines === 4 || (tspin && lines > 0)) && ctx.b2b) s += P.B2B_CHAIN;
@@ -134,11 +139,11 @@ function tunedScorer(
       if (w0.depth >= P.READY_DEPTH && w0.edge && iAvail)
         s -= P.FILL_PEN + w0.depth * P.WELL_FILL_LOSS;
     }
-    if (lines > 0 && tspin) s += P.TSD_ARRIVAL / (ctx.ply + 1);
+    if (lines > 0 && fullTspin) s += P.TSD_ARRIVAL / (ctx.ply + 1);
     if (lines === 4) s += P.TETRIS_ARRIVAL / (ctx.ply + 1);
     if (ctx.ply >= 1 && ctx.ply <= 3) {
       if (lines === 4) s += P.TETRIS_EXEC_DEEP;
-      if (tspin && lines > 0) s += P.TSD_EXEC_DEEP;
+      if (fullTspin && lines > 0) s += P.TSD_EXEC_DEEP;
     }
     if (lines > 0 && ncombo >= P.REN_START) {
       const renStep = pieces >= P.REN_LATE_N ? P.REN_LATE_STEP : P.REN_STEP;

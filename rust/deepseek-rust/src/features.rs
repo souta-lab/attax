@@ -136,7 +136,8 @@ pub fn extract_fire_features(ctx: FireContext) -> FireFeatures {
         is_tspin_single: tspin && ctx.tspin_lines == 1,
         is_tspin_double: tspin && ctx.tspin_lines == 2,
         is_tspin_triple: tspin && ctx.tspin_lines == 3,
-        b2b_bonus: ctx.b2b_active && (lines == 4 || tspin),
+        // Minis (tspin && tspin_lines == 0) keep B2B and earn its bonus.
+        b2b_bonus: ctx.b2b_active && (lines == 4 || (ctx.tspin && lines > 0)),
         combo_count: ctx.combo.max(0),
         is_perfect_clear: ctx.perfect_clear,
     }

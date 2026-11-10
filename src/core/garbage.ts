@@ -42,25 +42,46 @@ const MINI_TSPIN_BASE: Readonly<Record<number, number>> = {
   3: 0,
 };
 
+/**
+ * Guideline (PPT/TEC) combo table, indexed by the 0-based combo counter every
+ * caller passes: the first clear of a chain is combo 0 (no bonus), the second
+ * clear ("1 REN") is combo 1. Table: 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5...
+ */
 export function comboBonus(combo: number): number {
-  if (combo <= 1) return 0;
-  if (combo <= 3) return 1;
-  if (combo <= 5) return 2;
-  if (combo <= 7) return 3;
-  if (combo <= 10) return 4;
+  if (combo <= 0) return 0;
+  if (combo <= 2) return 1;
+  if (combo <= 4) return 2;
+  if (combo <= 6) return 3;
+  if (combo <= 9) return 4;
   return 5;
+}
+
+/** Resolve the T-spin kind; without an explicit kind, `tspinLines > 0` means full. */
+export function resolveTspinKind(
+  info: Pick<ClearInfo, "tspinLines" | "tspinKind">,
+): TspinAttackKind {
+  return info.tspinKind ?? (info.tspinLines > 0 ? "full" : "none");
+}
+
+/**
+ * Guideline "difficult" clear: a Tetris or any T-spin clear (mini included).
+ * It both keeps the B2B chain alive and earns the +1 B2B attack bonus; the
+ * engine uses this same predicate for the chain so the two cannot drift.
+ */
+export function isDifficultClear(lines: number, kind: TspinAttackKind): boolean {
+  return lines > 0 && (lines === 4 || kind !== "none");
 }
 
 export function attackForClear(info: ClearInfo): number {
   if (info.lines <= 0) return 0;
-  const kind = info.tspinKind ?? (info.tspinLines > 0 ? "full" : "none");
+  const kind = resolveTspinKind(info);
   const base =
     kind === "mini"
       ? (MINI_TSPIN_BASE[info.lines] ?? 0)
-      : info.tspinLines > 0
-        ? (TSPIN_BASE[info.tspinLines] ?? 0)
+      : kind === "full"
+        ? (TSPIN_BASE[info.tspinLines > 0 ? info.tspinLines : info.lines] ?? 0)
         : (LINE_BASE[info.lines] ?? 0);
-  const b2b = info.b2bActive && (info.lines === 4 || info.tspinLines > 0) ? 1 : 0;
+  const b2b = info.b2bActive && isDifficultClear(info.lines, kind) ? 1 : 0;
   const combo = comboBonus(info.combo);
   const pc = info.perfectClear ? PERFECT_CLEAR_BONUS : 0;
   return base + b2b + combo + pc;

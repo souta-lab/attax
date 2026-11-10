@@ -133,7 +133,9 @@ export function extractFireFeatures(ctx: FireContext): FireFeatures {
     isTspinSingle: tspin && ctx.tspinLines === 1,
     isTspinDouble: tspin && ctx.tspinLines === 2,
     isTspinTriple: tspin && ctx.tspinLines === 3,
-    b2bBonus: ctx.b2bActive && (lines === 4 || tspin),
+    // Minis (tspin && tspinLines === 0) are difficult clears too: they keep
+    // B2B and earn its bonus even though they are not counted as T-spins.
+    b2bBonus: ctx.b2bActive && (lines === 4 || (ctx.tspin && lines > 0)),
     comboCount: Math.max(0, ctx.combo),
     isPerfectClear: ctx.perfectClear,
   };

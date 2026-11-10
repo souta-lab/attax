@@ -1,5 +1,6 @@
 import type { Board } from "../core/board.js";
 import type { PieceKind } from "../core/pieces.js";
+import type { TspinKind } from "../core/tspin.js";
 import type { ScoredPlacement } from "./search.js";
 import type { FireWeights, Weights } from "./weights.js";
 
@@ -21,6 +22,14 @@ export interface PlyContext {
   readonly hold?: PieceKind | null | undefined;
   /** Piece that will be placed next (Hoiko EvalPrePcBoard fallingMino). */
   readonly nextPiece?: PieceKind | undefined;
+  /**
+   * The engine's T-spin verdict for this placement (`classifyPlacement`: the
+   * pre-lock four-corner + front-corner rule the AI's `placeAt` execution
+   * triggers). Attack and B2B predictions use it so the search scores exactly
+   * what the lock sends; the `tspin` scorer argument stays the post-clear
+   * shape heuristic. Absent: `tspin` is taken as a full T-spin (issue #27).
+   */
+  readonly tspinKind?: TspinKind | undefined;
 }
 
 export type PlyScorer = (after: Board, lines: number, tspin: boolean, ctx: PlyContext) => number;

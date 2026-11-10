@@ -78,11 +78,12 @@ pub fn classify_tspin(
     }
 }
 
-/// Port of `isV2Tspin`: mark the piece into a board copy, then classify with
-/// `lastSrs = 1`.
-pub fn is_v2_tspin(board: &Board, kind: PieceKind, rotation: i32, x: i32, y: i32) -> bool {
+/// Port of `classifyPlacement` (`src/core/tspin.ts`): mark the piece into a
+/// board copy, then classify with `lastSrs = 1` — the engine's verdict for
+/// the AI's `placeAt` execution.
+pub fn classify_placement(board: &Board, kind: PieceKind, rotation: i32, x: i32, y: i32) -> TspinKind {
     if kind != PieceKind::T {
-        return false;
+        return TspinKind::None;
     }
     let cells = bottom_cells(kind, rotation);
     let mut pre = *board;
@@ -93,7 +94,12 @@ pub fn is_v2_tspin(board: &Board, kind: PieceKind, rotation: i32, x: i32, y: i32
             pre[cy as usize] |= 1u16 << cx;
         }
     }
-    classify_tspin(&pre, &cells, x, y, rotation, 1) != TspinKind::None
+    classify_tspin(&pre, &cells, x, y, rotation, 1)
+}
+
+/// Port of `isV2Tspin`.
+pub fn is_v2_tspin(board: &Board, kind: PieceKind, rotation: i32, x: i32, y: i32) -> bool {
+    classify_placement(board, kind, rotation, x, y) != TspinKind::None
 }
 
 #[cfg(test)]

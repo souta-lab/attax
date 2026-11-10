@@ -33,21 +33,36 @@ fn table_get(table: &[i32], index: i32) -> i32 {
     table.get(index as usize).copied().unwrap_or(0)
 }
 
-/// `src/core/garbage.ts` `comboBonus`.
+/// `src/core/garbage.ts` `comboBonus`: guideline (PPT/TEC) combo table
+/// indexed by the 0-based combo counter (first clear of a chain = 0, no bonus;
+/// second clear = 1). Table: 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5...
 pub fn combo_bonus(combo: i32) -> i32 {
-    if combo <= 1 {
+    if combo <= 0 {
         0
-    } else if combo <= 3 {
+    } else if combo <= 2 {
         1
-    } else if combo <= 5 {
+    } else if combo <= 4 {
         2
-    } else if combo <= 7 {
+    } else if combo <= 6 {
         3
-    } else if combo <= 10 {
+    } else if combo <= 9 {
         4
     } else {
         5
     }
+}
+
+/// `src/core/garbage.ts` `resolveTspinKind`: without an explicit kind,
+/// `tspin_lines > 0` means a full T-spin.
+pub fn resolve_tspin_kind(info: &ClearInfo) -> TspinKind {
+    info.tspin_kind
+        .unwrap_or(if info.tspin_lines > 0 { TspinKind::Full } else { TspinKind::None })
+}
+
+/// `src/core/garbage.ts` `isDifficultClear`: a Tetris or any T-spin clear
+/// (mini included). It both keeps B2B alive and earns the +1 B2B attack bonus.
+pub fn is_difficult_clear(lines: i32, kind: TspinKind) -> bool {
+    lines > 0 && (lines == 4 || kind != TspinKind::None)
 }
 
 /// `src/core/garbage.ts` `attackForClear`.
@@ -55,20 +70,16 @@ pub fn attack_for_clear(info: &ClearInfo) -> i32 {
     if info.lines <= 0 {
         return 0;
     }
-    let kind = info
-        .tspin_kind
-        .unwrap_or(if info.tspin_lines > 0 { TspinKind::Full } else { TspinKind::None });
+    let kind = resolve_tspin_kind(info);
     let base = match kind {
         TspinKind::Mini => table_get(&MINI_TSPIN_BASE, info.lines),
-        TspinKind::Full | TspinKind::None => {
-            if info.tspin_lines > 0 {
-                table_get(&TSPIN_BASE, info.tspin_lines)
-            } else {
-                table_get(&LINE_BASE, info.lines)
-            }
-        }
+        TspinKind::Full => table_get(
+            &TSPIN_BASE,
+            if info.tspin_lines > 0 { info.tspin_lines } else { info.lines },
+        ),
+        TspinKind::None => table_get(&LINE_BASE, info.lines),
     };
-    let b2b = if info.b2b_active && (info.lines == 4 || info.tspin_lines > 0) {
+    let b2b = if info.b2b_active && is_difficult_clear(info.lines, kind) {
         1
     } else {
         0
@@ -187,19 +198,13 @@ mod tests {
     }
 
     #[test]
-    fn combo_bonus_matches_the_ts_ladder() {
+    fn combo_bonus_follows_the_guideline_table_on_the_0_based_counter() {
+        // Callers pass the engine counter: -1 = no chain, 0 = first clear.
+        let expected = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5];
         assert_eq!(combo_bonus(-1), 0);
-        assert_eq!(combo_bonus(0), 0);
-        assert_eq!(combo_bonus(1), 0);
-        assert_eq!(combo_bonus(2), 1);
-        assert_eq!(combo_bonus(3), 1);
-        assert_eq!(combo_bonus(4), 2);
-        assert_eq!(combo_bonus(5), 2);
-        assert_eq!(combo_bonus(6), 3);
-        assert_eq!(combo_bonus(7), 3);
-        assert_eq!(combo_bonus(8), 4);
-        assert_eq!(combo_bonus(10), 4);
-        assert_eq!(combo_bonus(11), 5);
+        for (combo, want) in expected.iter().enumerate() {
+            assert_eq!(combo_bonus(combo as i32), *want, "combo {combo}");
+        }
     }
 
     #[test]
@@ -233,6 +238,26 @@ mod tests {
         // b2b only applies to quads and T-spin clears.
         let b2b_double = info(2, 0, 0, true, false, None);
         assert_eq!(attack_for_clear(&b2b_double), 1);
+    }
+
+    #[test]
+    fn mini_tspin_clears_earn_the_b2b_bonus_they_keep_alive() {
+        // Issue #27: the engine continues B2B on a mini, so the attack must too.
+        let mini = Some(TspinKind::Mini);
+        assert_eq!(attack_for_clear(&info(1, 0, 0, true, false, mini)), 1); // 0 + 1
+        assert_eq!(attack_for_clear(&info(2, 0, 0, true, false, mini)), 2); // 1 + 1
+        assert_eq!(attack_for_clear(&info(2, 0, 0, false, false, mini)), 1);
+        assert!(is_difficult_clear(1, TspinKind::Mini));
+        assert!(is_difficult_clear(4, TspinKind::None));
+        assert!(!is_difficult_clear(3, TspinKind::None));
+        assert!(!is_difficult_clear(0, TspinKind::Full));
+    }
+
+    #[test]
+    fn second_consecutive_clear_is_one_ren() {
+        // Issue #27: combo 1 (the 2nd clear in a row) is worth +1, not 0.
+        assert_eq!(attack_for_clear(&info(1, 0, 1, false, false, None)), 1);
+        assert_eq!(attack_for_clear(&info(1, 0, 0, false, false, None)), 0);
     }
 
     #[test]
