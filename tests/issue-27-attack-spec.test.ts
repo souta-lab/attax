@@ -76,13 +76,18 @@ describe("AI search sees minis as minis", () => {
     expect(classifyPlacement(TSD, "T", 2, 3, 0)).toBe("full");
   });
 
+  // Records every clearing placement the engine would award as a spin. The
+  // scorer's `tspin` argument is the post-clear shape heuristic (false once
+  // both rows are gone), so the engine verdict travels in `ctx.tspinKind`.
   function spinCalls(board: Uint16Array) {
-    const calls: { lines: number; tspin: boolean; mini: boolean | undefined }[] = [];
+    const calls: { lines: number; kind: PlyContext["tspinKind"] }[] = [];
     beamBestMove(board, "T", [], null, false, false, -1, {
       depth: 1,
       useHold: false,
-      scorer: (_after, lines, tspin, ctx: PlyContext) => {
-        if (tspin && lines > 0) calls.push({ lines, tspin, mini: ctx.tspinMini });
+      scorer: (_after, lines, _tspin, ctx: PlyContext) => {
+        if (lines > 0 && ctx.tspinKind !== undefined && ctx.tspinKind !== "none") {
+          calls.push({ lines, kind: ctx.tspinKind });
+        }
         return 0;
       },
     });
@@ -93,7 +98,7 @@ describe("AI search sees minis as minis", () => {
     const calls = spinCalls(MINI_EDGE);
     const double = calls.filter((c) => c.lines === 2);
     expect(double.length).toBeGreaterThan(0);
-    for (const c of double) expect(c.mini).toBe(true);
+    for (const c of double) expect(c.kind).toBe("mini");
     // Its attack is the mini value (1), not the TSD value (4) it used to get.
     expect(attackForClear(info(2, "mini"))).toBe(1);
   });
@@ -102,6 +107,6 @@ describe("AI search sees minis as minis", () => {
     const calls = spinCalls(TSD);
     const tsd = calls.filter((c) => c.lines === 2);
     expect(tsd.length).toBeGreaterThan(0);
-    for (const c of tsd) expect(c.mini).toBe(false);
+    for (const c of tsd) expect(c.kind).toBe("full");
   });
 });

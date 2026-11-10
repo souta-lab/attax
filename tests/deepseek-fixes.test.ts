@@ -69,7 +69,11 @@ describe("deepseek state leak across matches", () => {
     }
     if (lateDebug === null) throw new Error("unreachable");
     expect(lateDebug.pieceIndex).toBe(71);
-    expect(lateMove).not.toEqual(firstMove);
+    // Late-game state must change the evaluation, or the reset check below is
+    // vacuous. Since the issue #27 combo table the best move on this board is
+    // the same clear in both phases, so the phase shows up in the score.
+    expect(lateMove).not.toBeNull();
+    expect(lateDebug.score).not.toBe(firstDebug.score);
 
     fighter.reset();
     expect(fighter.getDebug()).toBeNull();
