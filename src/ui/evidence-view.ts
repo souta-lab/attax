@@ -79,7 +79,7 @@ function resultTable(): HTMLElement {
       "tbody",
       {},
       RESULTS.rows
-        .filter((row) => ["bot", "preview2", "intetrigence", "clys"].includes(row.id))
+        .filter((row) => ["bot", "preview2", "clys"].includes(row.id))
         .map((row) =>
           h("tr", {}, [
             h("td", {}, [
@@ -97,7 +97,7 @@ function resultTable(): HTMLElement {
               }),
             ]),
             h("td", {
-              text: `${fixed(row.attackPerPiece, row.id === "clys" ? 4 : row.id === "intetrigence" ? 3 : 2)} vs ${fixed(row.rivalAttackPerPiece, row.id === "clys" ? 4 : row.id === "intetrigence" ? 3 : 2)}`,
+              text: `${fixed(row.attackPerPiece, row.id === "clys" ? 4 : 2)} vs ${fixed(row.rivalAttackPerPiece, row.id === "clys" ? 4 : 2)}`,
             }),
           ]),
         ),
