@@ -30,6 +30,13 @@ export interface Results {
   readonly commit: string;
   readonly seeds: string;
   readonly headline: MatchupRow;
+  readonly tagline: string;
+  readonly copy: {
+    readonly claim: string;
+    readonly profiles: readonly string[];
+    readonly fairness: readonly string[];
+    readonly unmeasured: readonly string[];
+  };
   readonly rows: readonly MatchupRow[];
   readonly games: readonly GameRow[];
   readonly rulesAudit: { readonly locks: number; readonly agree: number };

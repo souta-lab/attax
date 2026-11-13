@@ -1,0 +1,45 @@
+{
+  "games": 100,
+  "seeds": "5001-5050 (50 seeds x both seats)",
+  "attax_wins": 100,
+  "intetrigence_wins": 0,
+  "draws": 0,
+  "attax_winrate_wilson95": [
+    1.0,
+    0.963,
+    1.0
+  ],
+  "seed_pairs": {
+    "attax_swept": 50,
+    "intetrigence_swept": 0,
+    "split": 0
+  },
+  "per_side": {
+    "intetrigence": {
+      "attack_per_piece": 0.317,
+      "lines_per_game": 96.2,
+      "pieces_per_game": 141.3,
+      "garbage_rows_received_total": 6573,
+      "max_pending_seen": 5
+    },
+    "attax": {
+      "attack_per_piece": 0.559,
+      "lines_per_game": 83.5,
+      "pieces_per_game": 142.3,
+      "garbage_rows_received_total": 3146,
+      "max_pending_seen": 0
+    }
+  },
+  "attax_log_entries": 14230,
+  "attax_moves_in_replay": 14230,
+  "attax_first_choice_accepted_exactly": 14230,
+  "attax_first_choice_cells_accepted_spin_relabelled": 0,
+  "attax_fell_back_to_other_cells_or_orientation": 0,
+  "attax_think_ms": {
+    "mean": 38.3,
+    "median": 34.98,
+    "p95": 69.2,
+    "max": 297.55
+  },
+  "attax_turns_with_cells_above_row20": 0
+}
