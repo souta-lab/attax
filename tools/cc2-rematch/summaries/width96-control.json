@@ -1,0 +1,63 @@
+{
+  "pairs": 10,
+  "games": 20,
+  "wins": 12,
+  "losses": 8,
+  "draws": 0,
+  "win_rate": 0.6,
+  "pieces": [6129, 6125],
+  "attack": [4826, 4601],
+  "attack_per_piece": [0.7874041442323381, 0.7511836734693877],
+  "evidence": [
+    {
+      "seed": 2201,
+      "replay_sha256": "4f2876f3444d58b3189b8fcfe8173be06a3ea92353c804ca5c36576d614d4e2b",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2202,
+      "replay_sha256": "61af630396cff30bfefa4cd226c9fb94a78dd7abf68229dfa7a9ce6dacb99460",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2203,
+      "replay_sha256": "9d90e24029042473bed1bfe582ac9470b24950eb2504be95c53be1892fde4a43",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2204,
+      "replay_sha256": "827ad055b8894aad352ac8e3093204616c93c45f85d1b002a99363d9dfba7515",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2205,
+      "replay_sha256": "3354c189769724cdd95d79595e1a5be00adfe3d225700f2572f65431493526d8",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2206,
+      "replay_sha256": "0d449b8a4788e832e473ddb09b5ba6e8ba0d48ceed714d3da47017f8e0f12410",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2207,
+      "replay_sha256": "337a76767dfa5018629bcfe8cce70554efb2ceaaad9c2eb0295b37399ac92a41",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2208,
+      "replay_sha256": "f8a4cebb0b2affe3c80298d20b056fc96065bc46021f0e5765be9a295904c14b",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2209,
+      "replay_sha256": "44241a1b65d5b22978b8e46a18f604a9a218125b1d5a6d54dd5fc28d5ff91660",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2210,
+      "replay_sha256": "17e07933f2d02e4053fb60bd84777a08aad01bedf4a64e168cb2df052f7dbedc",
+      "verification": "verified 2 complete matches"
+    }
+  ]
+}
