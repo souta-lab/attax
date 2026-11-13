@@ -77,12 +77,9 @@ seeds, so each seed counts once (N = 200 independent games).
 |---|---|---|---|---|---|
 | **Attax vs Hoiko** | 200 | **195–5** | **97.5% (94.3–98.9%)** | **0.70 vs 0.46** | 25.1 vs 18.5 |
 | Attax limited to Hoiko's 2-piece preview vs Hoiko (seeds 1001–1100) | 100 | 89–11 | 89.0% (81.4–93.7%) | 0.58 vs 0.46 | 28.9 vs 21.2 |
-| Previous AI (pre-overhaul `a4f14d7` + rules fix) vs Hoiko | 200 | 155–45 | 77.5% (71.2–82.7%) | 0.44 vs 0.48 | 29.1 vs 19.6 |
 
 - **2-preview control run.** The headline Attax reads 5 preview pieces; Hoiko is
   configured for 2. With Attax limited to 2 previews as well, it still wins 89–11.
-- **Previous AI.** The pre-overhaul AI sent *less* garbage per piece than Hoiko and won by
-  outlasting it. Attax cuts losses from 45 to 5 and out-attacks Hoiko by about 50%.
 - **Live replay check.** The in-browser arena reproduced benchmark game 1001 exactly
   (tick 293, garbage 20–8, matching the JSONL record), so the page runs the code that
   was benchmarked.
@@ -101,15 +98,7 @@ Source of truth for every number on the page: `bench-results/*.jsonl` →
 
 **What intetrigence is.** intetrigence is a versus engine derived from MinusKelvin's Cold Clear 2
 (MCTS search). In its own published 100-game evaluations against the official Cold Clear 2
-(`results/comparisons/cold-clear2/` in the intetrigence repo), it won:
-
-| intetrigence eval profile | intetrigence vs CC2 |
-|---|---|
-| retained tree, 10 ms / 40 PPS | 73–27 |
-| retained tree, **100 ms / 5 PPS** (the profile used here) | **77–23** |
-| strict time window, 100 ms / 5 PPS | 82–18 |
-| guideline, strict, 10 ms / 40 PPS | 69–31 |
-| guideline, strict, 10 ms / 40 PPS (v2) | 77–23 |
+(`results/comparisons/cold-clear2/` in the intetrigence repo), it won 77–23 at the retained-tree 100 ms / 5 PPS profile used here.
 
 **Result.** Attax 100 – 0 intetrigence: 100 games = 50 held-out seeds (5001–5050) × both
 seats, 0 draws. Win rate 100%, Wilson 95% CI 96.3–100%. Attax won both games on all 50
@@ -312,15 +301,6 @@ bun scripts/audit-rules.ts --seeds 3001-3020 --out bench-results/rules-audit.jso
 # page data + site
 bun scripts/build-results.ts      # -> src/data/results.json (what the page shows)
 bun run build                     # -> dist/
-```
-
-The previous AI's row is reproduced at the pre-overhaul commit `a4f14d7` with
-`bench-results/old-ai-rules-fix.patch` applied (the rules fix only), once per seed parity,
-then concatenated:
-
-```sh
-HOIKO_ADAPT=0 DSV2_RUST=1 HOIKO_SEEDS=1001,1003,...,1199 bun scripts/gate-v2.ts
-HOIKO_ADAPT=0 DSV2_RUST=1 HOIKO_SEEDS=1002,1004,...,1200 bun scripts/gate-v2.ts
 ```
 
 ### vs intetrigence (external harness)
