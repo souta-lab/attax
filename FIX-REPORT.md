@@ -110,3 +110,6 @@ The final profile is chosen only from the five development probes (seeds 2101–
 4. A margin of one or two wins between 20-game batches is within noise; a single game is worth 5 points of win rate. If the top two batches differ by ≤ 2 wins and one is a strict subset of the other's mechanisms, the simpler profile is preferred. This guards against selection on noise. The fresh seeds test whatever is frozen, not the best-looking development number.
 
 Completed probe risk12-fixed: **10W/6L/4D**, 20 replay-verified games, seeds 2101–2110 both seats. Attax APP 0.7594 (7956/10477), CC2 0.7328 (7675/10473). Seeds 2108–2110 were played after the resume. Summary: `tools/cc2-rematch/summaries/risk12-fixed.json`.
+
+Completed probe field40-aligned: see the table below (summary `tools/cc2-rematch/summaries/field40-aligned.json`). Seeds 2407–2410 were played after the resume.
+    field40-aligned: 10 pairs 20 games  17W-1L-2D  APP attax 0.8734 (6894/7893)  cc2 0.7597 (5984/7877)
