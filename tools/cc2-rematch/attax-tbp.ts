@@ -178,6 +178,7 @@ const bot = createBot({
   diverse: process.env.ATTAX_DIVERSE !== "0",
   exposure: Number(process.env.ATTAX_EXPOSURE ?? 12),
   speculate: process.env.ATTAX_SPECULATE === "1",
+  guideline: process.env.ATTAX_GUIDELINE === "1",
 }); // default preview 5, beam width 48, default weights
 
 function snapshot() {

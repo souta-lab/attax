@@ -35,3 +35,25 @@ test("external spawn retries higher and keeps cells above the visible field", ()
   if (!p) throw new Error("no move");
   expect(lockPlacement(full, p).board[18]).toBeGreaterThan(0);
 });
+
+test("external profile does not invent combo or perfect-clear attack", async () => {
+  const { search } = await import("../src/ai/bot/search.js");
+  const { DEFAULT_WEIGHTS } = await import("../src/ai/bot/weights.js");
+  const board = new Uint16Array(20);
+  board[19] = 0b1111111100;
+  board[18] = 0b1111111100;
+  const input = {
+    board,
+    active: { kind: "O" as const, rotation: 0, x: 3, y: 0 },
+    hold: null,
+    canHold: false,
+    preview: [],
+    b2b: false,
+    combo: 5,
+    pending: 0,
+  };
+  const normal = search(input, { weights: DEFAULT_WEIGHTS, width: 32 });
+  const guideline = search(input, { weights: DEFAULT_WEIGHTS, width: 32, guideline: true });
+  expect(normal?.best.attack).toBe(14);
+  expect(guideline?.best.attack).toBe(1);
+});

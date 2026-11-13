@@ -22,6 +22,7 @@ export interface BotOptions {
   readonly diverse?: boolean;
   readonly exposure?: number;
   readonly speculate?: boolean;
+  readonly guideline?: boolean;
 }
 
 export const BOT_DEFAULTS = { preview: 5, width: 48 } as const;
@@ -81,7 +82,13 @@ export function createBot(options: BotOptions = {}): BotFighter {
           combo: snapshot.combo,
           pending: snapshot.pendingGarbage,
         },
-        { weights, width, diverse: options.diverse ?? false, exposure: options.exposure ?? 0 },
+        {
+          weights,
+          width,
+          diverse: options.diverse ?? false,
+          exposure: options.exposure ?? 0,
+          guideline: options.guideline ?? false,
+        },
       );
       last = result;
       if (result === null) return null;

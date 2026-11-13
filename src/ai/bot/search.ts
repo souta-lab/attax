@@ -8,7 +8,7 @@
  * first placement on the line that ends at the best leaf.
  */
 import { attackForClear, isDifficultClear } from "../../core/garbage.js";
-import type { PieceKind } from "../../core/pieces.js";
+import { cellsFor, type PieceKind } from "../../core/pieces.js";
 import type { TspinKind } from "../../core/tspin.js";
 import { BOARD_FEATURES, type BoardFeatures, boardFeatures } from "./features.js";
 import {
@@ -43,6 +43,8 @@ export interface SearchOptions {
   readonly diverse?: boolean;
   /** Cost per squared exposed row on every intermediate board. */
   readonly exposure?: number;
+  /** External guideline rig: no combo/PC attack; lock-out above row 20. */
+  readonly guideline?: boolean;
 }
 
 export interface Step {
@@ -138,7 +140,16 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                 option.kind,
                 spawnPosition(option.kind, node.board.length),
               )) {
-                const child = expand(node, placement, option, 0, w, 0, options.exposure ?? 0);
+                const child = expand(
+                  node,
+                  placement,
+                  option,
+                  0,
+                  w,
+                  0,
+                  options.exposure ?? 0,
+                  options.guideline ?? false,
+                );
                 nodes += 1;
                 if (child !== null) best = Math.max(best, child.value);
               }
@@ -165,6 +176,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             w,
             firstMoves.length,
             options.exposure ?? 0,
+            options.guideline ?? false,
           );
           nodes += 1;
           if (child === null) continue;
@@ -259,16 +271,25 @@ function expand(
   w: Weights,
   rootIndex: number,
   exposure: number,
+  guideline: boolean,
 ): Node | null {
+  if (
+    guideline &&
+    node.board.length > 20 &&
+    cellsFor(placement.kind, placement.rotation).every(
+      (cell) => placement.y + cell.y < node.board.length - 20,
+    )
+  )
+    return null;
   const outcome = lockPlacement(node.board, placement);
   const lines = outcome.linesCleared;
   const combo = lines > 0 ? node.combo + 1 : -1;
   const attack = attackForClear({
     lines,
     tspinLines: placement.tspin === "full" ? lines : 0,
-    combo,
+    combo: guideline ? -1 : combo,
     b2bActive: node.b2b,
-    perfectClear: outcome.perfectClear,
+    perfectClear: !guideline && outcome.perfectClear,
     tspinKind: placement.tspin,
   });
   const difficult = isDifficultClear(lines, placement.tspin);
@@ -280,7 +301,7 @@ function expand(
   const lift = node.lift + Math.max(0, pending - attack);
 
   let reward = attack * w.attack;
-  const kind = clearKind(lines, placement.tspin, outcome.perfectClear);
+  const kind = clearKind(lines, placement.tspin, !guideline && outcome.perfectClear);
   if (kind !== null) reward += w.clear[kind];
   if (node.b2b && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
   if (placement.kind === "T" && placement.tspin === "none" && node.tSlot > 0) reward += w.wastedT;
