@@ -135,6 +135,8 @@ header.site {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   max-width: 1120px;
   margin: 0 auto;
   padding: 12px 20px;
@@ -569,6 +571,14 @@ canvas.board {
 }
 
 /* Evidence */
+.results-table {
+  overflow-x: auto;
+}
+
+.results-table .matchups {
+  min-width: 720px;
+}
+
 table.matchups {
   width: 100%;
   border-collapse: collapse;
