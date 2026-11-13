@@ -325,7 +325,15 @@ export function selectBeam<T extends BeamState>(sorted: readonly T[], width: num
   const poolLimit = width * 4;
   for (const node of sorted) {
     if (pool.length >= poolLimit) break;
-    const key = `${node.next}|${node.hold ?? "-"}|${Number(node.canHold)}|${Number(node.b2b)}|${node.combo}|${node.lift}|${node.board.join(",")}`;
+    const key = [
+      node.next,
+      node.hold ?? "-",
+      Number(node.canHold),
+      Number(node.b2b),
+      node.combo,
+      node.lift,
+      node.board.join(","),
+    ].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
     pool.push(node);
