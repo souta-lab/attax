@@ -39,3 +39,11 @@ Length bins (turns, games/wins): <250 17/3; 250–499 9/2; 500–749 12/4; 750�
 ## Phase 2 and 3
 
 Pending. Fresh 12001–12020 remain untouched. Every completed or interrupted probe will be recorded here. No published Hoiko headline has been changed.
+
+Probe risk12 (2101 start) was interrupted before any completed game: initial typecheck found a shadowed `options` local that made exposure default to zero. Partial artifacts retained; excluded from performance evidence. Fixed before restarting under a new label. The first full test suite passed 100 tests, including unmodified movegen reachability.
+
+### Implementation checkpoint
+
+Competition options are explicit and disabled for the shipped web default: width, root/attack-economy preservation, intermediate danger cost, and one-ply 7-bag chance evaluation after previews. Chance evaluation averages best legal continuations for every remaining piece; a dead possibility receives a large negative value rather than being omitted. Bag tracking observes queue overlap, counts each preview once, resets at bag boundaries and disables itself on contradictory/discontinuous observations. Authoritative TBP resync bag state is supported because garbage restarts are mid-bag. No hidden future piece or incoming data is invented.
+
+Probe risk12-fixed: seeds 2101–2110, both seats, width 96, diversity enabled, exposure 12, speculation disabled, running. Separate width96-control: 2201–2210, both seats, width 96, no diversity/exposure/speculation, running. These are development seeds only; the fresh final set remains untouched. Independent rig processes share four CPUs; each opponent retains its strict 100 ms window. Timing is descriptive under this contention.

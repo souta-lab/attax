@@ -4,8 +4,10 @@
  * that the engine validates on lock — the same execution contract the Hoiko adapter uses.
  */
 
+import type { PieceKind } from "../../core/pieces.js";
 import type { AiMove, GameSnapshot } from "../../core/types.js";
 import { boardFingerprint, type VersusFighter } from "../../versus/controller.js";
+import { BagTracker } from "./bag.js";
 import { type BitBoard, ROWS } from "./movegen.js";
 import { type SearchResult, search } from "./search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
@@ -17,6 +19,9 @@ export interface BotOptions {
   readonly width?: number;
   readonly weights?: Weights;
   readonly name?: string;
+  readonly diverse?: boolean;
+  readonly exposure?: number;
+  readonly speculate?: boolean;
 }
 
 export const BOT_DEFAULTS = { preview: 5, width: 48 } as const;
@@ -24,6 +29,8 @@ export const BOT_DEFAULTS = { preview: 5, width: 48 } as const;
 export interface BotFighter extends VersusFighter {
   /** The last completed search, for the "watch it think" view. */
   lastSearch(): SearchResult | null;
+  /** Optional authoritative bag after the visible queue (external protocol resync). */
+  setBagState(remaining: readonly PieceKind[]): void;
 }
 
 export function snapshotBoard(snapshot: GameSnapshot): BitBoard {
@@ -43,14 +50,17 @@ export function createBot(options: BotOptions = {}): BotFighter {
   const width = options.width ?? BOT_DEFAULTS.width;
   const weights = options.weights ?? DEFAULT_WEIGHTS;
   let last: SearchResult | null = null;
+  const bag = new BagTracker();
 
   return {
     name: options.name ?? "bot",
     color: "#2f6fed",
     reset() {
       last = null;
+      bag.reset();
     },
     lastSearch: () => last,
+    setBagState: (remaining) => bag.seed(remaining),
     findBestMove(snapshot: GameSnapshot): AiMove | null {
       const active = snapshot.active;
       if (active === null || snapshot.gameOver) return null;
@@ -61,11 +71,14 @@ export function createBot(options: BotOptions = {}): BotFighter {
           hold: snapshot.hold,
           canHold: snapshot.canHold,
           preview: snapshot.next.slice(0, preview),
+          speculativePieces: options.speculate
+            ? bag.observe([active.kind, ...snapshot.next.slice(0, preview)])
+            : [],
           b2b: snapshot.b2b,
           combo: snapshot.combo,
           pending: snapshot.pendingGarbage,
         },
-        { weights, width },
+        { weights, width, diverse: options.diverse ?? false, exposure: options.exposure ?? 0 },
       );
       last = result;
       if (result === null) return null;
