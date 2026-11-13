@@ -8,7 +8,33 @@ game move for move.
 
 (Display names live in `src/brand.ts`; see "Renaming" below.)
 
-## Result
+## Results at a glance
+
+> **In guideline versus rules, across everything measured, nothing tested comes close.**
+
+| Opponent | Games | W–L | Win rate (95% Wilson) | Attack/piece (Attax vs opp.) |
+|---|---|---|---|---|
+| **Hoiko** (Rust/WASM replica of Hoiko.exe) | 200 | **195–5** | **97.5%** (94.3–98.9%) | **0.70** vs 0.46 |
+| **intetrigence** (Cold-Clear-2-derived engine) | 100 | **100–0** | **100%** (96.3–100%) | **0.559** vs 0.317 |
+
+- **intetrigence** beat the official Cold Clear 2 77–23 in its own published 100-game eval
+  at 100 ms / 5 PPS. Attax faced it at that same profile, on intetrigence's own referee
+  (`external-arena --rules guideline`, Attax over TBP). Seeds 5001–5050 were new to both
+  projects, and each was played from both seats. Attax won both games on all 50 seeds.
+  Median think time per move was 35 ms for Attax and 151 ms for intetrigence. A settings
+  audit found the harness fair.
+- **How Attax plays:** BFS exact move generation over the engine's real inputs, then a
+  width-48 beam search over the current piece plus 5 previews. The evaluation uses
+  Dellacherie-style features plus versus terms (hold, garbage cancellation). There is no
+  neural network and no opening book. Details are in [The bot](#the-bot-srcaibot).
+- **Not measured:**
+  - direct play against the real Hoiko.exe (no Wine on the benchmark VM; the replica
+    matched the .exe on 500/500 moves on seed 1 and 200/200 each on seeds 2 and 7);
+  - Hoiko with wall-clock adaptation on;
+  - official Cold Clear 2 itself (the claim goes through intetrigence);
+  - intetrigence at any budget other than 100 ms / 5 PPS.
+
+## Result: Hoiko
 
 Held-out seeds 1001–1200 (never used for tuning), Hoiko deterministic (`--adapt 0`), both
 sides locking one piece per 120 ms. Each seed was played from both seats; the swapped game
