@@ -350,6 +350,7 @@ export function selectBeam<
     value: number;
   },
 >(sorted: readonly T[], width: number): T[] {
+  if (width <= 0) return [];
   const pool: T[] = [];
   const seen = new Set<string>();
   for (const node of sorted) {

@@ -59,3 +59,36 @@ test("beam reserves alternative roots within its bounded pool", () => {
   }));
   expect(new Set(selectBeam(states, 24).map((node) => node.root)).size).toBeGreaterThanOrEqual(4);
 });
+
+test("authoritative mid-bag resync does not consume previews twice", () => {
+  const bag = new BagTracker();
+  bag.seed(["I", "O"]);
+  expect(bag.observe(["S", "T", "L", "J", "Z", "S"])).toEqual(["I", "O"]);
+  expect(bag.observe(["T", "L", "J", "Z", "S", "I"])).toEqual(["O"]);
+});
+
+test("chance continuation averages possible pieces without exposing guessed moves", async () => {
+  const { search } = await import("../src/ai/bot/search.js");
+  const { DEFAULT_WEIGHTS } = await import("../src/ai/bot/weights.js");
+  const input = {
+    board: new Uint16Array(20),
+    active: { kind: "O" as const, rotation: 0, x: 3, y: 0 },
+    hold: null,
+    canHold: false,
+    preview: [],
+    b2b: false,
+    combo: -1,
+    pending: 0,
+  };
+  const options = { weights: DEFAULT_WEIGHTS, width: 32, diverse: true };
+  const i = search({ ...input, speculativePieces: ["I"] }, options);
+  const t = search({ ...input, speculativePieces: ["T"] }, options);
+  const mixed = search({ ...input, speculativePieces: ["I", "T"] }, options);
+  expect(i).not.toBeNull();
+  expect(t).not.toBeNull();
+  expect(mixed).not.toBeNull();
+  if (!i || !t || !mixed) throw new Error("missing continuation");
+  expect(mixed.value).toBeLessThanOrEqual((i.value + t.value) / 2 + 1e-9);
+  expect(mixed.line).toHaveLength(1);
+  expect(mixed.nodes).toBeGreaterThan(i.nodes);
+});

@@ -17,12 +17,15 @@
  *
  * Env: ATTAX_REPO (path to the Attax repo), ATTAX_TBP_LOG (optional JSONL log path).
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 const REPO = process.env.ATTAX_REPO ?? `${process.env.HOME}/workspace/tetris-speed/deepseek-tetris`;
 const { createBot, BOT_DEFAULTS } = await import(`${REPO}/src/ai/bot/fighter.ts`);
 const { cellsFor } = await import(`${REPO}/src/core/pieces.ts`);
 const LOG = process.env.ATTAX_TBP_LOG;
+const weights = process.env.ATTAX_WEIGHTS
+  ? JSON.parse(readFileSync(process.env.ATTAX_WEIGHTS, "utf8"))
+  : undefined;
 
 type Kind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 type Spin = "none" | "mini" | "full";
@@ -166,6 +169,7 @@ function applyPlay(mv: TbpMove) {
 // ---- decision --------------------------------------------------------------------------
 const bot = createBot({
   name: "attax",
+  ...(weights ? { weights } : {}),
   width: Number(process.env.ATTAX_WIDTH ?? 96),
   diverse: process.env.ATTAX_DIVERSE !== "0",
   exposure: Number(process.env.ATTAX_EXPOSURE ?? 12),

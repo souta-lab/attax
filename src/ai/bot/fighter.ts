@@ -72,7 +72,10 @@ export function createBot(options: BotOptions = {}): BotFighter {
           canHold: snapshot.canHold,
           preview: snapshot.next.slice(0, preview),
           speculativePieces: options.speculate
-            ? bag.observe([active.kind, ...snapshot.next.slice(0, preview)])
+            ? bag.observe([
+                ...(snapshot.canHold ? [active.kind] : []),
+                ...snapshot.next.slice(0, preview),
+              ])
             : [],
           b2b: snapshot.b2b,
           combo: snapshot.combo,
