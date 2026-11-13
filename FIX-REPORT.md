@@ -113,3 +113,17 @@ Completed probe risk12-fixed: **10W/6L/4D**, 20 replay-verified games, seeds 210
 
 Completed probe field40-aligned: see the table below (summary `tools/cc2-rematch/summaries/field40-aligned.json`). Seeds 2407–2410 were played after the resume.
     field40-aligned: 10 pairs 20 games  17W-1L-2D  APP attax 0.8734 (6894/7893)  cc2 0.7597 (5984/7877)
+
+Completed probe field40-no-diversity: **17W/1L/2D**, 20 replay-verified games, seeds 2401–2410 both seats. Attax APP 0.8787 (6870/7818), CC2 APP 0.7607 (5935/7802). Seeds 2404–2410 were played after the resume. field40-aligned also completed at **17W/1L/2D**, with APP 0.8734 (6894/7893) versus 0.7597 (5984/7877).
+
+### Diversity/complete-state selector: paired verdict
+
+The two batches differ only in `ATTAX_DIVERSE`. Their frozen sources are byte-identical, and they ran on the same 2401–2410 seed pairs in both seats. Scoring W=1, D=½, L=0 per game, aligned (selector on) minus no-diversity (selector off):
+
+| Seed | 2401 | 2402 | 2403 | 2404 | 2405 | 2406 | 2407 | 2408 | 2409 | 2410 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| on (seat 0 / seat 1) | L/W | W/W | W/W | W/W | D/W | W/D | W/W | W/W | W/W | W/W |
+| off (seat 0 / seat 1) | W/W | W/W | W/W | W/W | W/W | W/W | D/L | D/W | W/W | W/W |
+| pair diff | −1 | 0 | 0 | 0 | −½ | −½ | +1½ | +½ | 0 | 0 |
+
+The total is 18.0 versus 18.0, so the mean paired difference is **0.00** per seed pair (SD 0.67). The selector helped on 2 seed pairs, hurt on 3 and tied on 5; the two-sided exact sign test gives p = 1.0. Verdict: **the selector shows no measurable effect at width 96 in this rig.** The disagreements are scattered single games, consistent with CC2's wall-clock nondeterminism. Under pre-registered rule 3 the selector is dropped from the competition profile. This does not show that the PR #35 idea is harmful. Its effect, if any, is below what 20 paired games can resolve. The large gain over width96-control (12W) comes from what both field40 arms share: the 40-row field/spawn model and the referee-aligned attack profile. That attribution is still a cross-seed comparison, because control ran on 2201–2210. Raw pairing: `tools/cc2-rematch/summaries/diversity-paired.json`.
