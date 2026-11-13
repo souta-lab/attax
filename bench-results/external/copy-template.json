@@ -1,0 +1,19 @@
+{
+  "claim": "In guideline versus rules, across the three measured opponents — Hoiko, intetrigence (derived from MinusKelvin's Cold Clear 2), and clys — nothing tested comes close.",
+  "profiles": [
+    "Hoiko. Hoiko used preset we, beam {{hoikoBeam}}, depth {{hoikoDepth}} and a {{hoikoPreview}}-piece preview, with adaptation off. Both sides got the same pieces and locked one piece per {{hoikoPace}} ms. Seeds {{hoikoSeeds}} were never used for tuning. Swapped seats replayed the same game, so each seed counts once.",
+    "intetrigence. Derived from MinusKelvin's Cold Clear 2. In its own published {{publishedGames}}-game eval at {{intelMs}} ms / {{intelPps}} PPS, intetrigence beat the official Cold Clear 2 {{publishedScore}}. Here it ran at that same profile, on its own referee (--rules guideline), with Attax connected over TBP. The {{intelSeedCount}} seeds ({{intelSeeds}}) were new to both projects, and each was played from both seats. Attax won both games on all {{intelSeedCount}} seeds. Median think time per move: Attax {{attaxMedian}} ms, intetrigence {{intelMedian}} ms.",
+    "clys. citrus610's Monte Carlo beam search bot ran its default configuration (width {{clysWidth}}, depth {{clysDepth}}, branch {{clysBranch}}, {{clysThreads}} thread). Seeds {{clysSeeds}} were played from both seats; Attax won {{clysSeats}} by seat, with no draws. clys generated more attack per piece; Attax won on survival, clearing {{clysLines}} lines to clys's {{rivalLines}}. The external-bot referee uses the guideline attack table without combo or perfect-clear attack, {{previews}} previews, hold and {{clysPps}} PPS paired turns. clys gets a {{clysMs}} ms search window; Attax completes fixed work without a deadline. Lanes use dedicated CPU cores, with one bot thinking at a time per lane. Neither bot sees pending garbage over TBP. All recorded games were replay-verified."
+  ],
+  "fairness": [
+    "intetrigence settings audit. The audit was done before the result was trusted, and it found the harness fair. Attax's search ran to completion on all {{auditMoves}} moves. intetrigence used more than its {{intelMs}} ms target. The two never competed for CPU, and every move was checked by intetrigence's own referee. verify-replay re-ran all {{intelGames}} games.",
+    "Against Attax. TBP carries no garbage information, so Attax played without seeing incoming garbage. intetrigence could see it."
+  ],
+  "unmeasured": [
+    "Direct games against the real Hoiko.exe. The benchmark machine has no Wine. The replica matched the .exe on {{parityMain}} moves (seed {{paritySeed}}) and {{parityOther}} each (seeds {{paritySeeds}}).",
+    "Hoiko with its wall-clock adaptation on.",
+    "Official Cold Clear 2 itself. That comparison goes through intetrigence, which beat it.",
+    "intetrigence at budgets other than {{intelMs}} ms / {{intelPps}} PPS, and rules with combo or perfect-clear attack.",
+    "clys outside its default configuration, {{clysMs}} ms window and this rules profile. Its evaluator values combo/perfect clears that the referee does not score. This is not an equal-compute ranking. Attax sees only {{attaxRows}} rows and ignores bag state; clys sees {{clysRows}} rows and can use bag state. The game-level Wilson interval is descriptive: independent units are {{clysSeedCount}} seed pairs. Stochastic search and time slicing can change fresh scores. No game reached the {{turnCap}}-turn cap. Realtime inputs and network latency were not measured."
+  ]
+}

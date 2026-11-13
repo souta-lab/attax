@@ -1,0 +1,14 @@
+{
+  "origin": "Converted from hoiko-conditions-excerpt.md and clys/conditions-excerpt.md; numeric settings only, not match results.",
+  "values": {
+    "hoikoPace": 120,
+    "clysWidth": 500,
+    "clysDepth": 32,
+    "clysBranch": 3,
+    "clysThreads": 1,
+    "previews": 5,
+    "attaxRows": 20,
+    "clysRows": 40,
+    "turnCap": 1000
+  }
+}

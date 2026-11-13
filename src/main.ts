@@ -3,13 +3,14 @@ import { BRAND } from "./brand.js";
 import { RESULTS } from "./data/results.js";
 import { createArenaView } from "./ui/arena-view.js";
 import { h } from "./ui/dom.js";
-import { createEvidence, createHero } from "./ui/evidence-view.js";
+import { createEvidence, createHero, createResults } from "./ui/evidence-view.js";
 import { createPlayView } from "./ui/play-view.js";
 
 const arena = createArenaView();
 
 const method = h("section", { class: "method", attrs: { id: "method" } }, [
-  h("h2", { text: "How the comparison is kept fair" }),
+  h("h2", { text: "Fairness notes" }),
+  h("h3", { text: "Hoiko benchmark" }),
   h("ul", {}, [
     h("li", {}, [
       h("strong", { text: `${BRAND.rivalName} is the real thing. ` }),
@@ -32,6 +33,11 @@ const method = h("section", { class: "method", attrs: { id: "method" } }, [
       `${BRAND.botName} searches the 5-piece preview (plus hold) with a beam of 48 positions and scores boards with a dozen named terms — holes, height, bumpiness, wells, T-slots — plus rewards for the garbage each clear sends. No neural network, no opening book.`,
     ]),
   ]),
+  h(
+    "ul",
+    {},
+    RESULTS.copy.fairness.map((text) => h("li", { text })),
+  ),
   h("p", { class: "fine" }, [
     "Reproduce: ",
     h("code", { text: "bun scripts/benchmark.ts --seeds 1001-1200 --sides both --jobs 4" }),
@@ -39,9 +45,19 @@ const method = h("section", { class: "method", attrs: { id: "method" } }, [
   ]),
 ]);
 
+const unmeasured = h("section", { class: "method" }, [
+  h("h2", { text: "Not measured" }),
+  h(
+    "ul",
+    {},
+    RESULTS.copy.unmeasured.map((text) => h("li", { text })),
+  ),
+]);
+
 const header = h("header", { class: "site" }, [
-  h("a", { class: "brand", text: BRAND.title, attrs: { href: "#top" } }),
+  h("a", { class: "brand", text: BRAND.botName, attrs: { href: "#top" } }),
   h("nav", {}, [
+    h("a", { text: "Results", attrs: { href: "#results" } }),
     h("a", { text: "Watch", attrs: { href: "#watch" } }),
     h("a", { text: "Evidence", attrs: { href: "#evidence" } }),
     h("a", { text: "Method", attrs: { href: "#method" } }),
@@ -52,7 +68,7 @@ const header = h("header", { class: "site" }, [
 const watch = h("section", { class: "watch", attrs: { id: "watch" } }, [
   h("h2", { text: "Watch them play" }),
   h("p", {
-    text: `Both AIs run live in your browser on the same seed. Benchmark games replay exactly as recorded.`,
+    text: `Attax and Hoiko run live in your browser on the same seed. Benchmark games replay exactly as recorded.`,
   }),
   arena.root,
 ]);
@@ -66,7 +82,15 @@ const play = h("section", { class: "playground", attrs: { id: "play" } }, [
 document.title = BRAND.title;
 document.getElementById("app")?.replaceChildren(
   header,
-  h("main", {}, [createHero(), watch, createEvidence(arena.load), method, play]),
+  h("main", {}, [
+    createHero(),
+    createResults(),
+    watch,
+    createEvidence(arena.load),
+    method,
+    unmeasured,
+    play,
+  ]),
   h("footer", {}, [
     h("p", {
       text: `${BRAND.title}. ${BRAND.rivalName} is the work of its original author; the port reproduces its decisions for comparison.`,

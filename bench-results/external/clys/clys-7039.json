@@ -1,0 +1,61 @@
+{
+  "decisive_wilson95_descriptive_only": [
+    0.34238022750665303,
+    1.0
+  ],
+  "draws": 0,
+  "iterations": 0,
+  "losses": 0,
+  "matches": [
+    {
+      "attack": [
+        261,
+        293
+      ],
+      "lines": [
+        296,
+        251
+      ],
+      "pieces": [
+        337,
+        336
+      ],
+      "seed": 7039,
+      "swapped": false,
+      "turns": 337,
+      "winner": 0
+    },
+    {
+      "attack": [
+        187,
+        161
+      ],
+      "lines": [
+        142,
+        183
+      ],
+      "pieces": [
+        197,
+        198
+      ],
+      "seed": 7039,
+      "swapped": true,
+      "turns": 198,
+      "winner": 1
+    }
+  ],
+  "ms": 100,
+  "note": "strict external TBP window; child is suspended during the local search and gets the same wall-clock window",
+  "opponent": "/home/hatch/workspace/attax-gauntlet/clys-tbp.sh",
+  "opponent_config": null,
+  "paired_victory_bound": {
+    "above_half": false,
+    "independent_pairs": 1,
+    "method": "Hoeffding across seed pairs; draws are non-wins; fixed sample size required",
+    "one_sided_95_lower": 0.0,
+    "victory_rate": 1.0
+  },
+  "pps": 5.0,
+  "side_swap": true,
+  "wins": 2
+}

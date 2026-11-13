@@ -44,42 +44,68 @@ export function createHero(): HTMLElement {
         old === undefined ? "" : `${old.wins}–${old.losses} — the code this replaces`,
       ),
     ]),
+    h("p", { class: "lede", text: RESULTS.copy.claim }),
   ]);
 }
 
-export function createEvidence(load: (seed: number, side: Side) => void): HTMLElement {
-  const table = h("table", { class: "matchups" }, [
+export function createResults(): HTMLElement {
+  const table = resultTable();
+  return h("section", { class: "evidence", attrs: { id: "results" } }, [
+    h("h2", { text: "Results" }),
+    h(
+      "div",
+      {
+        class: "results-table",
+        attrs: { tabindex: "0", "aria-label": "Measured opponent results" },
+      },
+      [table],
+    ),
+    ...RESULTS.copy.profiles.map((text) => h("p", { text })),
+  ]);
+}
+
+function resultTable(): HTMLElement {
+  return h("table", { class: "matchups" }, [
     h("thead", {}, [
       h("tr", {}, [
-        h("th", { text: "Matchup" }),
+        h("th", { text: "Opponent" }),
         h("th", { text: "Games" }),
         h("th", { text: "W–L" }),
-        h("th", { text: "Win rate (95% CI)" }),
-        h("th", { text: "Sent / piece" }),
-        h("th", { text: "Lines / game" }),
+        h("th", { text: "Win rate (95% Wilson CI)" }),
+        h("th", { text: "Attack / piece (Attax vs opponent)" }),
       ]),
     ]),
     h(
       "tbody",
       {},
-      RESULTS.rows.map((row) =>
-        h("tr", {}, [
-          h("td", {}, [h("strong", { text: row.label }), h("small", { text: row.detail })]),
-          h("td", { text: String(row.games) }),
-          h("td", { text: `${row.wins}–${row.losses}${row.draws > 0 ? `–${row.draws}` : ""}` }),
-          h("td", {}, [
-            h("span", { text: pct(row.winRate) }),
-            h("small", { text: `${pct(row.low, 0)}–${pct(row.high, 0)}` }),
+      RESULTS.rows
+        .filter((row) => ["bot", "preview2", "intetrigence", "clys"].includes(row.id))
+        .map((row) =>
+          h("tr", {}, [
+            h("td", {}, [
+              h("strong", {
+                text: row.id === "bot" ? "Hoiko (Rust/WASM replica of Hoiko.exe)" : row.label,
+              }),
+              h("small", { text: row.detail }),
+            ]),
+            h("td", { text: String(row.games) }),
+            h("td", { text: `${row.wins}–${row.losses}${row.draws > 0 ? `–${row.draws}` : ""}` }),
+            h("td", {}, [
+              h("span", { text: pct(row.winRate, row.winRate === 1 ? 0 : 1) }),
+              h("small", {
+                text: `${pct(row.low)}–${pct(row.high, Number(row.high.toFixed(3)) === 1 ? 0 : 1)}`,
+              }),
+            ]),
+            h("td", {
+              text: `${fixed(row.attackPerPiece, row.id === "clys" ? 4 : row.id === "intetrigence" ? 3 : 2)} vs ${fixed(row.rivalAttackPerPiece, row.id === "clys" ? 4 : row.id === "intetrigence" ? 3 : 2)}`,
+            }),
           ]),
-          h("td", { text: `${fixed(row.attackPerPiece)} vs ${fixed(row.rivalAttackPerPiece)}` }),
-          h("td", {
-            text: `${row.linesPerGame.toFixed(1)} vs ${row.rivalLinesPerGame.toFixed(1)}`,
-          }),
-        ]),
-      ),
+        ),
     ),
   ]);
+}
 
+export function createEvidence(load: (seed: number, side: Side) => void): HTMLElement {
   const cells = RESULTS.games.map((g) => {
     const [seed, seat, result, ticks, sent, rivalSent] = g;
     const side: Side = seat === 0 ? "left" : "right";
@@ -102,9 +128,8 @@ export function createEvidence(load: (seed: number, side: Side) => void): HTMLEl
   return h("section", { class: "evidence", attrs: { id: "evidence" } }, [
     h("h2", { text: "The evidence" }),
     h("p", {
-      text: `Every row is a full set of games under identical conditions: both sides draw from the same seeded piece sequence, garbage follows the same rules, and each AI locks exactly one piece per 120 ms regardless of how long it thinks — so the result measures decisions, not speed.`,
+      text: `The Hoiko benchmark uses identical conditions: both sides draw from the same seeded piece sequence, garbage follows the same rules, and each AI locks exactly one piece per 120 ms regardless of how long it thinks — so the result measures decisions, not speed.`,
     }),
-    table,
     h("h3", { text: `All ${RESULTS.games.length} games` }),
     h("p", {
       class: "fine",
