@@ -25,6 +25,7 @@ import type {
 import { ROWS } from "../../core/types.js";
 import type { VersusFighter } from "../../versus/controller.js";
 import { FAITHFUL_HOIKO } from "./faithful.js";
+import { kindToMino, MINO_NONE, type MinoType } from "./mino-codes.js";
 import { NEXT_SIZE, NextState } from "./next.js";
 import {
   boardToNativeRows,
@@ -34,7 +35,6 @@ import {
   opponentIsPowerfulBoard,
 } from "./opponent.js";
 import { type HoikoPreset, type HoikoWeights, hoikoWeightList } from "./weights.js";
-import { kindToMino, MINO_NONE, type MinoType } from "./mino-codes.js";
 
 const HOIKO_DEFAULT_PRESET: HoikoPreset = FAITHFUL_HOIKO.weightPreset;
 

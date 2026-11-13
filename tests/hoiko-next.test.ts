@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { NEXT_SIZE, NextState, trustRange } from "../src/ai/hoiko/next.js";
 import { MINO_NONE } from "../src/ai/hoiko/mino-codes.js";
+import { NEXT_SIZE, NextState, trustRange } from "../src/ai/hoiko/next.js";
 
 describe("native NextMino state machine", () => {
   test("fresh bag order + trust range table", () => {

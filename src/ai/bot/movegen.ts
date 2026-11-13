@@ -12,10 +12,9 @@
  * are classified with the engine's own `classifyTspin`, so the bot never values a spin the
  * engine would not award.
  */
-import { cellsFor, type PieceKind } from "../../core/pieces.js";
+import { bottomCellsOf, cellsFor, type PieceKind } from "../../core/pieces.js";
 import { asRotation, type Kick, kickTable } from "../../core/srs.js";
 import { classifyTspin, type TspinKind } from "../../core/tspin.js";
-import { bottomCellsOf } from "../../core/pieces.js";
 
 export const COLS = 10;
 export const ROWS = 20;
@@ -253,7 +252,8 @@ function tspinKind(
   const shape = SHAPES.T[rotation] as Shape;
   for (let i = 0; i < shape.rows.length; i += 1) {
     const row = y + shape.minY + i;
-    if (row >= 0) locked[row] = (locked[row] as number) | ((shape.rows[i] as number) << (x + shape.minX));
+    if (row >= 0)
+      locked[row] = (locked[row] as number) | ((shape.rows[i] as number) << (x + shape.minX));
   }
   const bottomUp = new Uint16Array(ROWS);
   for (let row = 0; row < ROWS; row += 1) bottomUp[ROWS - 1 - row] = locked[row] as number;

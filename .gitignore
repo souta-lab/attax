@@ -1,24 +1,16 @@
 # dependencies (no trailing slash: covers the symlinked node_modules in worktrees)
 node_modules
 
-# build output
-dist/
+# build output (dist/ is committed: it is the deployable site)
 *.tsbuildinfo
 
 # logs / scratch
 *.log
 
-# tuner runtime state (regenerated deterministically from seed + weights)
-weights/tuner-state.json
-
 # Hoiko third-party artifacts — kept locally for reference, not redistributed
 evidence/hoiko/weights/
 evidence/hoiko/README.txt
 evidence/hoiko/お読みください.txt
-
-# opencode / loop runtime state
-.omo/
-.opencode/
 
 # Hoiko oracle runtime artifacts (proprietary binaries are staged locally)
 tools/hoiko-oracle/run/

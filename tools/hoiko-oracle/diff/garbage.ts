@@ -12,10 +12,10 @@
  * OffsetOffAI state. First mismatch stops the seed and is dumped raw.
  */
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { createBot } from "../../../src/ai/bot/fighter.js";
 import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko/faithful.js";
 import { resolveVersusConfig } from "../../../src/versus/config.js";
 import { createVersusController, VERSUS_DEFAULTS } from "../../../src/versus/controller.js";
-import { createBot } from "../../../src/ai/bot/fighter.js";
 import { createHoiko } from "../../hoiko-node.js";
 import { createExeFighter, type ExeTurn } from "./exe-fighter.js";
 

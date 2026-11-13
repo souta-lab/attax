@@ -22,8 +22,8 @@
  */
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko/faithful.js";
 import type { RustHoikoFighter, RustOut } from "../../../src/ai/hoiko/engine.js";
+import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko/faithful.js";
 import { kindToMino, MINO_NONE } from "../../../src/ai/hoiko/mino-codes.js";
 import { createEngine } from "../../../src/core/engine.js";
 import type { CorePort, GameSnapshot } from "../../../src/core/types.js";

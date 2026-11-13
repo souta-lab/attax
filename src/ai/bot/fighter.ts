@@ -3,10 +3,11 @@
  * garbage state, searches, and answers with a single `placeAt` (rotation, x, row, lastSrs)
  * that the engine validates on lock — the same execution contract the Hoiko adapter uses.
  */
-import { boardFingerprint, type VersusFighter } from "../../versus/controller.js";
+
 import type { AiMove, GameSnapshot } from "../../core/types.js";
+import { boardFingerprint, type VersusFighter } from "../../versus/controller.js";
 import { type BitBoard, ROWS } from "./movegen.js";
-import { search, type SearchResult } from "./search.js";
+import { type SearchResult, search } from "./search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 
 export interface BotOptions {

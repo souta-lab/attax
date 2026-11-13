@@ -2,7 +2,7 @@
   "name": "deepseek-tetris",
   "private": true,
   "version": "1.0.0",
-  "description": "DeepSeek Tetris — versus Tetris AI (target: beat Hoiko)",
+  "description": "A versus AI for the falling-block game, measured head-to-head against the Hoiko AI",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,10 +11,12 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "test": "bun test",
-    "test:rust": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup cargo test --manifest-path rust/Cargo.toml",
-    "bench:rust": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup cargo run --release --manifest-path rust/Cargo.toml -p hoiko-core --example bench_search",
-    "build:wasm": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup bash rust/build.sh",
-    "build:wasm:deepseek": "PATH=/tmp/opencode/cargo/bin:$PATH CARGO_HOME=/tmp/opencode/cargo RUSTUP_HOME=/tmp/opencode/rustup bash rust/build-deepseek.sh"
+    "bench": "bun scripts/benchmark.ts",
+    "audit": "bun scripts/audit-rules.ts",
+    "tune": "bun scripts/tune.ts",
+    "results": "bun scripts/build-results.ts",
+    "test:rust": "cargo test --manifest-path rust/Cargo.toml",
+    "build:wasm": "bash rust/build.sh"
   },
   "dependencies": {},
   "devDependencies": {

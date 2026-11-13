@@ -150,7 +150,14 @@ describe("bot move generator vs the real engine", () => {
         for (const [k, state] of reach) {
           if (!state.resting) continue;
           const [rotation, x, y] = k.split(",").map(Number) as [number, number, number];
-          const candidate: Placement = { kind: active.kind, rotation, x, y, lastSrs: 0, tspin: "none" };
+          const candidate: Placement = {
+            kind: active.kind,
+            rotation,
+            x,
+            y,
+            lastSrs: 0,
+            tspin: "none",
+          };
           if (cellsKey(candidate) === null) continue; // locks above the field: engine top-out
           expect(ourCells.has(cellsKey(candidate))).toBe(true);
         }

@@ -86,7 +86,13 @@ export function runMatch(
   maxTicks = MAX_TICKS,
 ): MatchRecord {
   const controller = createVersusController(left, right, seed, resolveVersusConfig());
-  const tallies = [0, 1].map(() => ({ tspins: 0, quads: 0, perfectClears: 0, maxHeight: 0, lockId: 0 }));
+  const tallies = [0, 1].map(() => ({
+    tspins: 0,
+    quads: 0,
+    perfectClears: 0,
+    maxHeight: 0,
+    lockId: 0,
+  }));
   let ticks = 0;
   while (controller.result === null && ticks < maxTicks) {
     controller.tick(TICK_MS, VERSUS_DEFAULTS);

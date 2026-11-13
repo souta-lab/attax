@@ -20,9 +20,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { BOT_DEFAULTS, createBot } from "../src/ai/bot/fighter.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../src/ai/bot/weights.js";
 import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko/faithful.js";
-import { createHoiko } from "../tools/hoiko-node.js";
 import { runMatch } from "../src/bench/match.js";
 import { type Oriented, summarize } from "../src/bench/summary.js";
+import { createHoiko } from "../tools/hoiko-node.js";
 
 interface Config {
   readonly seeds: readonly number[];
@@ -63,7 +63,9 @@ export function parseArgs(argv: readonly string[]): Config {
     preview: Number(get("preview") ?? BOT_DEFAULTS.preview),
     width: Number(get("width") ?? BOT_DEFAULTS.width),
     weights:
-      weightsFile === null ? DEFAULT_WEIGHTS : (JSON.parse(readFileSync(weightsFile, "utf8")) as Weights),
+      weightsFile === null
+        ? DEFAULT_WEIGHTS
+        : (JSON.parse(readFileSync(weightsFile, "utf8")) as Weights),
     weightsFile,
     jobs: Number(get("jobs") ?? 1),
     out: get("out") ?? null,
@@ -87,7 +89,11 @@ function playShard(config: Config, index: number, count: number): void {
   const hoikoOptions = resolveFaithfulHoikoOptions({ HOIKO_ADAPT: config.adapt ? "1" : "0" });
   const plan = games(config).filter((_, i) => i % count === index);
   for (const game of plan) {
-    const bot = createBot({ preview: config.preview, width: config.width, weights: config.weights });
+    const bot = createBot({
+      preview: config.preview,
+      width: config.width,
+      weights: config.weights,
+    });
     const hoiko = createHoiko(hoikoOptions);
     const record =
       game.aSide === "left" ? runMatch(bot, hoiko, game.seed) : runMatch(hoiko, bot, game.seed);

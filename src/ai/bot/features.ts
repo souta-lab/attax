@@ -84,7 +84,8 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
       }
     }
     if (bits !== 0) {
-      for (let x = 0; x < COLS; x += 1) if ((bits & (1 << x)) !== 0) blocksAbove[x] = (blocksAbove[x] as number) + 1;
+      for (let x = 0; x < COLS; x += 1)
+        if ((bits & (1 << x)) !== 0) blocksAbove[x] = (blocksAbove[x] as number) + 1;
       // Transitions with walls counted as filled.
       const withWalls = (bits << 1) | 1 | (1 << (COLS + 1));
       rowTransitions += popcount((withWalls ^ (withWalls >> 1)) & ((1 << (COLS + 1)) - 1));
@@ -156,7 +157,8 @@ function bestTSlot(board: BitBoard, h: Int32Array): number {
     if (filled(board, x, row)) continue;
     if (!filled(board, x - 1, row) || !filled(board, x + 1, row)) continue;
     const flat = row - 1;
-    if (filled(board, x - 1, flat) || filled(board, x, flat) || filled(board, x + 1, flat)) continue;
+    if (filled(board, x - 1, flat) || filled(board, x, flat) || filled(board, x + 1, flat))
+      continue;
     const leftRoof = filled(board, x - 1, flat - 1);
     const rightRoof = filled(board, x + 1, flat - 1);
     if (leftRoof === rightRoof) continue; // need exactly one overhang: one side roofed, one open

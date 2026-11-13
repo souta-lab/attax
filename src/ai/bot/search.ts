@@ -151,7 +151,8 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   if (bestLeaf === null) return null;
 
   const line: Step[] = [];
-  for (let n: Node | null = bestLeaf; n !== null && n.step !== null; n = n.parent) line.unshift(n.step);
+  for (let n: Node | null = bestLeaf; n !== null && n.step !== null; n = n.parent)
+    line.unshift(n.step);
   const first = firstMoves[bestLeaf.root] as Node;
 
   const rootBest = new Map<number, number>();
@@ -208,7 +209,8 @@ function clearKind(lines: number, tspin: TspinKind, perfectClear: boolean): Clea
   if (lines === 0) return null;
   if (perfectClear) return "perfectClear";
   if (tspin === "mini") return "tspinMini";
-  if (tspin === "full") return lines === 1 ? "tspinSingle" : lines === 2 ? "tspinDouble" : "tspinTriple";
+  if (tspin === "full")
+    return lines === 1 ? "tspinSingle" : lines === 2 ? "tspinDouble" : "tspinTriple";
   return lines === 1 ? "single" : lines === 2 ? "double" : lines === 3 ? "triple" : "quad";
 }
 
@@ -232,8 +234,7 @@ function expand(
     tspinKind: placement.tspin,
   });
   const difficult = isDifficultClear(lines, placement.tspin);
-  const b2b =
-    lines === 0 ? node.b2b : outcome.perfectClear ? lines >= 4 : difficult;
+  const b2b = lines === 0 ? node.b2b : outcome.perfectClear ? lines >= 4 : difficult;
 
   // Garbage: our attack cancels what is pending; the rest lands under the stack on this
   // lock (garbage delay 1). Only the root's pending garbage is known.

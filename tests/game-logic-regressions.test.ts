@@ -93,3 +93,11 @@ describe("native combo break", () => {
     expect(engine.getSnapshot().nativeCombo).toBe(0);
   });
 });
+
+describe("lock transition", () => {
+  test("exposes the cleared-line count of the last lock", () => {
+    const engine = createEngine({ random: () => 0 });
+    engine.hardDrop();
+    expect(engine.getLastLockTransition()?.linesCleared).toBe(0);
+  });
+});
