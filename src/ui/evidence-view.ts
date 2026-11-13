@@ -25,7 +25,7 @@ export function createHero(): HTMLElement {
     ]),
     h("p", {
       class: "lede",
-      text: `Same seeds, same rules, every game played once from each seat. ${BRAND.rivalName} runs as a byte-identical port of its shipping binary. Win rate ${pct(r.winRate)} (95% interval ${pct(r.low)}–${pct(r.high)}) on ${RESULTS.seeds} — seeds never used for tuning.`,
+      text: `Same seeds, same rules, both seats tried (the swapped game came out identical, so each seed counts once). ${BRAND.rivalName} runs as a port of its shipping binary, checked move for move against it. Win rate ${pct(r.winRate)} (95% interval ${pct(r.low)}–${pct(r.high)}) on ${RESULTS.seeds} — seeds never used for tuning.`,
     }),
     h("div", { class: "tiles" }, [
       tile(
@@ -108,7 +108,7 @@ export function createEvidence(load: (seed: number, side: Side) => void): HTMLEl
     h("h3", { text: `All ${RESULTS.games.length} games` }),
     h("p", {
       class: "fine",
-      text: `One square per game (left seat, then right seat, per seed). Blue = ${BRAND.botName} won, orange = ${BRAND.rivalName} won. Click any square to replay that exact game above — it reproduces the recorded result move for move.`,
+      text: `One square per seed. Blue = ${BRAND.botName} won, orange = ${BRAND.rivalName} won. Click any square to replay that exact game above — it reproduces the recorded result move for move.`,
     }),
     h("div", { class: "games" }, cells),
   ]);

@@ -3,7 +3,9 @@
  * decision; running them here keeps the page rendering smoothly while they think.
  *
  * In:  { type: "start", seed, botSide, speed } | { type: "speed", speed } | { type: "pause", paused }
- * Out: { type: "frame", frame } (several times per second, and once more when the game ends)
+ * Out: { type: "ready" } once Hoiko's wasm is loaded (commands sent earlier would be lost:
+ *      the module's top-level await delays installing the handler), then
+ *      { type: "frame", frame } several times per second and once more when the game ends.
  */
 import { createBot } from "../ai/bot/fighter.js";
 import { createHoiko } from "../ai/hoiko/browser.js";
@@ -93,3 +95,5 @@ self.onmessage = (event: MessageEvent<ArenaCommand>) => {
     if (!paused) schedule();
   }
 };
+
+postMessage({ type: "ready" });

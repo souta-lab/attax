@@ -102,16 +102,53 @@ const main = lines("bot-vs-hoiko.jsonl") as Oriented[];
 const seeds = [...new Set(main.map((g) => g.seed))].sort((a, b) => a - b);
 const seedText = `${seeds.length} held-out seeds (${seeds[0]}–${seeds[seeds.length - 1]})`;
 
-const headline = row("bot", "DeepSeek vs Hoiko", "both seats per seed", main);
-const rows: MatchupRow[] = [headline];
-rows.push(
-  row(
-    "bot-left",
-    "DeepSeek vs Hoiko, left seat only",
-    "the old harness's protocol, for a like-for-like comparison",
-    main.filter((g) => g.aSide === "left"),
-  ),
+// Both seats are played per seed, but the engine is seat-symmetric: if the swapped game is
+// the same game (same winner, same lines and attack for each fighter), it carries no new
+// information and is counted once. Seeds whose seats diverge keep both games.
+function sameGame(x: Oriented, y: Oriented): boolean {
+  const xo = x.aSide === "left" ? "right" : "left";
+  const yo = y.aSide === "left" ? "right" : "left";
+  const xa = x.record[x.aSide];
+  const ya = y.record[y.aSide];
+  const xb = x.record[xo];
+  const yb = y.record[yo];
+  return (
+    (x.record.winner === x.aSide) === (y.record.winner === y.aSide) &&
+    x.record.ticks === y.record.ticks &&
+    xa.lines === ya.lines &&
+    xa.sent === ya.sent &&
+    xb.lines === yb.lines &&
+    xb.sent === yb.sent
+  );
+}
+/** Collapse identical seat-swapped replays to one game; returns the games and how many collapsed. */
+function dedupe(all: readonly Oriented[]): { games: Oriented[]; mirrored: number; seeds: number } {
+  const out: Oriented[] = [];
+  const ids = [...new Set(all.map((g) => g.seed))].sort((x, y) => x - y);
+  let mirrored = 0;
+  for (const seed of ids) {
+    const pair = all.filter((g) => g.seed === seed);
+    const left = pair.find((g) => g.aSide === "left");
+    const right = pair.find((g) => g.aSide === "right");
+    if (pair.length === 2 && left && right && sameGame(left, right)) {
+      mirrored++;
+      out.push(left);
+    } else {
+      out.push(...pair);
+    }
+  }
+  return { games: out, mirrored, seeds: ids.length };
+}
+const { games: independent, mirrored } = dedupe(main);
+const headline = row(
+  "bot",
+  "DeepSeek vs Hoiko",
+  mirrored === seeds.length
+    ? "one game per seed (seat-swapped replays were identical, so counted once)"
+    : `distinct games; ${mirrored} of ${seeds.length} seat-swapped replays were identical and counted once`,
+  independent,
 );
+const rows: MatchupRow[] = [headline];
 if (exists("old-ai-vs-hoiko.jsonl")) {
   rows.push(
     row(
@@ -128,7 +165,7 @@ if (exists("bot-vs-hoiko.preview2.jsonl")) {
       "preview2",
       "DeepSeek (2-piece preview) vs Hoiko",
       "bot limited to the 2 previews Hoiko is configured with",
-      lines("bot-vs-hoiko.preview2.jsonl") as Oriented[],
+      dedupe(lines("bot-vs-hoiko.preview2.jsonl") as Oriented[]).games,
     ),
   );
 }
@@ -138,12 +175,12 @@ if (exists("bot-vs-hoiko.adapt.jsonl")) {
       "adapt",
       "DeepSeek vs Hoiko (adaptive beam)",
       "Hoiko with its shipping wall-clock beam adaptation (not reproducible move-for-move)",
-      lines("bot-vs-hoiko.adapt.jsonl") as Oriented[],
+      dedupe(lines("bot-vs-hoiko.adapt.jsonl") as Oriented[]).games,
     ),
   );
 }
 
-const games: GameRow[] = main.map((g) => {
+const games: GameRow[] = independent.map((g) => {
   const other = g.aSide === "left" ? "right" : "left";
   const result = g.record.winner === g.aSide ? 1 : g.record.winner === other ? 0 : 2;
   return [

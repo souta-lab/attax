@@ -61,6 +61,7 @@ h3 {
 }
 
 section {
+  scroll-margin-top: 56px;
   padding: 48px 0 8px;
   border-top: 1px solid var(--rule);
 }
@@ -773,7 +774,25 @@ footer {
     gap: 10px;
   }
 
-  .boards .side-col:first-child {
+  /* Spectating on a phone: two boards side by side matter more than the previews. */
+  .boards .side-col {
     display: none;
+  }
+
+  .boards {
+    padding: 10px 6px;
+    gap: 8px 4px;
+  }
+
+  .stats {
+    gap: 2px 10px;
+  }
+
+  .stat strong {
+    font-size: 0.95rem;
+  }
+
+  .fighter-name {
+    font-size: 1rem;
   }
 }

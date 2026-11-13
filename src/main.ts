@@ -25,7 +25,7 @@ const method = h("section", { class: "method", attrs: { id: "method" } }, [
     ]),
     h("li", {}, [
       h("strong", { text: "Same pieces, both seats. " }),
-      "Each seed is played twice, once from each side, on seeds the bot was never tuned on.",
+      "Each seed is played from both seats (the swapped game replays identically, so it counts once), on seeds the bot was never tuned on.",
     ]),
     h("li", {}, [
       h("strong", { text: "Plain, explainable AI. " }),

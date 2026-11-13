@@ -118,6 +118,13 @@ export interface ArenaView {
 
 export function createArenaView(): ArenaView {
   const worker = new Worker(new URL("./arena-worker.ts", import.meta.url), { type: "module" });
+  // The worker announces itself once its wasm is loaded; hold commands until then.
+  let workerReady = false;
+  const pending: ArenaCommand[] = [];
+  const send = (command: ArenaCommand): void => {
+    if (workerReady) worker.postMessage(command);
+    else pending.push(command);
+  };
   const bot = fighterDom("bot");
   const rival = fighterDom("rival");
   bot.name.textContent = BRAND.botName;
@@ -228,13 +235,15 @@ export function createArenaView(): ArenaView {
     pause.textContent = "Pause";
     latest = null;
     drawn = null;
-    bot.lastPieces = 0;
-    rival.lastPieces = 0;
+    for (const f of [bot, rival]) {
+      f.lastPieces = 0;
+      f.toast.classList.remove("show");
+      f.toast.textContent = "";
+    }
     seedLabel.textContent = `Seed ${seed} · ${BRAND.botName} ${botSide === "left" ? "left" : "right"}`;
     layout();
     describeRecord(null);
-    const command: ArenaCommand = { type: "start", seed, botSide, speed };
-    worker.postMessage(command);
+    send({ type: "start", seed, botSide, speed });
   }
 
   function setSpeed(value: number): void {
@@ -242,7 +251,7 @@ export function createArenaView(): ArenaView {
     SPEEDS.forEach((s, i) =>
       speedButtons[i]?.setAttribute("aria-pressed", String(s.value === value)),
     );
-    worker.postMessage({ type: "speed", speed } satisfies ArenaCommand);
+    send({ type: "speed", speed });
   }
 
   function step(delta: number): void {
@@ -273,11 +282,25 @@ export function createArenaView(): ArenaView {
   pause.addEventListener("click", () => {
     paused = !paused;
     pause.textContent = paused ? "Resume" : "Pause";
-    worker.postMessage({ type: "pause", paused } satisfies ArenaCommand);
+    send({ type: "pause", paused });
   });
 
-  worker.onmessage = (event: MessageEvent<{ type: "frame"; frame: ArenaFrame }>) => {
-    latest = event.data.frame;
+  worker.onerror = (event) => {
+    console.error("arena worker failed:", event.message);
+    record.textContent =
+      "The live arena could not start in this browser (the evidence below is unaffected).";
+    record.className = "record warn";
+  };
+  worker.onmessage = (
+    event: MessageEvent<{ type: "ready" } | { type: "frame"; frame: ArenaFrame }>,
+  ) => {
+    const message = event.data;
+    if (message.type === "ready") {
+      workerReady = true;
+      for (const command of pending.splice(0)) worker.postMessage(command);
+      return;
+    }
+    latest = message.frame;
     if (latest.winner !== null) describeRecord(latest);
   };
 

@@ -1,3 +1,10 @@
+> **Historical document (pre-overhaul).** This was the playbook of the previous AI
+> ("DeepSeek v1/v2"), which the overhaul replaced with `src/ai/bot/`. Every win count below
+> was measured while the engine scored real T-spin doubles pointing down as minis (the
+> rot0/rot2 front-corner swap from commit dcbe108, fixed in the overhaul), which handicapped
+> Hoiko. Under the corrected rules the previous AI measures 155-45 on the 200 held-out seeds
+> (see `README.md`). The Hoiko-fidelity sections remain accurate.
+
 # Beat-Hoiko playbook (research notes)
 
 Goal: a fighter that beats the faithful Hoiko (PPT-style) port. Source review of the
