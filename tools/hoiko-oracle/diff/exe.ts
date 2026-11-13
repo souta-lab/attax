@@ -7,8 +7,8 @@
  * otherwise hold inherited pipes alive for seconds).
  */
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { kindToMino, MINO_NONE } from "../../../src/ai/mino-codes.js";
-import type { GameSnapshot } from "../../../src/ui/types.js";
+import { kindToMino, MINO_NONE } from "../../../src/ai/hoiko/mino-codes.js";
+import type { GameSnapshot } from "../../../src/core/types.js";
 
 export const ORACLE_ROOT = Bun.env.HOIKO_ORACLE_ROOT ?? "/tmp/opencode/oracle";
 export const ORACLE_RUN = Bun.env.HOIKO_ORACLE_RUN ?? `${ORACLE_ROOT}/run`;

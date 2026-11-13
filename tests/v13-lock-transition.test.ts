@@ -10,7 +10,7 @@ import { DU_WEIGHTS } from "../src/ai/weights.js";
 import type { Board } from "../src/core/board.js";
 import * as boardExports from "../src/core/board.js";
 import { createEngine } from "../src/core/engine.js";
-import type { AiExecutionPlan } from "../src/ui/types.js";
+import type { AiExecutionPlan } from "../src/core/types.js";
 
 type LockCell = { readonly x: number; readonly y: number };
 

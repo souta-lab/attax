@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Hoiko engine to wasm32 and copy the artifact to src/ai/wasm/.
+# Build the Hoiko engine to wasm32 and copy the artifact to src/ai/hoiko/.
 #
 # Uses rustup if present (recommended); the wasm target must be installed:
 #   rustup target add wasm32-unknown-unknown
@@ -9,7 +9,7 @@
 # `-O4` (smaller + a little faster); without it the raw cargo output is copied.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT="$HERE/../src/ai/wasm"
+OUT="$HERE/../src/ai/hoiko/"
 WASM="$HERE/target/wasm32-unknown-unknown/release/hoiko_wasm.wasm"
 mkdir -p "$OUT"
 

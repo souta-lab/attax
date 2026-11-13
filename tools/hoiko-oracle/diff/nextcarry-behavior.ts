@@ -14,9 +14,9 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { opponentIsPCBoard, opponentIsPowerfulBoard } from "../../../src/ai/hoiko-opponent.js";
-import type { BoardView, GameSnapshot, PieceKind } from "../../../src/ui/types.js";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import { opponentIsPCBoard, opponentIsPowerfulBoard } from "../../../src/ai/hoiko/opponent.js";
+import type { BoardView, GameSnapshot, PieceKind } from "../../../src/core/types.js";
+import { createHoiko, type RustHoikoFighter } from "../../hoiko-node.js";
 import { runExe } from "./exe.js";
 
 const EVIDENCE = new URL("../../../evidence/hoiko-inputs/nextcarry/", import.meta.url);
@@ -177,7 +177,7 @@ for (const p of POSITIONS) {
   for (const shift of SHIFTS) {
     const run = runExe(exeInput(p, shift));
     const exe = run.ok ? parseDecision(run.text) : null;
-    const fighter = createRustHoiko({
+    const fighter = createHoiko({
       versus: true,
       nextCarry: true,
       evenMode: "auto",

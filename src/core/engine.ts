@@ -12,8 +12,8 @@ import type {
   GameSnapshot,
   LockAction,
   LockTransition,
-} from "../ui/types.js";
-import { COLS, ROWS } from "../ui/types.js";
+} from "./types.js";
+import { COLS, ROWS } from "./types.js";
 import {
   attackForClear,
   cancelPending,

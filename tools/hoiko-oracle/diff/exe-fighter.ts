@@ -17,10 +17,10 @@ import {
   makePlaceAtMove,
   type RustHoikoFighter,
   type RustOut,
-} from "../../../src/ai/hoiko-rust-core.js";
-import { kindToMino, MINO_NONE } from "../../../src/ai/mino-codes.js";
-import type { AiMove, GameSnapshot } from "../../../src/ui/types.js";
-import { ROWS } from "../../../src/ui/types.js";
+} from "../../../src/ai/hoiko/engine.js";
+import { kindToMino, MINO_NONE } from "../../../src/ai/hoiko/mino-codes.js";
+import type { AiMove, GameSnapshot } from "../../../src/core/types.js";
+import { ROWS } from "../../../src/core/types.js";
 import type { VersusFighter } from "../../../src/versus/controller.js";
 import { type ExeOffsetState, exeHoldUsed, nativeRowsOf, parseExe, runExe } from "./exe.js";
 

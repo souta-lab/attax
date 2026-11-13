@@ -2,7 +2,7 @@ import "./style.css";
 import { createDeepSeekV2, type DeepSeekV2 } from "./ai/deepseek-v2.js";
 import { createRustHoiko } from "./ai/hoiko-rust.js";
 import { type BoardRenderer, createBoardOnlyRenderer } from "./ui/renderer.js";
-import { COLS, type GameSnapshot, ROWS } from "./ui/types.js";
+import { COLS, type GameSnapshot, ROWS } from "./core/types.js";
 import { resolveVersusConfig } from "./versus/config.js";
 import {
   createVersusController,

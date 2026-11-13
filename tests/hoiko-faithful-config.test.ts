@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { FAITHFUL_HOIKO, resolveFaithfulHoikoOptions } from "../src/ai/hoiko-faithful.js";
-import { createRustHoiko } from "../tools/hoiko-rust/loader.js";
+import { FAITHFUL_HOIKO, resolveFaithfulHoikoOptions } from "../src/ai/hoiko/faithful.js";
+import { createHoiko } from "../tools/hoiko-node.js";
 
 describe("faithful Hoiko opponent config (shipping binary)", () => {
   test("constant carries the binary config + derived search bounds", () => {
@@ -15,7 +15,7 @@ describe("faithful Hoiko opponent config (shipping binary)", () => {
   });
 
   test("engine defaults to the faithful constant when constructed without options", () => {
-    const fighter = createRustHoiko();
+    const fighter = createHoiko();
 
     expect(fighter.engine.adapt).toBe(true);
     expect(fighter.engine.depthLimit).toBe(14);

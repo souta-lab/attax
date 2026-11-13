@@ -18,18 +18,18 @@ import {
   FAITHFUL_HOIKO,
   type FaithfulHoikoEnv,
   resolveFaithfulHoikoOptions,
-} from "../../src/ai/hoiko-faithful.js";
-import { NEXT_SIZE, NextState, trustRange } from "../../src/ai/hoiko-next.js";
+} from "../../src/ai/hoiko/faithful.js";
+import { NEXT_SIZE, NextState, trustRange } from "../../src/ai/hoiko/next.js";
 import {
   boardToNativeRows,
   opponentIsPCBoard,
   opponentIsPowerfulBoard,
-} from "../../src/ai/hoiko-opponent.js";
-import type { HoikoPreset } from "../../src/ai/hoiko-weights.js";
+} from "../../src/ai/hoiko/opponent.js";
+import type { HoikoPreset } from "../../src/ai/hoiko/weights.js";
 import { createEngine } from "../../src/core/engine.js";
 import { cellsFor } from "../../src/core/pieces.js";
-import type { AiMove, BoardView, CellValue, PieceKind } from "../../src/ui/types.js";
-import { COLS, ROWS } from "../../src/ui/types.js";
+import type { AiMove, BoardView, CellValue, PieceKind } from "../../src/core/types.js";
+import { COLS, ROWS } from "../../src/core/types.js";
 import { resolveVersusConfig } from "../../src/versus/config.js";
 import {
   boardFingerprint,
