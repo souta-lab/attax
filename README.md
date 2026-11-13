@@ -6,7 +6,6 @@
 
 [![Play live](https://img.shields.io/badge/play-live%20arena-2ea44f)](https://s0u7a.f5.si/attax/)
 [![vs Hoiko](https://img.shields.io/badge/vs%20Hoiko-195%E2%80%935%20(97.5%25)-blue)](#-result-hoiko)
-[![vs intetrigence](https://img.shields.io/badge/vs%20intetrigence-100%E2%80%930%20(100%25)-blue)](#-result-intetrigence)
 ![TypeScript](https://img.shields.io/badge/TypeScript-bun%20%2B%20vite-3178c6)
 ![Rust](https://img.shields.io/badge/Rust-WASM-dea584)
 
@@ -25,15 +24,13 @@ are in [`bench-results/`](bench-results/), the Hoiko-replica fidelity evidence i
 are in [`scripts/`](scripts/).
 
 > **Scoped claim:** in guideline versus rules, across every matchup measured so far, Attax
-> has won each matchup against Hoiko, intetrigence (derived from MinusKelvin's Cold Clear 2),
-> and clys; no opponent tested comes close. See [Caveats](#%EF%B8%8F-caveats--not-measured)
+> has won each matchup against Hoiko and clys; no opponent tested comes close. See [Caveats](#%EF%B8%8F-caveats--not-measured)
 > for what has *not* been measured.
 
 ## 📑 Contents
 
 - [Results at a glance](#-results-at-a-glance)
 - [Result: Hoiko](#-result-hoiko)
-- [Result: intetrigence](#-result-intetrigence)
 - [Result: clys](#result-clys)
 - [TBP](#tbp)
 - [License](#license)
@@ -51,10 +48,9 @@ are in [`scripts/`](scripts/).
 | Opponent | Games | W–L | Win rate (95% Wilson) | Attack/piece (Attax vs opp.) |
 |---|---|---|---|---|
 | **Hoiko** (Rust/WASM replica of Hoiko.exe) | 200 | **195–5** | **97.5%** (94.3–98.9%) | **0.70** vs 0.46 |
-| **intetrigence** (derived from MinusKelvin's Cold Clear 2) | 100 | **100–0** | **100%** (96.3–100%) | **0.559** vs 0.317 |
 | **clys** (by citrus610) | 100 | **88–12** | **88.0%** (80.2%–93.0%) | **0.7346** vs 0.7791 |
 
-All three matchups use held-out seeds (never used for tuning), and every seed was played from
+Both matchups use held-out seeds (never used for tuning), and every seed was played from
 both seats. In guideline versus rules, across everything measured so far, Attax has won
 every matchup and no opponent tested is close. The details, conditions and limits follow.
 
@@ -94,47 +90,6 @@ covers those 3 seeds; Attax has not played the real `.exe` directly.
 Source of truth for every number on the page: `bench-results/*.jsonl` →
 `src/data/results.json` (`bun run results`).
 
-## 🧠 Result: intetrigence
-
-**What intetrigence is.** intetrigence is a versus engine derived from MinusKelvin's Cold Clear 2
-(MCTS search). In its own published 100-game evaluations against the official Cold Clear 2
-(`results/comparisons/cold-clear2/` in the intetrigence repo), it won 77–23 at the retained-tree 100 ms / 5 PPS profile used here.
-
-**Result.** Attax 100 – 0 intetrigence: 100 games = 50 held-out seeds (5001–5050) × both
-seats, 0 draws. Win rate 100%, Wilson 95% CI 96.3–100%. Attax won both games on all 50
-seeds. Counted as 50 correlated pairs instead, 50–0 gives a per-pair CI of 92.9–100%.
-
-| Side | Attack/piece | Lines/game | Pieces/game | Garbage rows received (total) |
-|---|---|---|---|---|
-| Attax | **0.559** | 83.5 | 142.3 | 3,146 |
-| intetrigence | 0.317 | 96.2 | 141.3 | 6,573 |
-
-**Conditions.**
-
-- **Referee:** intetrigence's own `external-arena` (commit `e816913`), `--rules guideline`:
-  public multiplayer attack table (Single 0 / Double 1 / Triple 2 / Tetris 4, T-Spin S/D/T
-  2/4/6, B2B +1), no combo or perfect-clear attack, SRS legality, 7-bag. The referee
-  checks every move with `Game::legal` and plays it itself.
-- **Attax** joins as an external bot over TBP (Tetris Bot Protocol) through a thin
-  adapter that calls Attax's own fighter; no Attax logic is reimplemented. Fixed beam
-  search, width 48, current piece + 5 previews, default weights; depth 6 on 98.7% of moves.
-- **intetrigence** runs at `--ms 100` with default workers and default weights, at
-  `--pps 5`: the same 100 ms / 5 PPS profile as its published 77–23 win over CC2.
-- **Both** get 5 previews and hold. Seeds 5001–5050 are used by neither project's docs or
-  benchmarks.
-
-**Settings audit verdict: fair.** Before trusting the result, the harness was audited:
-
-- Attax was never starved. Its first choice was accepted on 14,230 of 14,230 moves, with
-  0 fallbacks and 0 errors.
-- intetrigence was not starved either. It got its 100 ms target and actually used more
-  (median 151 ms, p95 406 ms). There was no CPU contention, because Attax does not ponder
-  and shards ran one at a time.
-- `intetrigence verify-replay` re-executes the replays and confirms all 100 matches.
-
-If anything, the time budget favoured intetrigence, which used about 5× Attax's median
-think time per move.
-
 ## Result: clys
 
 clys, by citrus610, is a Monte Carlo beam search bot. With its shipped default
@@ -168,27 +123,19 @@ replay-verified. Source: the clys section of the local
 - **Versus-tuned evaluation.** Dellacherie-style board terms plus versus terms (danger
   from incoming garbage, T-slot readiness), plus a direct attack reward, a back-to-back
   break penalty and a wasted-T penalty.
-- **Attack efficiency against Hoiko and intetrigence.** Attack per piece is 0.70 vs Hoiko's 0.46
-  (about 50% more) and 0.559 vs intetrigence's 0.317 (about 1.75×). intetrigence received
-  6,573 garbage rows against Attax's 3,146. Against clys, Attax instead won on survival
-  despite lower attack per piece.
+- **Attack efficiency against Hoiko.** Attack per piece is 0.70 vs Hoiko's 0.46
+  (about 50% more). Against clys, Attax instead won on survival despite lower attack
+  per piece.
 
 ## ⚖️ Fairness
 
-- **Seat swaps.** Every seed in all three matchups was played from both seats, so each AI plays
+- **Seat swaps.** Every seed in both matchups was played from both seats, so each AI plays
   each piece sequence. Against Hoiko the swapped games are identical (both AIs are
   deterministic and the engine is seat-symmetric), so they are counted once.
 - **Identical harness for both sides.** Against Hoiko, both AIs run in the same headless
-  engine (`src/core`) and tick loop as the live page. Against intetrigence, intetrigence's
-  own referee hosts both sides under the same rules.
-- **Time usage.**
-  - vs Hoiko: each side locks one piece per 120 ms of game time regardless of think time.
-  - vs intetrigence: median think time was 35 ms for Attax and 151 ms for intetrigence.
-    Attax's per-move time is not capped (the referee waits for its answer), but its search
-    is fixed-work and it used far less time than its opponent.
-- **Garbage-blindness works against Attax.** TBP has no garbage message, so against
-  intetrigence Attax never sees pending garbage, while intetrigence does. (Under guideline
-  rules garbage is inserted right after each lock, so the pending queue is usually empty.)
+  engine (`src/core`) and tick loop as the live page.
+- **Time usage.** Against Hoiko, each side locks one piece per 120 ms of game time
+  regardless of think time.
 - **Rules audited.** `scripts/audit-rules.ts` checks that the engine awards Hoiko exactly
   the clear Hoiko's own search predicted for each move. Before the overhaul it did not:
   the T-spin front-corner table (commit `dcbe108`) had rotations 0 and 2 swapped, so every
@@ -204,12 +151,6 @@ replay-verified. Source: the clys section of the local
 - **Real Hoiko.exe, direct play:** not measured (no Wine on the benchmark VM). All Hoiko
   numbers come from the replica, whose fidelity evidence covers 3 seeds (see above).
 - **Hoiko with wall-clock adaptation on (`--adapt 1`):** not measured.
-- **Official Cold Clear 2, direct play:** not measured. The CC2 comparison goes through
-  intetrigence's own published wins over CC2.
-- **intetrigence at longer budgets:** only 100 ms / 5 PPS, default workers on a 4-CPU VM
-  was tested. Longer budgets or more cores might help intetrigence.
-- **Arena rules (combo / perfect-clear attack):** untested against intetrigence; the
-  result covers guideline rules only.
 - **clys scope:** only default configuration, a 100 ms window and this guideline profile.
   Its evaluator values combo/perfect clears that the referee does not score. This is
   not an equal-compute ranking. Attax sees only the bottom 20 rows and ignores bag state;
@@ -302,26 +243,6 @@ bun scripts/audit-rules.ts --seeds 3001-3020 --out bench-results/rules-audit.jso
 bun scripts/build-results.ts      # -> src/data/results.json (what the page shows)
 bun run build                     # -> dist/
 ```
-
-### vs intetrigence (external harness)
-
-The packaged TBP adapter is in [tbp/](tbp/). The original benchmark launcher
-and `analyze.py` live in a separate harness directory. With intetrigence
-`e816913` built (`cargo build --release`) next to them, one shard looks like:
-
-```sh
-ATTAX_TBP_LOG=$PWD/runs/main-5024.attax.log ./intetrigence/target/release/intetrigence external-arena \
-  --rules guideline --opponent ./attax-tbp.sh --games 28 --seed 5024 --ms 100 --pps 5 --turns 1000 \
-  --output runs/main-5024.json --replay runs/main-5024.jsonl
-# combine the shards (5001–5023, 5024–5037, 5038–5050), then analyse and verify
-python3 -I analyze.py runs/final-5001-5050.jsonl runs/final-5001-5050.attax.log
-./intetrigence/target/release/intetrigence verify-replay --input runs/main-5024.jsonl
-```
-
-In the shard JSON files, `wins`/`losses` are counted from intetrigence's side, and the
-replay labels the external bot `cold_clear_2` (hard-coded in intetrigence); in these runs
-that label means Attax. intetrigence's search is stochastic, so exact replays of the
-match will differ; `verify-replay` re-checks the recorded games.
 
 ## 🏷️ Renaming
 
