@@ -69,6 +69,37 @@ The previous AI's row is reproduced at the pre-overhaul commit `a4f14d7` with
   the remainder lands under the stack, as in the engine.
 - `fighter.ts` — snapshot in, one `placeAt` move out.
 
+## TBP
+
+Attax also runs as a Tetris Bot Protocol (TBP) process for external match hosts.
+With Bun installed, run from the repository root:
+
+```sh
+bun tbp/attax-tbp.ts
+```
+
+For hosts that take an executable path, use `tbp/attax-tbp.sh` (Bun must be on
+`PATH`). The launcher works from any working directory. Stdin and stdout carry
+newline-delimited TBP JSON; optional `ATTAX_TBP_LOG=/path/to/decisions.jsonl` records
+decisions separately. The adapter calls the same `createBot().findBestMove` fighter
+as the arena, with the default preview and beam width.
+
+The worked example is the [intetrigence match report](tbp/intetrigence-match.md):
+it describes the external-arena command, rules, timing and verification of the
+original match. The adapter keeps its original coordinate translation and ranked
+suggestions. It sees only the bottom 20 rows and receives no pending-garbage
+information; hosts must resend `start` after garbage changes the board.
+
+To smoke-test against an already-built intetrigence referee, without network access:
+
+```sh
+python3 tbp/smoke.py /path/to/intetrigence/target/release/intetrigence
+```
+
+This plays two games with seats swapped, checks every accepted Attax move against
+its first suggestion, and runs the referee's replay verifier.
+See [the recorded smoke result](tbp/SMOKE.md).
+
 ## Layout
 
 ```
