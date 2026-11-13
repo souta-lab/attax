@@ -13,7 +13,7 @@ files = []
 for path in sorted(args.directory.glob('*.json')):
     record = json.loads(path.read_text())
     verify = path.with_suffix('.verify')
-    if not verify.exists():
+    if not verify.exists() or verify.read_text().strip() != "verified 2 complete matches":
         continue
     pairs = record['matches']
     if len(pairs) != 2 or {p['swapped'] for p in pairs} != {True, False}:
