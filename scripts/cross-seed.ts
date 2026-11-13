@@ -11,8 +11,7 @@
 import { randomInt } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Oriented } from "../src/bench/summary.js";
-import { wilson } from "../src/bench/summary.js";
+import { type Oriented, wilson } from "../src/bench/summary.js";
 import { parseArgs, runBenchmark } from "./benchmark.js";
 
 type Outcome = "W" | "L" | "D" | "cap";
