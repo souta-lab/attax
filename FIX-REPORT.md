@@ -73,3 +73,15 @@ Latest source gates: 109 tests pass (9534 assertions), lint and typecheck pass. 
 A/B pre-registration: after width96-control finishes, run field40-no-diversity on the same 2401–2410 seed pairs as field40-aligned, changing only the diversity/complete-state selector. Both use aligned combat, corrected field, width96, no exposure/speculation and ordinary weights. This isolates the PR-derived search selector rather than attributing the combined risk probe to it. Compare full 20-game paired batches; select the final profile using tuning results only, then freeze before touching 12001–12020. CC2 search is wall-clock/randomized, so seat/seed matching reduces variance but does not make opponent choices identical.
 
 Study addendum: s2-bot-lab's f14_compat/select.rs computes solvency as visible margin after lock minus tank rows minus remaining incoming rows; solvent also requires no actual amount-based top-out. Its rescue and optional top-out fallback are distinct from ordinary score ordering. bot/freestyle.rs additionally discounts tank risk by remaining headroom and verifies cancellation+tank+remaining conserves the original pending amount. Transferable lessons are conservation checks and a feasibility gate before score maximization. The TBP rig has no incoming amounts, so importing that exact solvency formula would require fabricating information; it is deliberately not transplanted. CC2 sync.rs has one continuously working background loop with an effectively unlimited node limit, resets per-move statistics on advance, and reports suggestions from its retained DAG; it is the referee's strict pause/window that controls its work here.
+
+Partial replay-verified checkpoint (not final batch results):
+
+| Probe | Completed / planned | W | L | D |
+|---|---:|---:|---:|---:|
+| width96-control | 16/20 | 8 | 8 | 0 |
+| risk12-fixed | 6/20 | 2 | 2 | 2 |
+| bag40-survival | 4/20 | 2 | 0 | 2 |
+| field40-aligned | 8/20 | 7 | 1 | 0 |
+| field40-no-diversity | queued | — | — | — |
+
+The survival candidate's low APP has not yet implied losses; it currently trades kill rate for more caps. No early-stopped successful probe or final claim is being substituted for the planned samples. Final seeds remain untouched.
