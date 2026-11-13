@@ -36,6 +36,27 @@ The previous AI's row is reproduced at the pre-overhaul commit `a4f14d7` with
 `bench-results/old-ai-rules-fix.patch` applied (the rules fix only):
 `HOIKO_ADAPT=0 DSV2_RUST=1 HOIKO_SEEDS=1001,...,1200 bun scripts/gate-v2.ts`.
 
+## Fresh-seed generalization check
+
+A separate validation command draws new random seeds outside the published benchmark
+and tuning ranges **after the candidate policy has been fixed**:
+
+```sh
+bun run bench:cross-seed --count 200 --jobs 4 --out bench-results/cross-seed.jsonl
+```
+
+Each selected seed is played from both seats against Hoiko. Only a win in **both**
+orientations counts as a successful independent seed; draws, unfinished matches, and
+seat disagreements are reported as failures. The script saves the full seed list,
+match records and 95% Wilson interval in an adjacent summary file, and exits with a
+nonzero status unless every seed passes. You can rerun a failed set with
+`bun scripts/benchmark.ts --seeds <saved-comma-separated-seeds> --sides both`
+to investigate it, but performance claims should come from a new random batch.
+
+A 100% result on a finite sample is a measurement, not a guarantee against every
+possible seed or opponent. The reported 195/200 figure above remains unchanged until
+a fresh full benchmark supports a new headline.
+
 ## Fairness
 
 - **Hoiko is the real thing**: `rust/hoiko-core` reproduces the shipping executable's moves
