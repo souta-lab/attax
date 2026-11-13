@@ -10,7 +10,7 @@ parser.add_argument('--expected-pairs', type=int)
 args = parser.parse_args()
 games = []
 files = []
-for path in sorted(args.directory.glob('*.json')):
+for path in sorted(args.directory.glob('[0-9]*.json')):
     record = json.loads(path.read_text())
     verify = path.with_suffix('.verify')
     if not verify.exists() or verify.read_text().strip() != "verified 2 complete matches":
