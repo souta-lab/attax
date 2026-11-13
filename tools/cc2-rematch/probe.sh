@@ -7,6 +7,10 @@ label=$1
 first=$2
 last=$3
 out="$repo/tools/cc2-rematch/runs/$label"
+if test "${ATTAX_USE_FROZEN:-0}" = 1; then
+ test -f "$out/source.sha256"
+ if test -f "$out/weights.json"; then export ATTAX_WEIGHTS="$out/weights.json"; fi
+else
 test ! -e "$out"
 mkdir -p "$out/source"
 cp -R "$repo/src" "$out/source/src"
@@ -23,6 +27,7 @@ if test -n "${ATTAX_WEIGHTS:-}"; then
  export ATTAX_WEIGHTS="$out/weights.json"
 fi
 env | sort | rg '^ATTAX_' > "$out/environment.txt" || true
+fi
 for seed in $(seq "$first" "$last"); do
  prefix="$repo/tools/cc2-rematch/runs/$label/$seed"
  test ! -e "$prefix.jsonl"
