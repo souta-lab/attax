@@ -7,6 +7,7 @@ label=$1
 first=$2
 last=$3
 out="$repo/tools/cc2-rematch/runs/$label"
+test ! -e "$out"
 mkdir -p "$out/source"
 cp -R "$repo/src" "$out/source/src"
 cp "$repo/tools/cc2-rematch/attax-tbp.ts" "$out/adapter.ts"
@@ -16,6 +17,11 @@ exec /opt/hatch-image/bin/bun "$out/adapter.ts"
 SCRIPT
 chmod +x "$out/external.sh"
 git rev-parse HEAD > "$out/commit.txt"
+rg --files "$out/source" | sort | xargs sha256sum > "$out/source.sha256"
+if test -n "${ATTAX_WEIGHTS:-}"; then
+ cp "$ATTAX_WEIGHTS" "$out/weights.json"
+ export ATTAX_WEIGHTS="$out/weights.json"
+fi
 env | sort | rg '^ATTAX_' > "$out/environment.txt" || true
 for seed in $(seq "$first" "$last"); do
  prefix="$repo/tools/cc2-rematch/runs/$label/$seed"
