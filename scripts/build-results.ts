@@ -142,7 +142,7 @@ function dedupe(all: readonly Oriented[]): { games: Oriented[]; mirrored: number
 const { games: independent, mirrored } = dedupe(main);
 const headline = row(
   "bot",
-  "DeepSeek vs Hoiko",
+  "Attax vs Hoiko",
   mirrored === seeds.length
     ? "one game per seed (seat-swapped replays were identical, so counted once)"
     : `distinct games; ${mirrored} of ${seeds.length} seat-swapped replays were identical and counted once`,
@@ -163,7 +163,7 @@ if (exists("bot-vs-hoiko.preview2.jsonl")) {
   rows.push(
     row(
       "preview2",
-      "DeepSeek (2-piece preview) vs Hoiko",
+      "Attax (2-piece preview) vs Hoiko",
       "bot limited to the 2 previews Hoiko is configured with",
       dedupe(lines("bot-vs-hoiko.preview2.jsonl") as Oriented[]).games,
     ),
@@ -173,7 +173,7 @@ if (exists("bot-vs-hoiko.adapt.jsonl")) {
   rows.push(
     row(
       "adapt",
-      "DeepSeek vs Hoiko (adaptive beam)",
+      "Attax vs Hoiko (adaptive beam)",
       "Hoiko with its shipping wall-clock beam adaptation (not reproducible move-for-move)",
       dedupe(lines("bot-vs-hoiko.adapt.jsonl") as Oriented[]).games,
     ),

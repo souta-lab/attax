@@ -4,11 +4,11 @@
  */
 export const BRAND = {
   /** The bot's display name. */
-  botName: "DeepSeek",
+  botName: "Attax",
   /** The opponent. Hoiko is the original author's AI; keep its name for attribution. */
   rivalName: "Hoiko",
   /** Short page title. */
-  title: "DeepSeek vs Hoiko",
+  title: "Attax vs Hoiko",
   /** One-line description of what the page is. */
-  tagline: "A versus AI for the falling-block game, measured against Hoiko.",
+  tagline: "A versus AI for the falling-block game. It won 195 of 200 games against Hoiko.",
 } as const;

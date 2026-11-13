@@ -1,6 +1,6 @@
-# DeepSeek vs Hoiko
+# Attax vs Hoiko
 
-A versus AI for the falling-block game, built to show — with reproducible numbers — that it
+Attax is a versus AI for the falling-block game, built to show — with reproducible numbers — that it
 beats **Hoiko**, run as a byte-faithful port of the shipping Hoiko binary. The deliverable
 is a static web page: the headline result, every benchmark game as a clickable square, and
 a live arena where both AIs play the same seed in your browser and replay any benchmark
@@ -16,9 +16,9 @@ replayed identically on all 200 seeds, so each seed counts once (N = 200 indepen
 
 | Matchup | N | W–L | Win rate (95% Wilson) | Attack/piece | Lines/game |
 |---|---|---|---|---|---|
-| DeepSeek (this bot) vs Hoiko | 200 | 195–5 | 97.5% (94.3–98.9%) | 0.70 vs 0.46 | 25.1 vs 18.5 |
+| Attax (this bot) vs Hoiko | 200 | 195–5 | 97.5% (94.3–98.9%) | 0.70 vs 0.46 | 25.1 vs 18.5 |
 | Previous AI (pre-overhaul `a4f14d7` + rules fix) vs Hoiko | 200 | 155–45 | 77.5% (71.2–82.7%) | 0.44 vs 0.48 | 29.1 vs 19.6 |
-| DeepSeek limited to Hoiko's 2-piece preview vs Hoiko | 100 | 89–11 | 89.0% (81.4–93.7%) | 0.58 vs 0.46 | 28.9 vs 21.2 |
+| Attax limited to Hoiko's 2-piece preview vs Hoiko | 100 | 89–11 | 89.0% (81.4–93.7%) | 0.58 vs 0.46 | 28.9 vs 21.2 |
 
 Source of truth: `bench-results/*.jsonl` → `src/data/results.json` (`bun run results`).
 

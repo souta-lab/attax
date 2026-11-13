@@ -1,5 +1,5 @@
 {
-  "name": "deepseek-tetris",
+  "name": "attax",
   "private": true,
   "version": "1.0.0",
   "description": "A versus AI for the falling-block game, measured head-to-head against the Hoiko AI",
