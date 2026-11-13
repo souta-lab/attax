@@ -36,9 +36,8 @@ describe("independent seed-pair validation", () => {
   });
 
   test("rejects duplicate and missing seat results", () => {
-    expect(() =>
-      summarizeSeedPairs([match(8, "left", "left"), match(8, "left", "left")]),
-    ).toThrow("duplicate");
+    const duplicates = [match(8, "left", "left"), match(8, "left", "left")];
+    expect(() => summarizeSeedPairs(duplicates)).toThrow("duplicate");
     expect(() => summarizeSeedPairs([match(8, "left", "left")])).toThrow("missing seat");
   });
 });
