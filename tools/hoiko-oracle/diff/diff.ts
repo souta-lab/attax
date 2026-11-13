@@ -9,8 +9,8 @@
  */
 
 import { writeFileSync } from "node:fs";
-import type { GameSnapshot, PieceKind } from "../../../src/ui/types.js";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import type { GameSnapshot, PieceKind } from "../../../src/core/types.js";
+import { createHoiko, type RustHoikoFighter } from "../../hoiko-node.js";
 import { POSITIONS, type Position } from "./positions.js";
 
 const ORACLE_INPUT = "/tmp/opencode/oracle/run/oracle_input.txt";
@@ -135,7 +135,7 @@ const depth = startTimer ? 14 : 10;
 
 let mismatches = 0;
 for (const p of list) {
-  const fighter = createRustHoiko({
+  const fighter = createHoiko({
     weightPreset: "we",
     depthLimit: depth,
     offset: false,

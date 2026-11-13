@@ -5,7 +5,7 @@ import { classifyTspin } from "../src/core/tspin.js";
 const PX = 3;
 const NY = 6;
 
-// Bottom-up corners of the T's 3x3 box: [BL, BR, TR, TL].
+// Corners of the T's 3x3 box on the bottom-up board: [TL, TR, BR, BL] (NY is the top row).
 const CORNERS = [
   { x: PX, y: NY },
   { x: PX + 2, y: NY },
@@ -38,12 +38,12 @@ describe("T-spin classification", () => {
     expect(classify([0, 2], 0, 1)).toBe("none");
   });
 
-  test("full when matching front corners face up (rot0)", () => {
-    expect(classify([0, 2, 3], 0, 1)).toBe("full");
+  test("full when both front corners are filled facing up (rot0: TL, TR)", () => {
+    expect(classify([0, 1, 2], 0, 1)).toBe("full");
   });
 
-  test("full when matching front corners face down (rot2)", () => {
-    expect(classify([0, 1, 2], 2, 1)).toBe("full");
+  test("full when both front corners are filled facing down (rot2: BR, BL) — a real TSD", () => {
+    expect(classify([0, 2, 3], 2, 1)).toBe("full");
   });
 
   test("full for matching front corners on rot1 and rot3", () => {
@@ -52,11 +52,11 @@ describe("T-spin classification", () => {
   });
 
   test("mini when front corners differ while facing up (rot0)", () => {
-    expect(classify([0, 1, 2], 0, 1)).toBe("mini");
+    expect(classify([0, 2, 3], 0, 1)).toBe("mini");
   });
 
   test("mini when front corners differ while facing down (rot2)", () => {
-    expect(classify([0, 2, 3], 2, 1)).toBe("mini");
+    expect(classify([0, 1, 2], 2, 1)).toBe("mini");
   });
 
   test("mini when front corners differ on rot1 and rot3", () => {
@@ -65,7 +65,7 @@ describe("T-spin classification", () => {
   });
 
   test("the last SRS kick promotes a differing front pair to full (TST)", () => {
-    expect(classify([0, 1, 2], 0, 5)).toBe("full");
-    expect(classify([0, 2, 3], 2, 5)).toBe("full");
+    expect(classify([0, 2, 3], 0, 5)).toBe("full");
+    expect(classify([0, 1, 2], 2, 5)).toBe("full");
   });
 });

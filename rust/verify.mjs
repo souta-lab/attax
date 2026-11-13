@@ -1,5 +1,5 @@
 const bytes = await Bun.file(
-  new URL("../src/ai/wasm/hoiko_core.wasm", import.meta.url),
+  new URL("../src/ai/hoiko/hoiko_core.wasm", import.meta.url),
 ).arrayBuffer();
 const { instance } = await WebAssembly.instantiate(bytes, {});
 const ex = instance.exports;

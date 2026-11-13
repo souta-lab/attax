@@ -11,8 +11,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import type { GameSnapshot, PieceKind } from "../../../src/ui/types.js";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import type { GameSnapshot, PieceKind } from "../../../src/core/types.js";
+import { createHoiko, type RustHoikoFighter } from "../../hoiko-node.js";
 
 const ORACLE_ROOT = Bun.env.HOIKO_ORACLE_ROOT ?? "/tmp/opencode/oracle";
 const ORACLE_RUN = Bun.env.HOIKO_ORACLE_RUN ?? `${ORACLE_ROOT}/run`;
@@ -429,7 +429,7 @@ mkdirSync(EVIDENCE, { recursive: true });
 const list = corpus();
 const fighter = !SEARCH
   ? null
-  : createRustHoiko({
+  : createHoiko({
       weightPreset: "we",
       depthLimit: 10,
       offset: false,

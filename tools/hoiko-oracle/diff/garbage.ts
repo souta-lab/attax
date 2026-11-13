@@ -5,18 +5,18 @@
  *
  *   bun garbage.ts [--seeds=1,2,7] [--cap=120] [--max-ticks=20000] [--tick=16] [--name=]
  *
- * Left fighter: DeepSeek v2 (Rust/WASM) generates real attacks/garbage. Right:
+ * Left fighter: the bot (src/ai/bot) generates real attacks/garbage. Right:
  * one Wine query per think (fresh process, `timer=1`, `adapt:false`-equivalent
  * regime) plus a same-snapshot replica query; every think is compared on
  * move `(x, rot, m)`, `act`, `garbageWait`, `useHold` and the full carried
  * OffsetOffAI state. First mismatch stops the seed and is dumped raw.
  */
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko-faithful.js";
+import { createBot } from "../../../src/ai/bot/fighter.js";
+import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko/faithful.js";
 import { resolveVersusConfig } from "../../../src/versus/config.js";
 import { createVersusController, VERSUS_DEFAULTS } from "../../../src/versus/controller.js";
-import { createRustDeepSeekV2 } from "../../deepseek-rust/loader.js";
-import { createRustHoiko } from "../../hoiko-rust/loader.js";
+import { createHoiko } from "../../hoiko-node.js";
 import { createExeFighter, type ExeTurn } from "./exe-fighter.js";
 
 const EVIDENCE_DIR = new URL("../../../evidence/hoiko-fullgame/garbage/", import.meta.url);
@@ -45,7 +45,7 @@ const maxTicks = readInt("--max-ticks", 20000);
 const tickMs = readInt("--tick", 16);
 // Synthetic garbage pressure (coverage for the garbageWait=1 branch): rows
 // injected into the right core via `receiveGarbage` every `--pressure-every`
-// ticks. Default 0 = pure DeepSeek attacks. Both engines see identical
+// ticks. Default 0 = pure bot attacks. Both engines see identical
 // snapshots; only the attacker is artificial.
 const pressure = Number.parseInt(argValue("--pressure") ?? "0", 10);
 const pressureEvery = readInt("--pressure-every", 96);
@@ -84,8 +84,8 @@ interface SeedSummary {
 }
 
 function runSeed(seed: number): SeedSummary {
-  const replica = createRustHoiko({ ...FAITHFUL_HOIKO, adapt: false });
-  const left = createRustDeepSeekV2({});
+  const replica = createHoiko({ ...FAITHFUL_HOIKO, adapt: false });
+  const left = createBot();
   const jsonlUrl = new URL(`${prefix}seed${seed}.jsonl`, EVIDENCE_DIR);
   writeFileSync(jsonlUrl, "");
   let rightThinks = 0;
@@ -229,11 +229,11 @@ const report = [
   "## Setup",
   "",
   "- Right fighter: one fresh `Hoiko.exe` (Wine oracle stub) per think, `timer=1` (depth 14, beam 150), `adapt:false`-equivalent.",
-  "- Right replica: persistent `createRustHoiko({...FAITHFUL_HOIKO, adapt:false})`, queried on the identical snapshot each think.",
-  "- Left fighter: Rust/WASM DeepSeek v2 (generates attacks/garbage); engine `src/core/engine.ts` seeded per seed, `resolveVersusConfig()` (aligned garbage, 1-lock delay).",
+  "- Right replica: persistent `createHoiko({...FAITHFUL_HOIKO, adapt:false})`, queried on the identical snapshot each think.",
+  "- Left fighter: the bot (generates attacks/garbage); engine `src/core/engine.ts` seeded per seed, `resolveVersusConfig()` (aligned garbage, 1-lock delay).",
   pressure > 0
     ? `- Pressure mode: ${pressure} extra garbage rows injected into the right core every ${pressureEvery} ticks (coverage for garbageWait=1). Snapshots stay identical for both engines.`
-    : "- Natural mode: no injected garbage (DeepSeek attacks only).",
+    : "- Natural mode: no injected garbage (bot attacks only).",
   garbageDelay === 1
     ? "- Garbage delay: canonical `GARBAGE_DELAY=1`."
     : `- Garbage delay: ${garbageDelay} (stress-only deviation from the canonical config; snapshots stay identical for both engines).`,

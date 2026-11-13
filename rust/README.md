@@ -18,7 +18,7 @@ md5-identical. Speed is documented in `PERF.md` (native ≈62–66 ms/move at de
 rustup target add wasm32-unknown-unknown     # once
 cargo test                                  # native tests (debug the logic here)
 cargo run --release -p hoiko-core --example bench_search
-bash build.sh                                # -> src/ai/wasm/hoiko_core.wasm
+bash build.sh                                # -> src/ai/hoiko/hoiko_core.wasm
 bun verify.mjs                               # load the built .wasm from Bun
 ```
 
@@ -31,5 +31,5 @@ ship wasm: the code is pure and deterministic, so native and wasm behave identic
 - Rust edition 2024: exported symbols need `#[unsafe(no_mangle)]`.
 - When reading wasm linear memory from JS, (re)create the typed-array view **after**
   any allocation that may grow memory, or the view is detached.
-- `target/` is gitignored. The built `src/ai/wasm/hoiko_core.wasm` **is checked in**
+- `target/` is gitignored. The built `src/ai/hoiko/hoiko_core.wasm` **is checked in**
   because the browser app ships it; rebuild it with `bash build.sh`.

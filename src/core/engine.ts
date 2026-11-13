@@ -4,16 +4,6 @@
  * Board model: grid[y][x], y=0 is TOP row (view order). Internally uses bit ops for clears.
  */
 
-import type {
-  ActivePieceView,
-  BoardView,
-  CellValue,
-  CorePort,
-  GameSnapshot,
-  LockAction,
-  LockTransition,
-} from "../ui/types.js";
-import { COLS, ROWS } from "../ui/types.js";
 import {
   attackForClear,
   cancelPending,
@@ -27,6 +17,16 @@ import {
 import { bottomCellsOf, cellsFor, type PieceKind, pieceCellValue } from "./pieces.js";
 import { asRotation, kickTable, type Rotation } from "./srs.js";
 import { classifyTspin, type TspinKind } from "./tspin.js";
+import type {
+  ActivePieceView,
+  BoardView,
+  CellValue,
+  CorePort,
+  GameSnapshot,
+  LockAction,
+  LockTransition,
+} from "./types.js";
+import { COLS, ROWS } from "./types.js";
 
 type Grid = CellValue[][];
 

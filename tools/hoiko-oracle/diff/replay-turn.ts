@@ -14,9 +14,9 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { kindToMino, MINO_NONE } from "../../../src/ai/mino-codes.js";
+import { kindToMino, MINO_NONE } from "../../../src/ai/hoiko/mino-codes.js";
 import { createEngine } from "../../../src/core/engine.js";
-import { ROWS } from "../../../src/ui/types.js";
+import { ROWS } from "../../../src/core/types.js";
 import { seededRandom } from "../../../src/versus/controller.js";
 
 const args = Bun.argv.slice(2);

@@ -22,8 +22,8 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import type { BoardView, GameSnapshot, PieceKind } from "../../../src/ui/types.js";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import type { BoardView, GameSnapshot, PieceKind } from "../../../src/core/types.js";
+import { createHoiko, type RustHoikoFighter } from "../../hoiko-node.js";
 import { runExe } from "./exe.js";
 
 const EVIDENCE = new URL("../../../evidence/hoiko-inputs/iseven/", import.meta.url);
@@ -162,7 +162,7 @@ function parseDecision(text: string): Decision | null {
 }
 
 function replicaDecision(p: Position, evenMode: "auto" | "true" | "false"): Decision {
-  const fighter: RustHoikoFighter = createRustHoiko({
+  const fighter: RustHoikoFighter = createHoiko({
     versus: true,
     adapt: false,
     depthLimit: 10,

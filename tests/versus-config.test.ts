@@ -9,14 +9,7 @@ import {
   type VersusFighter,
 } from "../src/versus/controller.js";
 
-const CALL_SITE_FILES = [
-  "src/main.ts",
-  "scripts/gate-v2.ts",
-  "scripts/hoiko-gate.ts",
-  "src/ai/fitness.ts",
-  "src/tuner/match.ts",
-  "scripts/render.ts",
-] as const;
+const CALL_SITE_FILES = ["src/bench/match.ts", "src/sim/arena.ts"] as const;
 
 function readSource(relativePath: string): string {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");

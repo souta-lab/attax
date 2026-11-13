@@ -17,9 +17,9 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { opponentIsPCBoard, opponentIsPowerfulBoard } from "../../../src/ai/hoiko-opponent.js";
-import type { BoardView, GameSnapshot, PieceKind } from "../../../src/ui/types.js";
-import { createRustHoiko, type RustHoikoFighter } from "../../hoiko-rust/loader.js";
+import { opponentIsPCBoard, opponentIsPowerfulBoard } from "../../../src/ai/hoiko/opponent.js";
+import type { BoardView, GameSnapshot, PieceKind } from "../../../src/core/types.js";
+import { createHoiko, type RustHoikoFighter } from "../../hoiko-node.js";
 
 const ORACLE_ROOT = Bun.env.HOIKO_ORACLE_ROOT ?? "/tmp/opencode/oracle";
 const ORACLE_RUN = Bun.env.HOIKO_ORACLE_RUN ?? `${ORACLE_ROOT}/run`;
@@ -368,7 +368,7 @@ function runBehavior(): { name: string; exe: SearchResult; rep: SearchResult; ok
   const results: { name: string; exe: SearchResult; rep: SearchResult; ok: boolean }[] = [];
   for (const p of positions()) {
     const exe = runExeSearch(p);
-    const fighter = createRustHoiko({
+    const fighter = createHoiko({
       versus: true,
       adapt: false,
       depthLimit: 10,

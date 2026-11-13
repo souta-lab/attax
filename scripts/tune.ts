@@ -1,50 +1,90 @@
-import type { Weights } from "../src/ai/weights.js";
-import { DU_WEIGHTS } from "../src/ai/weights.js";
-import { runBench, setBenchWeights } from "./bench.js";
+/**
+ * Coordinate search over the bot's weights, scored by matches against Hoiko on TRAINING
+ * seeds only (2001+; the held-out benchmark uses 1001-1200 and is never tuned on).
+ *
+ *   bun scripts/tune.ts --seeds 2001-2060 --jobs 2 --rounds 1 --out weights.tuned.json
+ *
+ * Fitness = win rate + attack-per-piece margin (bot - Hoiko). The margin is a smoother
+ * signal than wins alone when the bot already wins most games. Each step tries scaling one
+ * weight by 0.6x and 1.5x and keeps a change only if fitness improves by more than `--eps`.
+ */
+import { writeFileSync } from "node:fs";
+import { DEFAULT_WEIGHTS, type Weights } from "../src/ai/bot/weights.js";
+import { summarize } from "../src/bench/summary.js";
+import { parseArgs, runBenchmark } from "./benchmark.js";
 
-const AXES: ReadonlyArray<{ readonly key: keyof Weights; readonly deltas: readonly number[] }> = [
-  { key: "holes", deltas: [-4, 0, 4] },
-  { key: "rowsWithHoles", deltas: [-6, 0, 6] },
-  { key: "colTransitions", deltas: [-2, 0, 2] },
-  { key: "wells", deltas: [-2, 0, 2] },
-  { key: "holeDepth", deltas: [-1, 0, 1] },
-  { key: "landingHeight", deltas: [-1, 0, 1] },
+type Path = readonly [keyof Weights] | readonly ["board" | "clear", string];
+
+const TUNABLE: readonly Path[] = [
+  ["attack"],
+  ["board", "holes"],
+  ["board", "holeRows"],
+  ["board", "danger"],
+  ["board", "bumpiness"],
+  ["board", "tSlot"],
+  ["board", "wellDepth"],
+  ["board", "maxHeight"],
+  ["clear", "single"],
+  ["clear", "double"],
+  ["clear", "tspinDouble"],
+  ["clear", "quad"],
+  ["b2bBreak"],
+  ["wastedT"],
 ];
 
-function withDelta(base: Weights, key: keyof Weights, delta: number): Weights {
-  return { ...base, [key]: base[key] + delta };
+function get(w: Weights, path: Path): number {
+  if (path.length === 1) return w[path[0]] as number;
+  return (w[path[0]] as Record<string, number>)[path[1]] as number;
 }
 
-const seeds = [1, 2, 3, 4, 5];
-let best: Weights = DU_WEIGHTS;
-let bestLines = runBenchWithWeights(best, "base");
+function set(w: Weights, path: Path, value: number): Weights {
+  if (path.length === 1) return { ...w, [path[0]]: value };
+  return { ...w, [path[0]]: { ...(w[path[0]] as Record<string, number>), [path[1]]: value } };
+}
 
-for (const axis of AXES) {
-  let improved = false;
-  for (const d of axis.deltas) {
-    if (d === 0) continue;
-    const cand = withDelta(best, axis.key, d);
-    const lines = runBenchWithWeights(cand, `${String(axis.key)}${d > 0 ? "+" : ""}${d}`);
-    if (lines > bestLines) {
-      bestLines = lines;
-      best = cand;
-      improved = true;
+async function fitness(weights: Weights, argv: readonly string[]): Promise<number> {
+  const file = `/tmp/tune-candidate-${process.pid}.json`;
+  writeFileSync(file, JSON.stringify(weights));
+  const args = [...argv, "--weights", file, "--quiet"];
+  const summary = summarize(await runBenchmark(parseArgs(args), args));
+  return summary.winRate + (summary.a.attackPerPiece - summary.b.attackPerPiece);
+}
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  const get_ = (name: string, fallback: string): string => {
+    const i = argv.indexOf(`--${name}`);
+    return i >= 0 ? (argv[i + 1] as string) : fallback;
+  };
+  const benchArgs = ["--seeds", get_("seeds", "2001-2060"), "--jobs", get_("jobs", "2")];
+  const rounds = Number(get_("rounds", "1"));
+  const eps = Number(get_("eps", "0.02"));
+  const out = get_("out", "weights.tuned.json");
+
+  let best: Weights = DEFAULT_WEIGHTS;
+  let bestFit = await fitness(best, benchArgs);
+  console.log(JSON.stringify({ step: "baseline", fitness: bestFit }));
+  for (let round = 0; round < rounds; round += 1) {
+    for (const path of TUNABLE) {
+      for (const factor of [0.6, 1.5]) {
+        const value = Math.round(get(best, path) * factor * 100) / 100;
+        const candidate = set(best, path, value);
+        const fit = await fitness(candidate, benchArgs);
+        const accepted = fit > bestFit + eps;
+        console.log(
+          JSON.stringify({ round, param: path.join("."), value, fitness: fit, accepted }),
+        );
+        if (accepted) {
+          best = candidate;
+          bestFit = fit;
+          writeFileSync(out, `${JSON.stringify(best, null, 2)}\n`);
+          break;
+        }
+      }
     }
   }
-  console.log(
-    `axis ${String(axis.key)}: improved=${improved} best=${best[axis.key]} lines=${bestLines.toFixed(1)}`,
-  );
+  writeFileSync(out, `${JSON.stringify(best, null, 2)}\n`);
+  console.log(JSON.stringify({ step: "done", fitness: bestFit, out }));
 }
 
-console.log(`FINAL lines=${bestLines.toFixed(1)} weights=${JSON.stringify(best)}`);
-
-function runBenchWithWeights(w: Weights, label: string): number {
-  setBenchWeights(w);
-  try {
-    const r = runBench(label, "beam16", seeds, 2000);
-    console.log(`  cand lines=${r.avgLines.toFixed(1)} pieces=${r.avgPieces.toFixed(0)}`);
-    return r.avgLines;
-  } finally {
-    setBenchWeights(null);
-  }
-}
+await main();

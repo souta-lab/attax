@@ -1,5 +1,4 @@
-import { type Board, COLS, cloneBoard } from "./board.js";
-import { bottomCellsOf, type PieceKind } from "./pieces.js";
+import type { Board } from "./board.js";
 
 export type TspinKind = "none" | "mini" | "full";
 
@@ -15,15 +14,19 @@ function filled(board: Board, x: number, y: number): boolean {
 }
 
 /**
- * Indices into the `corners` array ([BL, BR, TR, TL]) that form the two
- * corners on the side the T points toward. A T-spin is a mini exactly when
- * those two front corners are not both occupied, so the pair must follow the
- * piece's facing per rotation rather than a single fixed adjacent pair.
+ * Indices into the `corners` array ([TL, TR, BR, BL] — `nativePy` is the box's TOP row in
+ * this bottom-up board) that form the two corners on the side the T points toward:
+ * rot0 points up, rot1 right, rot2 down, rot3 left. A T-spin is a mini exactly when those
+ * two front corners are not both occupied. This is the shipping Hoiko binary's rule,
+ * `corners[r] != corners[r + 1]` (`rust/hoiko-core/src/board.rs` `is_tspin`).
+ *
+ * History: commit dcbe108 swapped the rot0/rot2 pairs after misreading this array as
+ * bottom-first, which scored every real T-spin double pointing down as a mini.
  */
 const FRONT_CORNER_PAIRS: Readonly<Record<number, readonly [number, number]>> = {
-  0: [2, 3],
+  0: [0, 1],
   1: [1, 2],
-  2: [0, 1],
+  2: [2, 3],
   3: [3, 0],
 };
 
@@ -54,29 +57,4 @@ export function classifyTspin(
   const index = ((rotation % 4) + 4) % 4;
   const [frontA, frontB] = FRONT_CORNER_PAIRS[index] ?? [0, 1];
   return occupied[frontA] !== occupied[frontB] && lastSrs !== 5 ? "mini" : "full";
-}
-
-/**
- * Engine verdict for a piece resting at (rotation, x, y) on the pre-lock
- * `board`, assuming it arrives by a non-final SRS kick (`lastSrs = 1`) — the
- * way the AI executes spins with `placeAt`. AI search uses this so its
- * attack/B2B predictions match what `classifyTspin` awards on lock (in
- * particular, a mini is never valued as a full T-spin).
- */
-export function classifyPlacement(
-  board: Board,
-  kind: PieceKind,
-  rotation: number,
-  x: number,
-  y: number,
-): TspinKind {
-  if (kind !== "T") return "none";
-  const cells = bottomCellsOf(kind, rotation);
-  const pre = cloneBoard(board);
-  for (const c of cells) {
-    const cx = x + c.x;
-    const cy = y + c.y;
-    if (cx >= 0 && cx < COLS && cy >= 0 && cy < pre.length) pre[cy] = (pre[cy] ?? 0) | (1 << cx);
-  }
-  return classifyTspin(pre, cells, x, y, rotation, 1);
 }
