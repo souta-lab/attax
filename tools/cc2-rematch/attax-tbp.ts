@@ -22,6 +22,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 const REPO = process.env.ATTAX_REPO ?? `${process.env.HOME}/workspace/tetris-speed/deepseek-tetris`;
 const { createBot, BOT_DEFAULTS } = await import(`${REPO}/src/ai/bot/fighter.ts`);
 const { cellsFor } = await import(`${REPO}/src/core/pieces.ts`);
+const FIELD_ROWS = Number(process.env.ATTAX_ROWS ?? 20);
 const LOG = process.env.ATTAX_TBP_LOG;
 const weights = process.env.ATTAX_WEIGHTS
   ? JSON.parse(readFileSync(process.env.ATTAX_WEIGHTS, "utf8"))
@@ -125,7 +126,10 @@ function tbpLocations(kind: Kind, cells: [number, number][]): Loc[] {
 
 /** Attax placement (kind, rotation, x, top-row y) -> absolute TBP cells. */
 function attaxCellsToTbp(kind: Kind, rotation: number, x: number, y: number): [number, number][] {
-  return cellsFor(kind, rotation).map((c: { x: number; y: number }) => [x + c.x, 19 - (y + c.y)]);
+  return cellsFor(kind, rotation).map((c: { x: number; y: number }) => [
+    x + c.x,
+    FIELD_ROWS - 1 - (y + c.y),
+  ]);
 }
 
 // ---- tracked game state (TBP coordinates) ------------------------------------------------
@@ -178,14 +182,16 @@ const bot = createBot({
 
 function snapshot() {
   // Attax grid: 20 rows, index 0 = top.  Cells above TBP row 19 cannot be represented.
-  const grid = Array.from({ length: 20 }, (_, r) => (rows[19 - r] ?? []).map((f) => (f ? 8 : 0)));
+  const grid = Array.from({ length: FIELD_ROWS }, (_, r) =>
+    (rows[FIELD_ROWS - 1 - r] ?? []).map((f) => (f ? 8 : 0)),
+  );
   const kind = queue[0];
   if (!kind) throw new Error("empty piece queue");
   const shape = cellsFor(kind, 0) as { x: number; y: number }[];
   const minY = Math.min(0, ...shape.map((c) => c.y));
-  const posY = -minY;
+  const posY = FIELD_ROWS > 20 ? FIELD_ROWS - 21 : -minY;
   return {
-    board: { cols: 10, rows: 20, grid },
+    board: { cols: 10, rows: FIELD_ROWS, grid },
     active: {
       kind,
       rotation: 0,

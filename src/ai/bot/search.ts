@@ -16,7 +16,6 @@ import {
   generatePlacements,
   lockPlacement,
   type Placement,
-  ROWS,
   spawnPosition,
 } from "./movegen.js";
 import type { ClearKind, Weights } from "./weights.js";
@@ -137,7 +136,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
               for (const placement of generatePlacements(
                 node.board,
                 option.kind,
-                spawnPosition(option.kind),
+                spawnPosition(option.kind, node.board.length),
               )) {
                 const child = expand(node, placement, option, 0, w, 0, options.exposure ?? 0);
                 nodes += 1;
@@ -155,8 +154,8 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
           node.depth === 0 && !option.usedHold
             ? input.active
             : option.usedHold && node.hold !== null
-              ? { rotation: 0, x: 3, y: 0 }
-              : spawnPosition(option.kind);
+              ? { rotation: 0, x: 3, y: node.board.length > 20 ? node.board.length - 21 : 0 }
+              : spawnPosition(option.kind, node.board.length);
         for (const placement of generatePlacements(node.board, option.kind, start)) {
           const child = expand(
             node,
@@ -287,7 +286,7 @@ function expand(
   if (placement.kind === "T" && placement.tspin === "none" && node.tSlot > 0) reward += w.wastedT;
 
   const features = boardFeatures(outcome.board, lift);
-  if (features.maxHeight >= ROWS) return null;
+  if (features.maxHeight >= node.board.length) return null;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
   const value = accumulated + scale * w.discount * dot(features, w);

@@ -8,7 +8,7 @@ import type { PieceKind } from "../../core/pieces.js";
 import type { AiMove, GameSnapshot } from "../../core/types.js";
 import { boardFingerprint, type VersusFighter } from "../../versus/controller.js";
 import { BagTracker } from "./bag.js";
-import { type BitBoard, ROWS } from "./movegen.js";
+import type { BitBoard } from "./movegen.js";
 import { type SearchResult, search } from "./search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 
@@ -34,8 +34,8 @@ export interface BotFighter extends VersusFighter {
 }
 
 export function snapshotBoard(snapshot: GameSnapshot): BitBoard {
-  const board = new Uint16Array(ROWS);
-  for (let row = 0; row < ROWS; row += 1) {
+  const board = new Uint16Array(snapshot.board.rows);
+  for (let row = 0; row < board.length; row += 1) {
     const cells = snapshot.board.grid[row];
     if (cells === undefined) continue;
     let bits = 0;
