@@ -127,3 +127,17 @@ The two batches differ only in `ATTAX_DIVERSE`. Their frozen sources are byte-id
 | pair diff | −1 | 0 | 0 | 0 | −½ | −½ | +1½ | +½ | 0 | 0 |
 
 The total is 18.0 versus 18.0, so the mean paired difference is **0.00** per seed pair (SD 0.67). The selector helped on 2 seed pairs, hurt on 3 and tied on 5; the two-sided exact sign test gives p = 1.0. Verdict: **the selector shows no measurable effect at width 96 in this rig.** The disagreements are scattered single games, consistent with CC2's wall-clock nondeterminism. Under pre-registered rule 3 the selector is dropped from the competition profile. This does not show that the PR #35 idea is harmful. Its effect, if any, is below what 20 paired games can resolve. The large gain over width96-control (12W) comes from what both field40 arms share: the 40-row field/spawn model and the referee-aligned attack profile. That attribution is still a cross-seed comparison, because control ran on 2201–2210. Raw pairing: `tools/cc2-rematch/summaries/diversity-paired.json`.
+
+### Frozen final competition profile (2026-11-13, before any fresh-seed game)
+
+**Profile: field40-no-diversity**, i.e. `ATTAX_ROWS=40 ATTAX_GUIDELINE=1 ATTAX_WIDTH=96 ATTAX_DIVERSE=0 ATTAX_EXPOSURE=0 ATTAX_SPECULATE=0`, default weights (no `ATTAX_WEIGHTS`).
+
+Frozen to `tools/cc2-rematch/runs/final-12001-12020/` (source snapshot of commit d227d48, `source.sha256` digest-of-manifest fc429337…). The snapshot's `src/` and `adapter.ts` are byte-identical to the field40-no-diversity probe's frozen copies. No game has been played on 12001–12020.
+
+Rationale, applying the pre-registered rule mechanically to tuning-seed results only:
+- Wins out of 20 (draws as non-wins): field40-aligned 17, field40-no-diversity 17, width96-control 12, risk12-fixed 10. bag40-survival had 10W after 16 games, so it could reach at most 14.
+- The top two tie on losses (1 each). The APP-margin tiebreak favours no-diversity: +0.1180 (0.8787 − 0.7607) versus +0.1137.
+- Rule 3 independently reaches the same choice: the paired selector difference is 0.0, not positive, so the simpler selector-off variant is used.
+- Mechanisms in the profile: width 96, a 40-row field with the referee's spawn and one-row retry, and a referee-aligned attack/lock-out model (no combo or PC attack in search, no placements wholly above row 20). The exposure cost, bag speculation, survival weights and the root-diversity/complete-state selector are excluded. None of them showed a measured benefit on development seeds.
+
+Caveat on the 17/20 development number: it is the best of five candidates, so it is optimistically biased (winner's curse). The fresh 40-game gate is the only unbiased estimate.
