@@ -116,6 +116,9 @@ async function main(): Promise<void> {
   ];
   const records = await runBenchmark(parseArgs(benchArgs), benchArgs);
   const summary = summarizeSeedPairs(records);
+  if (summary.seeds !== count) {
+    throw new Error(`benchmark returned ${summary.seeds}/${count} complete seed pairs`);
+  }
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, `${records.map((game) => JSON.stringify(game)).join("\n")}\n`);
   writeFileSync(
