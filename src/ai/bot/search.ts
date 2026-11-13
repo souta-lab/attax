@@ -78,6 +78,8 @@ interface Node {
   readonly combo: number;
   /** Garbage rows that have landed under the stack during the line. */
   readonly lift: number;
+  /** Garbage arrives before the next decision, and its hole is not yet known. */
+  readonly uncertainGarbage: boolean;
   readonly tSlot: number;
   readonly reward: number;
   readonly value: number;
@@ -99,6 +101,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     b2b: input.b2b,
     combo: input.combo,
     lift: 0,
+    uncertainGarbage: false,
     tSlot: rootFeatures.tSlot,
     reward: 0,
     value: 0,
@@ -116,6 +119,13 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   while (beam.length > 0) {
     const children: Node[] = [];
     for (const node of beam) {
+      // The engine inserts uncancelled garbage immediately after this lock. Its hole
+      // position is hidden until it lands, so searching further on the old board
+      // would reward placements that cannot actually be played.
+      if (node.uncertainGarbage) {
+        finished.push(node);
+        continue;
+      }
       const options = pieceOptions(node, sequence);
       // Out of known pieces: the line ends here. (A node whose piece has no legal
       // placement is a top-out and simply produces no children.)
@@ -137,7 +147,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
       }
     }
     children.sort((a, b) => b.value - a.value);
-    beam = dedupe(children, width);
+    beam = selectBeam(children, width);
     if (beam.length > 0) deepest = beam;
   }
   // Normal case: lines that used every known piece. If every line tops out first, fall
@@ -261,6 +271,7 @@ function expand(
     b2b,
     combo,
     lift,
+    uncertainGarbage: node.depth === 0 && lift > 0,
     tSlot: features.tSlot,
     reward: accumulated,
     value,
@@ -283,16 +294,62 @@ function weighBoard(features: BoardFeatures, w: Weights): Record<string, number>
   return out;
 }
 
-/** Keep the best `width` children, dropping later copies of an identical position. */
-function dedupe(sorted: readonly Node[], width: number): Node[] {
-  const kept: Node[] = [];
+/**
+ * Fields that determine the legal continuations and attack economy of a beam state.
+ * Combo and garbage must participate in deduplication: the same board with a different
+ * combo or incoming stack can produce a different attack and survival outcome.
+ */
+export interface BeamState {
+  readonly board: BitBoard;
+  readonly hold: PieceKind | null;
+  readonly next: number;
+  readonly canHold: boolean;
+  readonly b2b: boolean;
+  readonly combo: number;
+  readonly lift: number;
+  readonly root: number;
+  readonly value: number;
+}
+
+/**
+ * Keep the strongest continuations while reserving a small fraction of the beam for
+ * distinct first moves. This reduces the risk that one optimistic line monopolises
+ * the entire search before its alternatives can develop.
+ *
+ * Input must be ordered best-first. The candidate pool is bounded for predictable cost.
+ */
+export function selectBeam<T extends BeamState>(sorted: readonly T[], width: number): T[] {
+  if (width <= 0) return [];
+  const pool: T[] = [];
   const seen = new Set<string>();
+  const poolLimit = width * 4;
   for (const node of sorted) {
-    if (kept.length >= width) break;
-    const key = `${node.next}|${node.hold}|${node.b2b ? 1 : 0}|${node.board.join(",")}`;
+    if (pool.length >= poolLimit) break;
+    const key = `${node.next}|${node.hold ?? "-"}|${Number(node.canHold)}|${Number(node.b2b)}|${node.combo}|${node.lift}|${node.board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    kept.push(node);
+    pool.push(node);
   }
-  return kept;
+  if (pool.length <= width) return pool;
+
+  // At width 48, protect up to eight different first placements. Every other slot
+  // remains available to the globally highest-scoring continuations.
+  const rootQuota = Math.min(8, Math.max(1, Math.floor(width / 6)));
+  const chosen: T[] = [];
+  const roots = new Set<number>();
+  const included = new Set<T>();
+  for (const node of pool) {
+    if (roots.size >= rootQuota) break;
+    if (roots.has(node.root)) continue;
+    roots.add(node.root);
+    chosen.push(node);
+    included.add(node);
+  }
+  for (const node of pool) {
+    if (chosen.length >= width) break;
+    if (included.has(node)) continue;
+    chosen.push(node);
+  }
+  chosen.sort((a, b) => b.value - a.value);
+  return chosen;
 }
