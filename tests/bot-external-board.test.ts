@@ -57,3 +57,41 @@ test("external profile does not invent combo or perfect-clear attack", async () 
   expect(normal?.best.attack).toBe(14);
   expect(guideline?.best.attack).toBe(1);
 });
+
+test("external chance ply keeps the lock-out rule and survives only through the escape", async () => {
+  const { search } = await import("../src/ai/bot/search.js");
+  const { DEFAULT_WEIGHTS } = await import("../src/ai/bot/weights.js");
+  const { cellsFor } = await import("../src/core/pieces.js");
+  // 40-row external board, visible field (rows 20..39) full except a 20-deep well in
+  // column 0. Every placement except the vertical I in the well locks wholly above row 20.
+  const board = new Uint16Array(40);
+  for (let row = 20; row < 40; row += 1) board[row] = 0b1111111110;
+  const input = {
+    board,
+    active: { kind: "I" as const, rotation: 0, x: 3, y: 19 },
+    hold: null,
+    canHold: false,
+    preview: [],
+    b2b: false,
+    combo: -1,
+    pending: 0,
+  };
+  const options = { weights: DEFAULT_WEIGHTS, width: 96, guideline: true };
+  const plain = search(input, options);
+  const chance = search({ ...input, speculativePieces: ["O", "T"] as const }, options);
+  const unaligned = search(input, { weights: DEFAULT_WEIGHTS, width: 96 });
+  if (!plain || !chance || !unaligned) throw new Error("no move");
+  // Lock-out is what removes the other placements.
+  expect(unaligned.candidates.length).toBeGreaterThan(1);
+  for (const result of [plain, chance]) {
+    expect(result.candidates).toHaveLength(1);
+    expect(result.best.linesCleared).toBe(4);
+    const p = result.best.placement;
+    expect(cellsFor(p.kind, p.rotation).every((c) => p.x + c.x === 0)).toBe(true);
+    expect(result.line).toHaveLength(1); // the guessed continuation is never exposed
+  }
+  // After the Tetris both possible next pieces have legal visible-field placements, so the
+  // chance average contains no dead (-1e6) branch.
+  expect(chance.value).toBeGreaterThan(-100_000);
+  expect(chance.nodes).toBeGreaterThan(plain.nodes);
+});

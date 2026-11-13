@@ -141,3 +141,32 @@ Rationale, applying the pre-registered rule mechanically to tuning-seed results 
 - Mechanisms in the profile: width 96, a 40-row field with the referee's spawn and one-row retry, and a referee-aligned attack/lock-out model (no combo or PC attack in search, no placements wholly above row 20). The exposure cost, bag speculation, survival weights and the root-diversity/complete-state selector are excluded. None of them showed a measured benefit on development seeds.
 
 Caveat on the 17/20 development number: it is the best of five candidates, so it is optimistically biased (winner's curse). The fresh 40-game gate is the only unbiased estimate.
+
+## Post-freeze improvement lane (2026-11-13, tuning seeds only)
+
+Scope: find the next improvement on top of the frozen field40-no-diversity profile. Nothing here touches 12001–12020 or the final snapshot. No match batch was run by this lane. Every number below comes from existing replays or from recorded-board searches, which reproduce positions and play no games.
+
+### Replay forensics (`tools/cc2-rematch/forensics.py`)
+
+Referee mechanics that matter (rig `src/game.rs`, Guideline profile): an attack first cancels the receiver's pending queue. Everything still pending is inserted at the receiver's very next lock, so each side gets exactly one lock to cancel. Garbage holes are fixed per 8-row block. There is no combo or PC attack. The game is a draw at turn 1000. TBP gives Attax neither its incoming queue nor the opponent's board.
+
+* **The loss (2407 seat 1, turn 549).** CC2 sent 4, 5, 1, 1, 4, 1 and 5 lines between turns 532 and 547 (21 lines in 16 turns). Attax's own attacks (5, 1, 4) fired on turns with nothing pending, so they cancelled nothing. Covered garbage holes rose from 1 to 15, and Attax topped out at height 21. This is attack timing without incoming information, so the protocol offers no honest fix.
+* **The draws (2407 and 2408, seat 0; field40-aligned also has 2405 seat 0 and 2406 seat 1).** All four are full 1000-turn games. Attax out-attacks CC2 by 81–127 lines in each, at a low mean height of about 7. CC2 survives by digging with singles: 173–194 singles per game, against 22–31 for Attax. Across both field40 batches, 4 of the 6 non-wins are such draws. Of the games that reach turn 700, 5 of 6 are draws.
+* **How kills happen.** All 33 wins in the two field40 batches end with a CC2 null move. Typically a 4–5-line attack lands while CC2 stands at 15–19, CC2 rises to 20–23 and returns no move. Windows with 9–11 lines of Attax attack in 4 turns kill within 3 turns at p=0.031, against 0.0094 for 3–5 lines. That is superlinear in attack (raw attack, not `sent`, which is confounded by CC2's cancellation). The draws still contain 23–29 such bursts each, so bursts kill only when they coincide with a high CC2. CC2 going quiet (no garbage for 6 turns) is a weak vulnerability signal: P(CC2 ≥ 15) is 0.12, against 0.03–0.08 otherwise, and the kill rate does not rise.
+
+### Decision-level checks of candidate mechanisms (`tools/cc2-rematch/check-recorded.ts`)
+
+The checker rebuilds Attax's pre-move state from the replay: board, queue, hold, b2b, and the referee's exact 7-bag remainder, with every bag asserted to be a permutation. It then runs the frozen search and a candidate side by side. Fidelity: the frozen search reproduces **347/347** recorded moves on four complete field40-no-diversity games (two draws, the loss, and the 953-turn win), sampled every 10 turns. It also reproduces 317/320 on late-game draw boards, where the 3 misses come from the diversity-on batch.
+
+| Candidate (all built behind opt-in flags, then removed) | moves changed | planned attack / 6-ply line | planned max 3-lock attack | planned peak height |
+|---|---:|---:|---:|---:|
+| frozen | — | 5.49 | 5.09 | 7.75 |
+| endgame urgency (from turn 600: attack x2, maxHeight/danger x0.25), late draw boards | 16% | +0.7% | — | −0.10 |
+| burst bonus β=16 (attack x attack of the previous 2 locks) | 7% | +0.7% | +2.5% | −0.02 |
+| burst bonus β=40 | 13% | −0.5% | +3.7% | −0.04 |
+| burst bonus β=100 | 18% | −2.4% | +3.7% | −0.12 |
+| bag speculation (existing `ATTAX_SPECULATE=1`) | 13% | −3.3% | −0.8% | +0.03 |
+
+Verdict on the two shaping mechanisms: the frozen policy is already attack-saturated within its 6 visible pieces. Its height terms do not bind at height ~7, and piece supply (I/T within the window) caps how tightly attack can be packed. Turn-limit urgency and the burst bonus barely move what the bot plans, so neither earns match compute. Both were implemented, checked and reverted. `src/` is again byte-identical to the frozen snapshot. Speculation is the only candidate that changes decisions materially. Its small visible-line attack cost is the expected price of valuing the unseen 7th piece, and planned-line statistics cannot measure that benefit. It has only ever run bundled (bag40-survival also carried survival weights, exposure 6, width 64 and the unaligned attack model), so it goes to an isolated A/B: `BENCH-REQUESTS.md`, with the decision rule pre-registered there.
+
+Test added: the 40-row external chance ply keeps the lock-out rule. Only the escape Tetris survives, the guessed continuation is never exposed, and no dead branch enters the average. Gates: tsc, 110/110 tests, lint and build pass; the audit agrees on 843/843 locks. Rust is untouched.
