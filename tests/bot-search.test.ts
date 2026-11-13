@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { boardFeatures } from "../src/ai/bot/features.js";
 import { createBot } from "../src/ai/bot/fighter.js";
 import { spawnPosition } from "../src/ai/bot/movegen.js";
-import { search } from "../src/ai/bot/search.js";
+import { search, selectBeam } from "../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS } from "../src/ai/bot/weights.js";
 import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko/faithful.js";
 import { runMatch } from "../src/bench/match.js";
@@ -95,6 +95,65 @@ describe("search", () => {
     const flat = board(FULL ^ 0b11);
     const r = best(flat, "O");
     expect(r.best.linesCleared).toBe(1);
+  });
+
+  test("retains states with distinct combo and garbage histories", () => {
+    const base = {
+      board: board(0b1),
+      hold: null,
+      next: 2,
+      canHold: true,
+      b2b: false,
+      combo: 0,
+      lift: 0,
+      root: 0,
+      value: 12,
+    } as const;
+    const states = [
+      base,
+      { ...base, combo: 1, value: 11 },
+      { ...base, lift: 2, value: 10 },
+      { ...base, value: 9 },
+    ];
+    const chosen = selectBeam(states, 4);
+    expect(chosen).toHaveLength(3);
+    expect(chosen.map((n) => n.value)).toEqual([12, 11, 10]);
+  });
+
+  test("reserves space for distinct first placements in a crowded beam", () => {
+    const states = Array.from({ length: 40 }, (_, i) => ({
+      board: board(i + 1),
+      hold: null,
+      next: 3,
+      canHold: true,
+      b2b: false,
+      combo: 0,
+      lift: 0,
+      root: i < 30 ? 0 : i - 29,
+      value: 100 - i,
+    }));
+    const chosen = selectBeam(states, 24);
+    expect(chosen).toHaveLength(24);
+    expect(chosen[0]?.value).toBe(100);
+    expect(new Set(chosen.map((n) => n.root)).size).toBeGreaterThanOrEqual(4);
+  });
+
+  test("stops lookahead after uncancelled garbage with an unknown hole", () => {
+    const r = search(
+      {
+        board: board(),
+        active: { kind: "O", ...spawnPosition("O") },
+        hold: null,
+        canHold: false,
+        preview: ["T", "I", "J"],
+        b2b: false,
+        combo: -1,
+        pending: 4,
+      },
+      { weights: DEFAULT_WEIGHTS, width: 32 },
+    );
+    expect(r).not.toBeNull();
+    expect(r?.depth).toBe(1);
   });
 
   test("reports candidates best-first with the chosen move on top", () => {
