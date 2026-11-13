@@ -85,3 +85,5 @@ Partial replay-verified checkpoint (not final batch results):
 | field40-no-diversity | queued | — | — | — |
 
 The survival candidate's low APP has not yet implied losses; it currently trades kill rate for more caps. No early-stopped successful probe or final claim is being substituted for the planned samples. Final seeds remain untouched.
+
+Opponent provenance: checkout HEAD is b20a92b0ed3230dd910d0674f7a09c552a34dd46 with the gauntlet's pre-existing native-compatibility changes (Cargo files, lib.rs WASM service removal, sync.rs native Instant/removal of WASM synchronizer). These were not made by this task; search/evaluation sources and JSON weights are unmodified. Used binary SHA-256: `02c850214df86e7c9737993bcb08d568b5702a5174618508f95a62962608eb62`; referee binary: `ba6a9a2a72ecd28b96074c47915f074c7226551c886d62317686a64bc37b43d9`. No opponent or referee file has been edited.
