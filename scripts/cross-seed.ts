@@ -121,10 +121,8 @@ async function main(): Promise<void> {
   }
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, `${records.map((game) => JSON.stringify(game)).join("\n")}\n`);
-  writeFileSync(
-    `${out}.summary.json`,
-    `${JSON.stringify({ config: { count, jobs, width, preview, adapt, seeds: selection }, ...summary }, null, 2)}\n`,
-  );
+  const report = { config: { count, jobs, width, preview, adapt, seeds: selection }, ...summary };
+  writeFileSync(`${out}.summary.json`, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({ out, ...summary }));
   if (summary.failedSeeds > 0) process.exitCode = 1;
 }
