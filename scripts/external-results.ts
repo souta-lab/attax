@@ -1,6 +1,5 @@
 /** Convert external-rig result records; these are not runs of our benchmark harness. */
 import { readdirSync, readFileSync } from "node:fs";
-import { gunzipSync } from "node:zlib";
 import type { SideRecord } from "../src/bench/match.js";
 import type { Oriented } from "../src/bench/summary.js";
 
@@ -56,43 +55,6 @@ function orient(game: ExternalGame, attaxSeat: number, rival: string): Oriented 
       right: side(1),
     },
   };
-}
-
-export function intetrigenceRun(): {
-  games: Oriented[];
-  ms: number;
-  pps: number;
-  medianMs: number;
-} {
-  const replay = gunzipSync(
-    readFileSync(new URL("intetrigence/final-5001-5050.jsonl.gz", ROOT)),
-  ).toString("utf8");
-  let attaxSeat = -1;
-  let ms = 0;
-  let pps = 0;
-  const thinkMs: number[] = [];
-  const games: Oriented[] = [];
-  for (const line of replay.trim().split("\n")) {
-    const r = JSON.parse(line);
-    if (r.type === "start") {
-      ms = r.ms;
-      pps = r.pps;
-      if (r.external_opponent !== "./attax-tbp.sh") throw new Error("Unknown external bot");
-      // The original referee hard-codes cold_clear_2 for the external Attax client.
-      attaxSeat = r.agents.indexOf("cold_clear_2");
-      if (attaxSeat < 0) throw new Error("Missing Attax seat");
-    } else if (r.type === "move" && r.agent === "intetrigence") {
-      thinkMs.push(r.stats.elapsed_us / 1000);
-    } else if (r.type === "result") {
-      if (attaxSeat < 0) throw new Error("Result without start");
-      games.push(orient(r.result, attaxSeat, "intetrigence"));
-      attaxSeat = -1;
-    }
-  }
-  if (attaxSeat !== -1) throw new Error("Incomplete external game");
-  checkPairs(games);
-  thinkMs.sort((a, b) => a - b);
-  return { games, ms, pps, medianMs: thinkMs[Math.floor(thinkMs.length / 2)] ?? 0 };
 }
 
 export function clysGames(): Oriented[] {

@@ -19,7 +19,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { MatchRecord, SideRecord } from "../src/bench/match.js";
 import { type Oriented, summarize } from "../src/bench/summary.js";
 import type { GameRow, MatchupRow, Results } from "../src/data/results.js";
-import { clysGames, externalText, intetrigenceRun, pageCopy } from "./external-results.js";
+import { clysGames, externalText, pageCopy } from "./external-results.js";
 
 const DIR = new URL("../bench-results/", import.meta.url);
 
@@ -183,14 +183,7 @@ if (exists("bot-vs-hoiko.adapt.jsonl")) {
   );
 }
 
-const intelRun = intetrigenceRun();
 const clysRecords = clysGames();
-const intel = row(
-  "intetrigence",
-  "intetrigence (derived from MinusKelvin's Cold Clear 2)",
-  "external referee; generated attack before cancellation; both seats counted",
-  intelRun.games,
-);
 const clys = row(
   "clys",
   "clys (by citrus610)",
@@ -198,18 +191,8 @@ const clys = row(
   clysRecords,
 );
 // Keep summary-only audit facts in the repository; reject mismatched record imports.
-const intelSummary = JSON.parse(externalText("intetrigence/summary.json"));
 const clysSummary = JSON.parse(externalText("clys/summary.json"));
 for (const [actual, expected] of [
-  [intel.games, intelSummary.games],
-  [intel.wins, intelSummary.attax_wins],
-  [intel.losses, intelSummary.intetrigence_wins],
-  [intel.draws, intelSummary.draws],
-  [Number(intel.attackPerPiece.toFixed(3)), intelSummary.per_side.attax.attack_per_piece],
-  [
-    Number(intel.rivalAttackPerPiece.toFixed(3)),
-    intelSummary.per_side.intetrigence.attack_per_piece,
-  ],
   [clys.games, clysSummary.games],
   [clys.wins, clysSummary.wins],
   [clys.losses, clysSummary.losses],
@@ -222,10 +205,9 @@ for (const [actual, expected] of [
   if (actual !== expected)
     throw new Error(`External record/summary mismatch: ${actual} != ${expected}`);
 }
-rows.push(intel, clys);
-const tagline = `A versus AI for the falling-block game. It won ${headline.wins} of ${headline.games} games against Hoiko, ${intel.wins} of ${intel.games} against intetrigence (derived from MinusKelvin's Cold Clear 2), and ${clys.wins} of ${clys.games} against clys.`;
+rows.push(clys);
+const tagline = `A versus AI for the falling-block game. It won ${headline.wins} of ${headline.games} games against Hoiko and ${clys.wins} of ${clys.games} against clys.`;
 const conditions = JSON.parse(externalText("conditions.json")).values;
-const published = JSON.parse(externalText("intetrigence/published-eval.json"));
 const clysSettings = JSON.parse(externalText("clys/clys-7001.json"));
 const parity = (name: string) =>
   JSON.parse(readFileSync(new URL(`../evidence/hoiko-fullgame/${name}`, import.meta.url), "utf8"));
@@ -249,22 +231,12 @@ const copy = pageCopy({
   hoikoDepth: parityMain.primaryOptions.depthLimit,
   hoikoPreview: parityMain.primaryOptions.viewNext,
   hoikoSeeds: seedRange(main),
-  publishedGames: published.matches.length,
-  publishedScore: `${published.wins}–${published.losses}`,
-  intelMs: intelRun.ms,
-  intelPps: intelRun.pps,
-  intelSeedCount: new Set(intelRun.games.map((g) => g.seed)).size,
-  intelSeeds: seedRange(intelRun.games),
-  attaxMedian: Math.round(intelSummary.attax_think_ms.median),
-  intelMedian: Math.round(intelRun.medianMs),
   clysSeeds: seedRange(clysRecords),
   clysSeats: `${seatWins("left")}/${seatWins("right")}`,
   clysLines: (clys.linesPerGame * clys.games).toLocaleString("en-US"),
   rivalLines: (clys.rivalLinesPerGame * clys.games).toLocaleString("en-US"),
   clysMs: clysSettings.ms,
   clysPps: clysSettings.pps,
-  auditMoves: intelSummary.attax_log_entries.toLocaleString("en-US"),
-  intelGames: intel.games,
   parityMain: `${parityMain.matchedMoves}/${parityMain.piecesPlayed}`,
   paritySeed: parityMain.seed,
   parityOther: `${parityTwo.matchedMoves}/${parityTwo.piecesPlayed}`,
@@ -276,7 +248,7 @@ writeFileSync(
   indexUrl,
   readFileSync(indexUrl, "utf8")
     .replace(/(<meta name="description" content=")[^"]*(" \/>)/, `$1${tagline}$2`)
-    .replace(/<title>.*?<\/title>/, "<title>Attax vs Hoiko, intetrigence and clys</title>"),
+    .replace(/<title>.*?<\/title>/, "<title>Attax vs Hoiko and clys</title>"),
 );
 
 const games: GameRow[] = independent.map((g) => {

@@ -33,11 +33,15 @@ const method = h("section", { class: "method", attrs: { id: "method" } }, [
       `${BRAND.botName} searches the 5-piece preview (plus hold) with a beam of 48 positions and scores boards with a dozen named terms — holes, height, bumpiness, wells, T-slots — plus rewards for the garbage each clear sends. No neural network, no opening book.`,
     ]),
   ]),
-  h(
-    "ul",
-    {},
-    RESULTS.copy.fairness.map((text) => h("li", { text })),
-  ),
+  ...(RESULTS.copy.fairness.length > 0
+    ? [
+        h(
+          "ul",
+          {},
+          RESULTS.copy.fairness.map((text) => h("li", { text })),
+        ),
+      ]
+    : []),
   h("p", { class: "fine" }, [
     "Reproduce: ",
     h("code", { text: "bun scripts/benchmark.ts --seeds 1001-1200 --sides both --jobs 4" }),
