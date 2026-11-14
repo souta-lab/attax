@@ -20,9 +20,17 @@ test("S2 search prices root-frame margin and bottom-first garbage flags", () => 
     frame: 14550, // M = 1.5
   };
   const options = { weights: DEFAULT_WEIGHTS, width: 32 };
+  // Garbage flags are index-aligned with the board rows — the convention
+  // projectAttax in attax-player.ts produces (board and flags are both
+  // flipped with 39 - y). The quad clears board rows 36-39.
+  const flags = (...rows: number[]) => {
+    const a = Array<number>(40).fill(0);
+    for (const r of rows) a[r] = 1;
+    return a;
+  };
   const clean = search(input, options);
-  const garbage = search({ ...input, garbageRows: [1, 1] }, options);
-  const uncleared = search({ ...input, garbageRows: [0, 0, 0, 0, 1] }, options);
+  const garbage = search({ ...input, garbageRows: flags(38, 39) }, options);
+  const uncleared = search({ ...input, garbageRows: flags(35) }, options);
   expect(clean?.best.linesCleared).toBe(4);
   // Frame 14550 sits on a SIM-003 boundary: the referee's per-frame IEEE
   // accumulator yields M = 1.499999999999945, so floor(4 * M) = 5, not 6.
