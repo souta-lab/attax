@@ -121,47 +121,66 @@ async function evaluate(u, blockStart, directory, label) {
   const profile = resolve(directory, `${label}.json`);
   const output = resolve(directory, `${label}.jsonl`);
   await writeFile(profile, serialize(u));
-  const code = await new Promise((accept, reject) => {
-    const child = spawn(
-      "bun",
-      [
-        "tools/s2-lab/run-match.mjs",
-        "--games",
-        String(games),
-        "--seed",
-        String(blockStart),
-        "--out",
-        output,
-      ],
-      {
-        cwd: root,
-        env: { ...process.env, ATTAX_S2_PROFILE: profile },
-        stdio: "inherit",
-      },
-    );
-    children.add(child);
-    child.on("error", reject);
-    child.on("close", (code) => {
-      children.delete(child);
-      accept(code);
+  let records = [],
+    excluded = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await rm(output, { force: true });
+    const code = await new Promise((accept, reject) => {
+      const child = spawn(
+        "bun",
+        [
+          "tools/s2-lab/run-match.mjs",
+          "--games",
+          String(games),
+          "--seed",
+          String(blockStart),
+          "--out",
+          output,
+        ],
+        {
+          cwd: root,
+          env: { ...process.env, ATTAX_S2_PROFILE: profile },
+          stdio: "inherit",
+        },
+      );
+      children.add(child);
+      child.on("error", reject);
+      child.on("close", (code) => {
+        children.delete(child);
+        accept(code);
+      });
     });
-  });
-  let records = [];
-  try {
-    records = (await readFile(output, "utf8"))
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-  } catch (error) {
-    if (code === 0) throw error;
+    records = [];
+    try {
+      records = (await readFile(output, "utf8"))
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    } catch (error) {
+      if (code === 0) throw error;
+    }
+    const compat = records.filter(
+      (r) =>
+        r.status === "error" &&
+        typeof r.error === "string" &&
+        r.error.startsWith("public compat error"),
+    );
+    const invalid = records.filter(
+      (r) => (r.status === "error" || r.protocolErrors > 0) && !compat.includes(r),
+    );
+    if (invalid.length || (code !== 0 && !compat.length)) {
+      console.error(JSON.stringify(invalid.length ? invalid : records, null, 2));
+      throw new Error(`${label} evaluation failed (exit ${code})`);
+    }
+    if (records.length !== games)
+      throw new Error(`expected ${games} records, got ${records.length}`);
+    if (compat.length && attempt === 0) continue;
+    excluded = compat.length;
+    records = records.filter((r) => r.status !== "error");
+    if (!records.length) throw new Error(`${label} evaluation has no finished records`);
+    break;
   }
-  const invalid = records.filter((r) => r.status === "error" || r.protocolErrors > 0);
-  if (code !== 0 || invalid.length) {
-    console.error(JSON.stringify(invalid.length ? invalid : records, null, 2));
-    throw new Error(`${label} evaluation failed (exit ${code})`);
-  }
-  if (records.length !== games) throw new Error(`expected ${games} records, got ${records.length}`);
   let wins = 0,
     losses = 0,
     draws = 0,
@@ -183,10 +202,11 @@ async function evaluate(u, blockStart, directory, label) {
     attaxAPP += r.attack[side] / r.locks[side];
     champAPP += r.attack[other] / r.locks[other];
   }
-  attaxAPP /= games;
-  champAPP /= games;
+  attaxAPP /= records.length;
+  champAPP /= records.length;
   return {
-    J: (wins - losses) / games + attaxAPP - champAPP,
+    J: (wins - losses) / records.length + attaxAPP - champAPP,
+    excluded,
     wins,
     losses,
     draws,
@@ -195,7 +215,7 @@ async function evaluate(u, blockStart, directory, label) {
   };
 }
 function describe(e) {
-  return `${e.J.toFixed(6)} (${e.wins}-${e.losses}-${e.draws}; APP ${e.attaxAPP.toFixed(6)}/${e.champAPP.toFixed(6)})`;
+  return `${e.J.toFixed(6)} (${e.wins}-${e.losses}-${e.draws}; APP ${e.attaxAPP.toFixed(6)}/${e.champAPP.toFixed(6)})${e.excluded > 0 ? ` excl=${e.excluded}` : ""}`;
 }
 try {
   for (let k = state.iteration; k < iterations; k++) {
