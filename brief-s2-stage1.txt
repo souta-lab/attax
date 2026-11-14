@@ -1,0 +1,15 @@
+Task: implement stage 1 of the TETR.IO Season 2 ("tetrio-s2") rules profile in attax's core.
+
+Authoritative spec: ~/workspace/attax-s2/S2-SPEC.md (research pin — read it fully first; every mechanic you implement must trace to a section there). Recon context: ~/workspace/attax-s2/LAB-RECON.md (sections on board/queue/chain-counter conventions).
+
+Scope (stage 1 only):
+- A native `tetrio-s2` rules profile in the core rules layer (where the existing guideline profile lives — find it and follow its structure): S2 attack table, B2B charging and surge, complete combo rule, spin detection per the spec's pinned All-Mini / All-Mini+ decision, and the 10x40 board convention.
+- Keep the layer separation (core / versus / ai / hoiko) intact. Do NOT change the existing guideline profile's behavior. Do NOT touch weights or search.
+- Unit tests that pin each S2-SPEC mechanic you implement (attack values, surge thresholds, combo table, spin cases) — tests must cite the spec section they pin.
+- Where the spec marks something "Unpinned: required implementation gates", do NOT invent a value: leave a clearly-marked TODO with the spec reference and note it in your report.
+
+Process: run the repo's existing gates for the areas you touch (typecheck/tests as available). Leave the working tree green. Do NOT commit (the orchestrator reviews and commits). Do NOT edit files outside this worktree.
+
+Report when done: files changed, mechanics implemented (with spec section refs), tests added and their results, and every unpinned item you left as TODO.
+
+House rules (repo AGENTS.md — binding): src/core is the rules engine and the single source of truth for what a lock awards. Gates that must stay green for the areas you touch: `bunx tsc --noEmit`, `bun test`, `bun run lint`, `bun run build`. Never hand-type benchmark numbers.
