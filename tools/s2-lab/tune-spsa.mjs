@@ -19,6 +19,7 @@ const defaults = {
   c0: "0.12",
   "start-profile": "tools/s2-lab/profiles/s2-seed.json",
   concurrency: "2",
+  "eval-runner": "",
 };
 const { values } = parseArgs({
   options: Object.fromEntries(
@@ -127,9 +128,9 @@ async function evaluate(u, blockStart, directory, label) {
     if (attempt) await rm(output, { force: true });
     const code = await new Promise((accept, reject) => {
       const child = spawn(
-        "bun",
+        values["eval-runner"] || "bun",
         [
-          "tools/s2-lab/run-match.mjs",
+          ...(values["eval-runner"] ? [] : ["tools/s2-lab/run-match.mjs"]),
           "--games",
           String(games),
           "--seed",
