@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
@@ -33,6 +34,7 @@ async function pcPayload(producerCommand) {
   const begin = `S2B-${nonce}`;
   const end = `S2E-${nonce}`;
   const output = await pc(`printf '${begin}\\n'; ${producerCommand}; printf '\\n${end}\\n'`, true);
+  await writeFile("/tmp/pcpayload-last.txt", output).catch(() => {});
   const marker = output.lastIndexOf(`\n${begin}`);
   const beginIndex = marker >= 0 ? marker + 1 : output.startsWith(begin) ? 0 : -1;
   const payloadStart = beginIndex >= 0 ? output.indexOf("\n", beginIndex) : -1;
@@ -66,11 +68,28 @@ try {
       const jobPath = `${jobs}/${jobId}.json`;
       const resultPath = `${jobs}/${jobId}.result.json`;
       const recordsPath = `${jobs}/${jobId}.records.jsonl`;
+      const donePath = `${jobs}/${jobId}.done`;
+      const logPath = `${jobs}/${jobId}.log`;
       const encoded = Buffer.from(JSON.stringify(job)).toString("base64");
       await pc(`mkdir -p ${jobs} && printf %s '${encoded}' | base64 -d > ${jobPath}`);
+      const workerCommand = `PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath}; echo $? > ${donePath}`;
       await pc(
-        `cd ${attax} && PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath}`,
+        `cd ${attax} && rm -f ${resultPath} ${recordsPath} ${donePath} && { nohup sh -c ${quote(workerCommand)} > ${logPath} 2>&1 < /dev/null & echo launched; }`,
       );
+      const deadline = Date.now() + 15 * 60 * 1000;
+      for (;;) {
+        if (Date.now() >= deadline) throw new Error("remote evaluation timed out after 15 minutes");
+        await sleep(Math.min(5000, deadline - Date.now()));
+        if (Date.now() >= deadline) throw new Error("remote evaluation timed out after 15 minutes");
+        const exitCode = (await pcPayload(`cat ${donePath} 2>/dev/null`)).trim();
+        if (!exitCode) continue;
+        if (!/^\d+$/.test(exitCode)) throw new Error("invalid remote worker exit code");
+        if (Number(exitCode) !== 0) {
+          console.error(await pcPayload(`tail -20 ${logPath} 2>/dev/null`));
+          throw new Error(`remote evaluation worker failed (exit ${exitCode})`);
+        }
+        break;
+      }
       const lengthOutput = (await pcPayload(`base64 -w0 ${recordsPath} | wc -c`)).trim();
       const length = Number(lengthOutput);
       if (!/^\d+$/.test(lengthOutput) || !Number.isSafeInteger(length) || length < 1)
