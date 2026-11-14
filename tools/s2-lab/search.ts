@@ -116,9 +116,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
     board: input.board,
-    garbageRows: Uint8Array.from(input.board, (_, row) =>
-      input.garbageRows?.[input.board.length - 1 - row] ? 1 : 0,
-    ),
+    garbageRows: Uint8Array.from(input.board, (_, row) => (input.garbageRows?.[row] ? 1 : 0)),
     hold: input.hold,
     next: 0,
     canHold: input.canHold,
@@ -318,12 +316,12 @@ function expand(
   }
   const garbageRows = new Uint8Array(node.board.length);
   let garbageCleared = 0;
-  let write = filled.length - 1;
-  for (let read = filled.length - 1; read >= 0; read -= 1) {
+  let write = 0;
+  for (let read = 0; read < filled.length; read += 1) {
     if (filled[read] === FULL_ROW) {
       garbageCleared += node.garbageRows[read] ?? 0;
     } else {
-      garbageRows[write--] = node.garbageRows[read] ?? 0;
+      garbageRows[write++] = node.garbageRows[read] ?? 0;
     }
   }
   const outcome = lockPlacement(node.board, placement);

@@ -14,17 +14,42 @@ const S2_GARBAGE_INCREASE = 0.008;
 const S2_GARBAGE_MARGIN_FRAMES = 10800;
 const S2_FRAMES_PER_SECOND = 60;
 
+/**
+ * The referee defines time-dependent values by per-frame accumulation
+ * (increase/60 added on every frame past the margin), not by the closed
+ * form: the two disagree in IEEE-754 exactly at floor boundaries (the lab's
+ * SIM-003 note). Mirror the accumulation, with the same reset/resume cache
+ * semantics as the lab's dynamicValue.
+ */
+let multFrame = 0;
+let multValue = S2_GARBAGE_BASE;
 export function s2GarbageMultiplier(frame: number): number {
-  return (
-    S2_GARBAGE_BASE +
-    (Math.max(0, frame - S2_GARBAGE_MARGIN_FRAMES) * S2_GARBAGE_INCREASE) / S2_FRAMES_PER_SECOND
-  );
+  if (frame < multFrame) {
+    multFrame = 0;
+    multValue = S2_GARBAGE_BASE;
+  }
+  let value = multValue;
+  for (let step = multFrame + 1; step <= frame; step += 1) {
+    if (step > S2_GARBAGE_MARGIN_FRAMES) value += S2_GARBAGE_INCREASE / S2_FRAMES_PER_SECOND;
+  }
+  multFrame = frame;
+  multValue = value;
+  return value;
+}
+
+/**
+ * S2-SPEC: Attack table and complete combo rule, unfloored. The referee's
+ * garbageCalcV2 keeps this value fractional; flooring happens only at the
+ * rounding stage (after the margin multiplier and the garbage special bonus).
+ */
+export function s2ComboRaw(base: number, combo: number): number {
+  const c = Math.max(0, combo);
+  return Math.max(base * (1 + 0.25 * c), c >= 2 ? Math.log1p(1.25 * c) : 0);
 }
 
 /** S2-SPEC: Attack table and complete combo rule. No bounded lookup table. */
 export function s2ComboAttack(base: number, combo: number): number {
-  const c = Math.max(0, combo);
-  return Math.floor(Math.max(base * (1 + 0.25 * c), c >= 2 ? Math.log1p(1.25 * c) : 0));
+  return Math.floor(s2ComboRaw(base, combo));
 }
 
 /** S2-SPEC: B2B charging and surge. d is one-based; displayed b = d - 1. */
@@ -59,13 +84,14 @@ export function awardLock(
         : [0, 0, 1, 2, 4, 5];
   const base = table[info.lines] ?? (table[5] as number) + (info.lines - 5);
   const surgeReleased = difficult ? 0 : s2Surge(difficultChain);
-  // PC and surge are separate stages from the combo attack.
-  const raw = s2ComboAttack(base + (difficult && difficultChain > 0 ? 1 : 0), info.combo);
+  // PC and surge are separate stages from the combo attack. The combo
+  // composition stays fractional until the stage floor, like the referee.
+  const raw = s2ComboRaw(base + (difficult && difficultChain > 0 ? 1 : 0), info.combo);
   const specialBonus =
     stage && stage.garbageCleared > 0 && (spin !== "none" || info.lines >= 4) ? 1 : 0;
   return {
     attack:
-      (stage ? Math.floor(raw * stage.multiplier + specialBonus) : raw) +
+      (stage ? Math.floor(raw * stage.multiplier + specialBonus) : Math.floor(raw)) +
       (info.perfectClear ? (stage ? Math.floor(5 * stage.multiplier) : 5) : 0) +
       surgeReleased,
     difficultChain: difficult ? difficultChain + 1 : 0,
