@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFile, open, readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { cellKey, decideAttax, placementCells } from "./attax-player.js";
+import { cellKey, decideAttax, loadS2Weights, placementCells } from "./attax-player.js";
 import { createChampionDriver } from "./champion-driver.mjs";
 import {
   applyTransition,
@@ -216,7 +216,8 @@ async function play(gameIndex) {
       championProfileSha256: digest,
       wasmSha256,
       attaxWidth: 48,
-      attaxWeights: "DEFAULT_WEIGHTS unchanged",
+      attaxWeights: loadS2Weights().profileId,
+      attaxWeightsSource: loadS2Weights().source,
       labRoot,
     },
   };

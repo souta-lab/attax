@@ -1,8 +1,62 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { BOT_DEFAULTS } from "../../src/ai/bot/fighter.js";
 import { type Placement, spawnPosition } from "../../src/ai/bot/movegen.js";
-import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
+import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
 import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { type SearchInput, search } from "./search.js";
+
+let loaded: { weights: Weights; profileId: string; source: string } | undefined;
+
+function mergeProfile(
+  base: Record<string, unknown>,
+  patch: unknown,
+  path = "",
+): Record<string, unknown> {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new Error(`expected an object at ${path || "profile"}`);
+  }
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (!Object.hasOwn(base, key)) throw new Error(`unknown weight: ${path}${key}`);
+    const original = base[key];
+    if (typeof original === "object" && original !== null) {
+      merged[key] = mergeProfile(original as Record<string, unknown>, value, `${path}${key}.`);
+    } else {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`expected a finite number at ${path}${key}`);
+      }
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function canonical(value: unknown): string {
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([key, v]) => `${JSON.stringify(key)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function loadS2Weights(): { weights: Weights; profileId: string; source: string } {
+  if (loaded) return loaded;
+  const source = process.env.ATTAX_S2_PROFILE ?? "DEFAULT_WEIGHTS";
+  const weights =
+    process.env.ATTAX_S2_PROFILE === undefined
+      ? DEFAULT_WEIGHTS
+      : (mergeProfile(
+          DEFAULT_WEIGHTS as unknown as Record<string, unknown>,
+          JSON.parse(readFileSync(source, "utf8")),
+        ) as unknown as Weights);
+  loaded = {
+    weights,
+    profileId: createHash("sha256").update(canonical(weights)).digest("hex").slice(0, 16),
+    source,
+  };
+  return loaded;
+}
 
 export interface PublicDecision {
   board: { width: number; height: number; cells: string };
@@ -54,7 +108,7 @@ export function projectAttax(decision: PublicDecision): SearchInput {
 export function decideAttax(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
   return search(
     { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
-    { weights: DEFAULT_WEIGHTS, width: BOT_DEFAULTS.width },
+    { weights: loadS2Weights().weights, width: BOT_DEFAULTS.width },
   );
 }
 
