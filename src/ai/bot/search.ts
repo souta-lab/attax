@@ -8,7 +8,7 @@
  * first placement on the line that ends at the best leaf.
  */
 import { attackForClear, isDifficultClear } from "../../core/garbage.js";
-import type { PieceKind } from "../../core/pieces.js";
+import { cellsFor, type PieceKind } from "../../core/pieces.js";
 import type { TspinKind } from "../../core/tspin.js";
 import { BOARD_FEATURES, type BoardFeatures, boardFeatures } from "./features.js";
 import {
@@ -16,7 +16,6 @@ import {
   generatePlacements,
   lockPlacement,
   type Placement,
-  ROWS,
   spawnPosition,
 } from "./movegen.js";
 import type { ClearKind, Weights } from "./weights.js";
@@ -33,11 +32,19 @@ export interface SearchInput {
   readonly combo: number;
   /** Incoming garbage rows not yet on the board. */
   readonly pending: number;
+  /** Possible next pieces after the visible queue, uniformly distributed by 7-bag. */
+  readonly speculativePieces?: readonly PieceKind[];
 }
 
 export interface SearchOptions {
   readonly weights: Weights;
   readonly width: number;
+  /** Preserve roots and attack-economy states in competition search. */
+  readonly diverse?: boolean;
+  /** Cost per squared exposed row on every intermediate board. */
+  readonly exposure?: number;
+  /** External guideline rig: no combo/PC attack; lock-out above row 20. */
+  readonly guideline?: boolean;
 }
 
 export interface Step {
@@ -116,19 +123,61 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   while (beam.length > 0) {
     const children: Node[] = [];
     for (const node of beam) {
-      const options = pieceOptions(node, sequence);
+      const pieces = pieceOptions(node, sequence);
       // Out of known pieces: the line ends here. (A node whose piece has no legal
       // placement is a top-out and simply produces no children.)
-      if (options.length === 0) finished.push(node);
-      for (const option of options) {
+      if (pieces.length === 0) {
+        const possibilities = input.speculativePieces ?? [];
+        if (possibilities.length === 0) finished.push(node);
+        else {
+          let sum = 0;
+          for (const kind of possibilities) {
+            let best = Number.NEGATIVE_INFINITY;
+            const future = [...sequence, kind];
+            for (const option of pieceOptions(node, future)) {
+              for (const placement of generatePlacements(
+                node.board,
+                option.kind,
+                spawnPosition(option.kind, node.board.length),
+              )) {
+                const child = expand(
+                  node,
+                  placement,
+                  option,
+                  0,
+                  w,
+                  0,
+                  options.exposure ?? 0,
+                  options.guideline ?? false,
+                );
+                nodes += 1;
+                if (child !== null) best = Math.max(best, child.value);
+              }
+            }
+            // A dead branch must not disappear from the chance average.
+            sum += Number.isFinite(best) ? best : -1_000_000;
+          }
+          finished.push({ ...node, value: sum / possibilities.length });
+        }
+      }
+      for (const option of pieces) {
         const start =
           node.depth === 0 && !option.usedHold
             ? input.active
             : option.usedHold && node.hold !== null
-              ? { rotation: 0, x: 3, y: 0 }
-              : spawnPosition(option.kind);
+              ? { rotation: 0, x: 3, y: node.board.length > 20 ? node.board.length - 21 : 0 }
+              : spawnPosition(option.kind, node.board.length);
         for (const placement of generatePlacements(node.board, option.kind, start)) {
-          const child = expand(node, placement, option, input.pending, w, firstMoves.length);
+          const child = expand(
+            node,
+            placement,
+            option,
+            input.pending,
+            w,
+            firstMoves.length,
+            options.exposure ?? 0,
+            options.guideline ?? false,
+          );
           nodes += 1;
           if (child === null) continue;
           if (node.depth === 0) firstMoves.push(child);
@@ -137,7 +186,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
       }
     }
     children.sort((a, b) => b.value - a.value);
-    beam = dedupe(children, width);
+    beam = options.diverse ? selectBeam(children, width) : dedupe(children, width);
     if (beam.length > 0) deepest = beam;
   }
   // Normal case: lines that used every known piece. If every line tops out first, fall
@@ -221,16 +270,26 @@ function expand(
   rootPending: number,
   w: Weights,
   rootIndex: number,
+  exposure: number,
+  guideline: boolean,
 ): Node | null {
+  if (
+    guideline &&
+    node.board.length > 20 &&
+    cellsFor(placement.kind, placement.rotation).every(
+      (cell) => placement.y + cell.y < node.board.length - 20,
+    )
+  )
+    return null;
   const outcome = lockPlacement(node.board, placement);
   const lines = outcome.linesCleared;
   const combo = lines > 0 ? node.combo + 1 : -1;
   const attack = attackForClear({
     lines,
     tspinLines: placement.tspin === "full" ? lines : 0,
-    combo,
+    combo: guideline ? -1 : combo,
     b2bActive: node.b2b,
-    perfectClear: outcome.perfectClear,
+    perfectClear: !guideline && outcome.perfectClear,
     tspinKind: placement.tspin,
   });
   const difficult = isDifficultClear(lines, placement.tspin);
@@ -242,15 +301,15 @@ function expand(
   const lift = node.lift + Math.max(0, pending - attack);
 
   let reward = attack * w.attack;
-  const kind = clearKind(lines, placement.tspin, outcome.perfectClear);
+  const kind = clearKind(lines, placement.tspin, !guideline && outcome.perfectClear);
   if (kind !== null) reward += w.clear[kind];
   if (node.b2b && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
   if (placement.kind === "T" && placement.tspin === "none" && node.tSlot > 0) reward += w.wastedT;
 
   const features = boardFeatures(outcome.board, lift);
-  if (features.maxHeight >= ROWS) return null;
+  if (features.maxHeight >= node.board.length) return null;
   const scale = w.discount ** node.depth;
-  const accumulated = node.reward + scale * reward;
+  const accumulated = node.reward + scale * (reward - exposure * features.danger);
   const value = accumulated + scale * w.discount * dot(features, w);
 
   return {
@@ -295,4 +354,44 @@ function dedupe(sorted: readonly Node[], width: number): Node[] {
     kept.push(node);
   }
   return kept;
+}
+
+/** Keep distinct attack economies and reserve a bounded set of first moves. */
+export function selectBeam<
+  T extends {
+    board: BitBoard;
+    next: number;
+    hold: PieceKind | null;
+    canHold: boolean;
+    b2b: boolean;
+    combo: number;
+    lift: number;
+    root: number;
+    value: number;
+  },
+>(sorted: readonly T[], width: number): T[] {
+  if (width <= 0) return [];
+  const pool: T[] = [];
+  const seen = new Set<string>();
+  for (const node of sorted) {
+    const key = `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${node.combo}|${node.lift}|${node.board.join(",")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pool.push(node);
+    if (pool.length >= width * 4) break;
+  }
+  const chosen = new Set<T>();
+  const roots = new Set<number>();
+  const quota = Math.min(8, Math.floor(width / 6));
+  for (const node of pool) {
+    if (roots.size >= quota) break;
+    if (roots.has(node.root)) continue;
+    roots.add(node.root);
+    chosen.add(node);
+  }
+  for (const node of pool) {
+    if (chosen.size >= width) break;
+    chosen.add(node);
+  }
+  return [...chosen].sort((a, b) => b.value - a.value);
 }

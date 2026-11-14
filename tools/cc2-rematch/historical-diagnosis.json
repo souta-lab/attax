@@ -1,0 +1,460 @@
+{
+  "games": 48,
+  "outcomes": {
+    "L": 32,
+    "D": 6,
+    "W": 10
+  },
+  "length_bins": [
+    {
+      "range": [0, 250],
+      "games": 17,
+      "wins": 3
+    },
+    {
+      "range": [250, 500],
+      "games": 9,
+      "wins": 2
+    },
+    {
+      "range": [500, 750],
+      "games": 12,
+      "wins": 4
+    },
+    {
+      "range": [750, 1001],
+      "games": 10,
+      "wins": 1
+    }
+  ],
+  "agents": {
+    "attax": {
+      "pieces": 22640,
+      "attack": 16989,
+      "app": 0.7503975265017668,
+      "cancelled": 2644,
+      "mean_height": 7.080742049469965,
+      "mean_holes": 2.263339222614841,
+      "epochs": [
+        {
+          "range": [0, 250],
+          "pieces": 10279,
+          "app": 0.7317832473976068,
+          "height": 6.79910497130071
+        },
+        {
+          "range": [250, 500],
+          "pieces": 6608,
+          "app": 0.7736077481840193,
+          "height": 7.340496368038741
+        },
+        {
+          "range": [500, 750],
+          "pieces": 3696,
+          "app": 0.7445887445887446,
+          "height": 7.188582251082251
+        },
+        {
+          "range": [750, 1000],
+          "pieces": 2057,
+          "app": 0.7792902284880895,
+          "height": 7.459893048128342
+        }
+      ]
+    },
+    "cold_clear_2": {
+      "pieces": 22662,
+      "attack": 17011,
+      "app": 0.7506398376136263,
+      "cancelled": 2645,
+      "mean_height": 7.6259376930544525,
+      "mean_holes": 2.8108287000264762,
+      "epochs": [
+        {
+          "range": [0, 250],
+          "pieces": 10290,
+          "app": 0.7241010689990282,
+          "height": 7.458697764820214
+        },
+        {
+          "range": [250, 500],
+          "pieces": 6613,
+          "app": 0.7769544835929231,
+          "height": 7.769998487827007
+        },
+        {
+          "range": [500, 750],
+          "pieces": 3700,
+          "app": 0.7610810810810811,
+          "height": 7.591891891891892
+        },
+        {
+          "range": [750, 1000],
+          "pieces": 2059,
+          "app": 0.7799902865468674,
+          "height": 8.060223409422049
+        }
+      ]
+    }
+  },
+  "deaths": [
+    {
+      "seed": 7001,
+      "swapped": false,
+      "turn": 955,
+      "null_move": true,
+      "height": 19,
+      "holes": 11,
+      "heights_last10": [11, 10, 6, 6, 7, 12, 17, 19, 19, 19],
+      "rises_last10": [0, 0, 0, 0, 0, 4, 5, 1, 0, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7001,
+      "swapped": true,
+      "turn": 701,
+      "null_move": true,
+      "height": 19,
+      "holes": 12,
+      "heights_last10": [7, 10, 11, 12, 12, 12, 14, 15, 19, 19],
+      "rises_last10": [0, 2, 0, 1, 0, 0, 0, 3, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7002,
+      "swapped": false,
+      "turn": 54,
+      "null_move": true,
+      "height": 19,
+      "holes": 16,
+      "heights_last10": [13, 13, 14, 14, 15, 16, 17, 19, 19, 19],
+      "rises_last10": [0, 0, 0, 0, 3, 0, 0, 4, 0, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7002,
+      "swapped": true,
+      "turn": 215,
+      "null_move": true,
+      "height": 20,
+      "holes": 9,
+      "heights_last10": [10, 9, 9, 9, 16, 16, 17, 16, 20, 20],
+      "rises_last10": [0, 0, 0, 0, 5, 0, 2, 0, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7003,
+      "swapped": false,
+      "turn": 65,
+      "null_move": true,
+      "height": 20,
+      "holes": 12,
+      "heights_last10": [9, 8, 8, 13, 13, 14, 17, 15, 20, 20],
+      "rises_last10": [0, 0, 0, 5, 0, 0, 4, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7003,
+      "swapped": true,
+      "turn": 44,
+      "null_move": true,
+      "height": 20,
+      "holes": 7,
+      "heights_last10": [8, 12, 12, 8, 13, 13, 14, 15, 20, 20],
+      "rises_last10": [0, 4, 0, 0, 5, 0, 0, 1, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7004,
+      "swapped": false,
+      "turn": 886,
+      "null_move": true,
+      "height": 20,
+      "holes": 8,
+      "heights_last10": [9, 9, 9, 7, 9, 9, 14, 14, 20, 20],
+      "rises_last10": [0, 0, 0, 0, 0, 0, 5, 0, 5, 1],
+      "pending": 1
+    },
+    {
+      "seed": 7004,
+      "swapped": true,
+      "turn": 130,
+      "null_move": true,
+      "height": 20,
+      "holes": 10,
+      "heights_last10": [13, 9, 8, 8, 9, 14, 16, 15, 20, 20],
+      "rises_last10": [0, 0, 0, 0, 0, 4, 4, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7006,
+      "swapped": false,
+      "turn": 637,
+      "null_move": true,
+      "height": 19,
+      "holes": 6,
+      "heights_last10": [12, 12, 11, 10, 6, 12, 12, 18, 19, 19],
+      "rises_last10": [5, 0, 0, 0, 0, 5, 0, 5, 0, 5],
+      "pending": 5
+    },
+    {
+      "seed": 7006,
+      "swapped": true,
+      "turn": 127,
+      "null_move": true,
+      "height": 22,
+      "holes": 20,
+      "heights_last10": [12, 12, 17, 18, 14, 19, 19, 19, 22, 22],
+      "rises_last10": [0, 0, 5, 2, 0, 4, 0, 0, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7007,
+      "swapped": true,
+      "turn": 387,
+      "null_move": true,
+      "height": 21,
+      "holes": 12,
+      "heights_last10": [12, 13, 12, 8, 13, 14, 14, 19, 21, 21],
+      "rises_last10": [0, 0, 0, 0, 5, 0, 0, 5, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7008,
+      "swapped": false,
+      "turn": 536,
+      "null_move": true,
+      "height": 20,
+      "holes": 9,
+      "heights_last10": [12, 13, 11, 10, 9, 10, 14, 15, 20, 20],
+      "rises_last10": [4, 1, 0, 0, 0, 0, 4, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7008,
+      "swapped": true,
+      "turn": 816,
+      "null_move": true,
+      "height": 19,
+      "holes": 16,
+      "heights_last10": [16, 16, 16, 14, 18, 14, 13, 14, 19, 19],
+      "rises_last10": [0, 0, 0, 0, 5, 0, 0, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7009,
+      "swapped": false,
+      "turn": 68,
+      "null_move": true,
+      "height": 23,
+      "holes": 16,
+      "heights_last10": [14, 14, 11, 7, 11, 11, 12, 17, 23, 23],
+      "rises_last10": [0, 0, 0, 0, 3, 0, 0, 4, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7011,
+      "swapped": false,
+      "turn": 185,
+      "null_move": true,
+      "height": 20,
+      "holes": 10,
+      "heights_last10": [8, 11, 12, 16, 16, 13, 14, 15, 20, 20],
+      "rises_last10": [0, 2, 0, 4, 0, 0, 0, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7012,
+      "swapped": false,
+      "turn": 679,
+      "null_move": true,
+      "height": 19,
+      "holes": 8,
+      "heights_last10": [8, 13, 19, 19, 18, 19, 19, 19, 19, 19],
+      "rises_last10": [3, 5, 5, 0, 0, 0, 0, 0, 0, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7013,
+      "swapped": true,
+      "turn": 381,
+      "null_move": true,
+      "height": 20,
+      "holes": 14,
+      "heights_last10": [7, 7, 7, 13, 13, 13, 14, 13, 20, 20],
+      "rises_last10": [0, 0, 0, 5, 0, 0, 0, 2, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7014,
+      "swapped": false,
+      "turn": 684,
+      "null_move": true,
+      "height": 21,
+      "holes": 10,
+      "heights_last10": [10, 10, 8, 7, 7, 10, 11, 16, 21, 21],
+      "rises_last10": [1, 0, 0, 0, 0, 2, 0, 5, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7014,
+      "swapped": true,
+      "turn": 607,
+      "null_move": true,
+      "height": 19,
+      "holes": 11,
+      "heights_last10": [12, 9, 10, 11, 13, 18, 16, 14, 19, 19],
+      "rises_last10": [0, 0, 0, 0, 2, 5, 0, 0, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7015,
+      "swapped": true,
+      "turn": 343,
+      "null_move": true,
+      "height": 20,
+      "holes": 13,
+      "heights_last10": [12, 13, 14, 15, 14, 15, 18, 14, 20, 20],
+      "rises_last10": [1, 0, 1, 1, 0, 0, 4, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7017,
+      "swapped": false,
+      "turn": 187,
+      "null_move": true,
+      "height": 19,
+      "holes": 12,
+      "heights_last10": [10, 6, 7, 8, 14, 19, 18, 19, 19, 19],
+      "rises_last10": [0, 0, 0, 0, 5, 5, 0, 0, 0, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7017,
+      "swapped": true,
+      "turn": 133,
+      "null_move": true,
+      "height": 19,
+      "holes": 8,
+      "heights_last10": [9, 9, 13, 9, 10, 11, 13, 13, 19, 19],
+      "rises_last10": [0, 0, 4, 0, 0, 0, 2, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7018,
+      "swapped": true,
+      "turn": 241,
+      "null_move": true,
+      "height": 20,
+      "holes": 8,
+      "heights_last10": [9, 9, 10, 12, 16, 14, 14, 14, 20, 20],
+      "rises_last10": [3, 0, 0, 0, 5, 0, 0, 0, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7020,
+      "swapped": false,
+      "turn": 535,
+      "null_move": true,
+      "height": 19,
+      "holes": 17,
+      "heights_last10": [11, 12, 13, 18, 18, 19, 19, 20, 19, 19],
+      "rises_last10": [0, 0, 0, 5, 0, 0, 0, 1, 0, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7020,
+      "swapped": true,
+      "turn": 442,
+      "null_move": true,
+      "height": 19,
+      "holes": 14,
+      "heights_last10": [5, 8, 13, 10, 12, 9, 14, 14, 19, 19],
+      "rises_last10": [0, 2, 5, 0, 0, 0, 5, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7021,
+      "swapped": false,
+      "turn": 246,
+      "null_move": true,
+      "height": 19,
+      "holes": 7,
+      "heights_last10": [7, 3, 5, 5, 4, 5, 8, 14, 19, 19],
+      "rises_last10": [0, 0, 1, 0, 0, 0, 3, 5, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7046,
+      "swapped": true,
+      "turn": 546,
+      "null_move": true,
+      "height": 22,
+      "holes": 12,
+      "heights_last10": [18, 17, 18, 14, 13, 13, 18, 17, 22, 22],
+      "rises_last10": [0, 0, 0, 0, 0, 0, 5, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7047,
+      "swapped": false,
+      "turn": 287,
+      "null_move": true,
+      "height": 19,
+      "holes": 16,
+      "heights_last10": [15, 15, 17, 14, 14, 15, 15, 16, 19, 19],
+      "rises_last10": [0, 0, 3, 0, 0, 0, 0, 0, 4, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7048,
+      "swapped": false,
+      "turn": 178,
+      "null_move": true,
+      "height": 19,
+      "holes": 8,
+      "heights_last10": [9, 5, 6, 7, 9, 9, 13, 18, 19, 19],
+      "rises_last10": [2, 0, 0, 0, 1, 0, 4, 5, 0, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7048,
+      "swapped": true,
+      "turn": 498,
+      "null_move": true,
+      "height": 21,
+      "holes": 20,
+      "heights_last10": [9, 9, 15, 15, 13, 15, 16, 16, 21, 21],
+      "rises_last10": [0, 0, 5, 0, 0, 4, 0, 0, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7049,
+      "swapped": true,
+      "turn": 194,
+      "null_move": true,
+      "height": 20,
+      "holes": 15,
+      "heights_last10": [14, 16, 12, 11, 11, 11, 12, 15, 20, 20],
+      "rises_last10": [0, 0, 0, 1, 0, 0, 0, 2, 5, 0],
+      "pending": 0
+    },
+    {
+      "seed": 7050,
+      "swapped": true,
+      "turn": 377,
+      "null_move": true,
+      "height": 21,
+      "holes": 9,
+      "heights_last10": [11, 15, 11, 10, 10, 10, 11, 16, 21, 21],
+      "rises_last10": [1, 4, 0, 0, 0, 0, 0, 5, 5, 0],
+      "pending": 0
+    }
+  ],
+  "decision_logs": {
+    "n": 25292,
+    "median_ms": 95.54,
+    "p95_ms": 186.7,
+    "above20": 201
+  }
+}

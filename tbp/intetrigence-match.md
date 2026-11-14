@@ -1,11 +1,10 @@
 # Attax vs intetrigence — worked TBP example
 
-The worked example comes from a local interop run against the intetrigence
-referee (2026-11-13, supplied with this packaging task): held-out seeds
-5001–5050, both seats. Across 14,230 Attax moves it reported no errors and no
-fallbacks; every first suggestion was accepted. The run exercised the adapter
-end to end and is kept as an interop record, not a strength benchmark. The
-original replay artefacts are not bundled in this repository.
+The original local match report (2026-11-13, supplied with this packaging task)
+recorded Attax 100–0 intetrigence: held-out seeds 5001–5050, both seats.
+Across 14,230 Attax moves it reported no errors and no fallbacks; every first
+suggestion was accepted. These are historical results, not a new packaging benchmark.
+The original replay artefacts are not bundled in this repository.
 
 The host was intetrigence e816913 with Guideline rules, five previews, hold,
 100 ms nominal local search and 5 PPS. Attax used its default fixed-work search
