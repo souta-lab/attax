@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { createEngine } from "../src/core/engine.js";
 import type { ClearInfo } from "../src/core/garbage.js";
 import type { PieceKind } from "../src/core/pieces.js";
-import { awardLock, RULES_PROFILES, s2ComboAttack, s2Surge } from "../src/core/rules.js";
+import {
+  awardLock,
+  RULES_PROFILES,
+  s2ComboAttack,
+  s2GarbageMultiplier,
+  s2Surge,
+} from "../src/core/rules.js";
 import { classifyS2Spin } from "../src/core/s2-spin.js";
 
 const clear = (lines: number, extra: Partial<ClearInfo> = {}): ClearInfo => ({
@@ -71,8 +77,46 @@ describe("S2-SPEC: Attack table and complete combo rule", () => {
     });
     expect(award(4, 5, { perfectClear: true }).difficultChain).toBe(6);
   });
-  test("Unpinned #8 fails closed for exotic spin Quads", () => {
-    expect(() => award(4, 0, { tspinKind: "mini" })).toThrow("Unpinned");
+  test("engine exotic rows retain B2B and combo composition", () => {
+    for (const tspinKind of ["mini", "full"] as const) {
+      for (const [lines, base] of [
+        [4, 10],
+        [5, 12],
+      ]) {
+        expect(award(lines, 0, { tspinKind }).attack).toBe(base);
+        expect(award(lines, 2, { tspinKind, combo: 3 }).attack).toBe(s2ComboAttack(base + 1, 3));
+      }
+    }
+    expect(award(5).attack).toBe(5);
+    expect(award(6).attack).toBe(6);
+  });
+  test("unit staging preserves unstaged awards across the attack grid", () => {
+    for (const lines of [0, 1, 2, 3, 4, 5, 6])
+      for (const tspinKind of ["none", "mini", "full"] as const)
+        for (const combo of [-1, 0, 1, 4, 10])
+          for (const chain of [0, 1, 5, 9])
+            for (const perfectClear of [false, true]) {
+              const info = clear(lines, { tspinKind, combo, perfectClear });
+              expect(
+                awardLock("tetrio-s2", info, chain, { multiplier: 1, garbageCleared: 0 }),
+              ).toEqual(awardLock("tetrio-s2", info, chain));
+              expect(
+                awardLock("guideline", info, chain, { multiplier: 1.5, garbageCleared: 2 }),
+              ).toEqual(awardLock("guideline", info, chain));
+            }
+  });
+  test("referee multiplies raw, adds special, floors PC separately, then adds surge", () => {
+    const stage = { multiplier: 1.5, garbageCleared: 2 };
+    expect(awardLock("tetrio-s2", clear(4), 0, stage).attack).toBe(7);
+    expect(awardLock("tetrio-s2", clear(2), 0, stage).attack).toBe(1);
+    expect(awardLock("tetrio-s2", clear(2, { tspinKind: "full" }), 0, stage).attack).toBe(7);
+    expect(awardLock("tetrio-s2", clear(2, { perfectClear: true }), 0, stage).attack).toBe(8);
+    expect(awardLock("tetrio-s2", clear(2), 5, stage).attack).toBe(5);
+  });
+  test("margin multiplier uses logical frames", () => {
+    expect(s2GarbageMultiplier(0)).toBe(1);
+    expect(s2GarbageMultiplier(10800)).toBe(1);
+    expect(s2GarbageMultiplier(18300)).toBeCloseTo(2, 12);
   });
 });
 

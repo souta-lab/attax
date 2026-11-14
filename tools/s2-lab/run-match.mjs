@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
-import { appendFile, open, readFile } from "node:fs/promises";
+import { appendFile, open, readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { cellKey, decideAttax, loadS2Weights, placementCells } from "./attax-player.js";
+import {
+  cellKey,
+  createAttaxDecider,
+  decideAttax,
+  loadS2Weights,
+  placementCells,
+} from "./attax-player.js";
 import { createChampionDriver } from "./champion-driver.mjs";
 import {
   applyTransition,
@@ -23,6 +29,9 @@ const { matchOutcome, ppsForCc2Parameters } = await lab("src-js/bot-match-option
 const { canonicalize } = await lab("src-js/cs1-core.mjs");
 const { values } = parseArgs({
   options: {
+    "opponent-profile": { type: "string" },
+    "opponent-id": { type: "string" },
+    "debug-log": { type: "string" },
     games: { type: "string", default: "1" },
     seed: { type: "string", default: "42" },
     out: { type: "string" },
@@ -43,6 +52,11 @@ const maxLocks = integer(values["max-locks"], "max-locks", 100000);
 if (seed + games - 1 > 0xffffffff) throw new Error("seed range overflows uint32");
 if (!values.out) throw new Error("--out <file.jsonl> is required (records are appended)");
 await (await open(values.out, "a")).close();
+if (!!values["opponent-profile"] !== !!values["opponent-id"])
+  throw new Error("opponent profile and id must be supplied together");
+if (values["champion-vs-champion"] && values["opponent-profile"])
+  throw new Error("opponent profile conflicts with champion-vs-champion");
+const opponent = values["opponent-profile"] ? createAttaxDecider(values["opponent-profile"]) : null;
 const pps = ppsForCc2Parameters(parameters);
 const digest = createHash("sha256").update(canonicalize(profile)).digest("hex");
 const wasmPath =
@@ -67,6 +81,15 @@ async function play(gameIndex) {
     garbageDelayFrames: 0,
   });
   const queueSeeds = { left: scenario.bagSeed, right: scenario.bagSeed };
+  const kinds = Object.fromEntries(
+    ["left", "right"].map((side) => [
+      side,
+      side === attaxSide ? "attax" : opponent ? "attax-opponent" : "champion",
+    ]),
+  );
+  const lastDecisionStates = Object.fromEntries(
+    match.bots.map((b) => [b.id, structuredClone(b.state)]),
+  );
   const drivers = new Map();
   const receipts = { left: null, right: null };
   const lastTankTopout = { left: false, right: false };
@@ -76,7 +99,7 @@ async function play(gameIndex) {
   let rejectedRoots = 0;
   try {
     for (const side of ["left", "right"]) {
-      if (side !== attaxSide) drivers.set(side, await createChampionDriver());
+      if (kinds[side] === "champion") drivers.set(side, await createChampionDriver());
     }
     while (true) {
       outcome = matchOutcome(
@@ -102,7 +125,8 @@ async function play(gameIndex) {
         const bot = match.bots.find((b) => b.id === side);
         const gui = controller.botMatchToGuiState(match, side);
         let result = null;
-        if (side === attaxSide) {
+        if (values["debug-log"]) lastDecisionStates[side] = structuredClone(bot.state);
+        if (kinds[side] !== "champion") {
           const visible = {
             ...bot.state,
             pieces: {
@@ -127,11 +151,14 @@ async function play(gameIndex) {
           }
           const witnessKey = (p, usedHold) =>
             `${p.kind}:${usedHold}:${p.lastSrs > 0}:${cellKey(placementCells(p))}`;
-          const searched = decideAttax(decision, (p, usedHold) => {
-            const accepted = witnesses.has(witnessKey(p, usedHold));
-            if (!accepted) rejectedRoots++;
-            return accepted;
-          });
+          const searched = (kinds[side] === "attax" ? decideAttax : opponent.decide)(
+            decision,
+            (p, usedHold) => {
+              const accepted = witnesses.has(witnessKey(p, usedHold));
+              if (!accepted && kinds[side] === "attax") rejectedRoots++;
+              return accepted;
+            },
+          );
           if (searched === null)
             throw new Error("attax has no witnessed move before referee top-out");
           const placement = witnesses.get(
@@ -143,6 +170,27 @@ async function play(gameIndex) {
             { kind: "placement", placement },
             bot.state.rulesetId,
           );
+          if (values["debug-log"]) {
+            const stages = transition.attackStages;
+            const clear = transition.lockResult;
+            await appendFile(
+              values["debug-log"],
+              `${JSON.stringify({
+                seed: gameSeed,
+                side,
+                lockIndex: bot.stats.turns,
+                frame: decision.lockTime?.logicalFrame ?? null,
+                predictedAttack: searched.best.attack,
+                refereeRaw: stages?.raw ?? null,
+                refereeAfterMultiplier: stages?.afterMultiplier ?? null,
+                refereeAfterRounding: stages?.afterRounding ?? null,
+                refereeSpecialBonus: stages?.specialBonus ?? null,
+                refereePcBonus: stages?.perfectClearBonus ?? null,
+                lines: clear?.lines ?? null,
+                spin: clear?.spin ?? null,
+              })}\n`,
+            );
+          }
           result = { transition, comparison: { positionFingerprint: fullStateKey(bot.state) } };
         } else {
           result = await drivers.get(side).decide(bot.state, gui, side);
@@ -158,6 +206,11 @@ async function play(gameIndex) {
     }
   } catch (failure) {
     error = failure instanceof Error ? failure.message : String(failure);
+    if (values["debug-log"])
+      await writeFile(
+        `${values["debug-log"]}.errors.json`,
+        JSON.stringify({ seed: gameSeed, error, states: lastDecisionStates }, null, 2),
+      );
   } finally {
     for (const driver of drivers.values()) await driver.close();
   }
@@ -167,7 +220,10 @@ async function play(gameIndex) {
     seed: gameSeed,
     side: attaxSide,
     contestants: Object.fromEntries(
-      ["left", "right"].map((s) => [s, s === attaxSide ? "attax" : "cc2-s2-champion"]),
+      ["left", "right"].map((s) => [
+        s,
+        s === attaxSide ? "attax" : opponent ? `attax:${values["opponent-id"]}` : "cc2-s2-champion",
+      ]),
     ),
     status: error ? "error" : complete ? "finished" : "unfinished",
     winner: complete ? outcome.winnerBotId : null,
@@ -205,6 +261,7 @@ async function play(gameIndex) {
     rejectedRoots,
     protocolErrors: error ? 1 : 0,
     settings: {
+      opponentProfileId: opponent?.profileId ?? null,
       mode: "paced",
       pps,
       garbageDelayFrames: 0,

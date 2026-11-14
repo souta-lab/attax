@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -41,6 +41,13 @@ try {
     `profile-${job.jobId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${process.pid}.json`,
   );
   await writeFile(profilePath, JSON.stringify(job.profile));
+  const opponentArgs = [];
+  if (job.opponent?.kind === "attax-profile") {
+    const opponentPath = join(directory, "opponent.json");
+    await writeFile(opponentPath, JSON.stringify(job.opponent.profile));
+    opponentArgs.push("--opponent-profile", opponentPath, "--opponent-id", job.opponent.id);
+  } else if (job.opponent && job.opponent.kind !== "champion")
+    throw new Error("unknown opponent kind");
   const recordsPath = resolve(values.records);
   await writeFile(recordsPath, "");
   const started = performance.now();
@@ -49,6 +56,7 @@ try {
       "bun",
       [
         "tools/s2-lab/run-match.mjs",
+        ...opponentArgs,
         "--games",
         String(job.games),
         "--seed",
@@ -71,6 +79,20 @@ try {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+  let verified;
+  if (job.expect) {
+    verified = {
+      wasmSha256: records[0]?.settings?.wasmSha256,
+      championProfileSha256: records[0]?.settings?.championProfileSha256,
+      labHead: execFileSync(
+        "git",
+        ["-C", resolve(root, process.env.S2_LAB_ROOT ?? "../s2-bot-lab-ref"), "rev-parse", "HEAD"],
+        { encoding: "utf8" },
+      ).trim(),
+    };
+    for (const key of Object.keys(verified))
+      if (verified[key] !== job.expect[key]) throw new Error(`campaign integrity mismatch: ${key}`);
+  }
   const compat = records.filter(
     (r) =>
       r.status === "error" &&
@@ -111,6 +133,7 @@ try {
   attaxAPP /= finished.length;
   champAPP /= finished.length;
   const result = {
+    ...(verified ? { verified } : {}),
     jobId: job.jobId,
     profileSha256: sha256(JSON.stringify(canonical(job.profile))),
     championProfileSha256: records[0]?.settings?.championProfileSha256 ?? null,

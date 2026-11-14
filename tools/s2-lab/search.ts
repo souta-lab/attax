@@ -1,5 +1,5 @@
 /** S2 integration specialization of src/ai/bot/search.ts.
- * The beam algorithm and weights are unchanged. Only exact B2B, stage-1 S2
+ * The beam algorithm and weights are unchanged. Only exact B2B, staged S2
  * awards/spin classification and amount-only root garbage timing differ.
  * Kept here to avoid changing the shipping guideline bot/benchmark policy.
  */
@@ -17,19 +17,24 @@ import { BOARD_FEATURES, type BoardFeatures, boardFeatures } from "../../src/ai/
 import {
   type BitBoard,
   collides,
+  FULL_ROW,
   generatePlacements,
   lockPlacement,
   type Placement,
   spawnPosition,
 } from "../../src/ai/bot/movegen.js";
 import type { ClearKind, Weights } from "../../src/ai/bot/weights.js";
-import type { PieceKind } from "../../src/core/pieces.js";
-import { awardLock } from "../../src/core/rules.js";
+import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
+import { awardLock, s2GarbageMultiplier } from "../../src/core/rules.js";
 import { classifyS2Spin } from "../../src/core/s2-spin.js";
 import type { TspinKind } from "../../src/core/tspin.js";
 
 export interface SearchInput {
   readonly board: BitBoard;
+  /** Logical referee frame at the root decision (lockTime). */
+  readonly frame?: number;
+  /** Garbage flags in bottom-first order, index 0 = bottom. */
+  readonly garbageRows?: readonly number[];
   readonly active: { kind: PieceKind; rotation: number; x: number; y: number };
   readonly hold: PieceKind | null;
   readonly canHold: boolean;
@@ -86,6 +91,8 @@ export interface SearchResult {
 
 interface Node {
   readonly board: BitBoard;
+  /** Garbage flags in the same top-first coordinates as board. */
+  readonly garbageRows: Uint8Array;
   readonly hold: PieceKind | null;
   /** Index into the piece sequence of the piece to place next. */
   readonly next: number;
@@ -109,6 +116,9 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
     board: input.board,
+    garbageRows: Uint8Array.from(input.board, (_, row) =>
+      input.garbageRows?.[input.board.length - 1 - row] ? 1 : 0,
+    ),
     hold: input.hold,
     next: 0,
     canHold: input.canHold,
@@ -149,7 +159,17 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                 option.kind,
                 spawnPosition(option.kind, node.board.length),
               )) {
-                const child = expand(node, placement, option, 0, w, 0, options.exposure ?? 0, 0);
+                const child = expand(
+                  node,
+                  placement,
+                  option,
+                  0,
+                  w,
+                  0,
+                  options.exposure ?? 0,
+                  0,
+                  input.frame ?? 0,
+                );
                 nodes += 1;
                 if (child !== null) best = Math.max(best, child.value);
               }
@@ -179,6 +199,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             firstMoves.length,
             options.exposure ?? 0,
             input.dueThisLock,
+            input.frame ?? 0,
           );
           nodes += 1;
           if (child === null) continue;
@@ -274,8 +295,9 @@ function expand(
   rootIndex: number,
   exposure: number,
   dueThisLock: number,
+  rootFrame: number,
 ): Node | null {
-  // Reuse stage-1 lock awards and All-Mini+; exact d is never reduced to a flag.
+  // Use staged S2 lock awards and All-Mini+; exact d is never reduced to a flag.
   const spin = classifyS2Spin(
     placement,
     (x, y) =>
@@ -287,6 +309,23 @@ function expand(
       !collides(node.board, placement.kind, placement.rotation, placement.x + dx, placement.y + dy),
   );
   placement = { ...placement, tspin: spin };
+  // Match lockPlacement's cell coordinates and bottom-to-top survivor collapse.
+  const filled = node.board.slice();
+  for (const cell of cellsFor(placement.kind, placement.rotation)) {
+    const row = placement.y + cell.y;
+    if (row >= 0 && row < filled.length)
+      filled[row] = (filled[row] as number) | (1 << (placement.x + cell.x));
+  }
+  const garbageRows = new Uint8Array(node.board.length);
+  let garbageCleared = 0;
+  let write = filled.length - 1;
+  for (let read = filled.length - 1; read >= 0; read -= 1) {
+    if (filled[read] === FULL_ROW) {
+      garbageCleared += node.garbageRows[read] ?? 0;
+    } else {
+      garbageRows[write--] = node.garbageRows[read] ?? 0;
+    }
+  }
   const outcome = lockPlacement(node.board, placement);
   const lines = outcome.linesCleared;
   const combo = lines > 0 ? node.combo + 1 : -1;
@@ -301,6 +340,7 @@ function expand(
       perfectClear: outcome.perfectClear,
     },
     node.b2b,
+    { multiplier: s2GarbageMultiplier(rootFrame + 60 * node.depth), garbageCleared },
   );
   const attack = award.attack;
   const difficult = lines > 0 && (lines === 4 || spin !== "none" || outcome.perfectClear);
@@ -325,6 +365,7 @@ function expand(
 
   return {
     board: outcome.board,
+    garbageRows,
     hold: option.hold,
     next: option.next,
     canHold: true,
@@ -359,7 +400,7 @@ function dedupe(sorted: readonly Node[], width: number): Node[] {
   const seen = new Set<string>();
   for (const node of sorted) {
     if (kept.length >= width) break;
-    const key = `${node.next}|${node.hold}|${node.b2b}|${node.board.join(",")}`;
+    const key = `${node.next}|${node.hold}|${node.b2b}|${node.combo}|${node.board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     kept.push(node);

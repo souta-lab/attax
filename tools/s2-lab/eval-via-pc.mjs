@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
@@ -65,13 +67,35 @@ try {
     throw new Error("--games, --seed and --out are required with valid integers");
   if (!process.env.ATTAX_S2_PROFILE) throw new Error("ATTAX_S2_PROFILE is required");
   const profile = JSON.parse(await readFile(process.env.ATTAX_S2_PROFILE, "utf8"));
+  const opponentId = process.env.ATTAX_S2_OPPONENT_ID;
+  const opponentProfile = process.env.ATTAX_S2_OPPONENT_PROFILE;
+  if (!!opponentId !== !!opponentProfile)
+    throw new Error("opponent id and profile must be supplied together");
+  const opponent = opponentId
+    ? {
+        kind: "attax-profile",
+        id: opponentId,
+        profile: JSON.parse(await readFile(opponentProfile, "utf8")),
+      }
+    : { kind: "champion" };
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const expect = {
+    // Campaign's pinned champion artifacts.
+    wasmSha256: "facb773f18feb041868e21022442e52754fbc5972c813577bc56586b1c653731",
+    championProfileSha256: "b3d8686a4faa786746ed5b57d8bd09cdd30f88f1735b548e619b9ed63d498d6c",
+    labHead: execFileSync(
+      "git",
+      ["-C", resolve(root, process.env.S2_LAB_ROOT ?? "../s2-bot-lab-ref"), "rev-parse", "HEAD"],
+      { encoding: "utf8" },
+    ).trim(),
+  };
   const lab = remotePath(process.env.S2_PC_LAB || "~/s2-bot-lab");
   const jobs = remotePath(process.env.S2_PC_JOBS || "~/s2-jobs");
   const base64Text = (output) => output.replace(/[^A-Za-z0-9+/=]/g, "");
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const jobId = `pc-${seed}-${games}-${process.pid}-${attempt}`;
-      const job = { jobId, profile, seedStart: seed, games };
+      const job = { jobId, profile, seedStart: seed, games, opponent, expect };
       const jobPath = `${jobs}/${jobId}.json`;
       const resultPath = `${jobs}/${jobId}.result.json`;
       const recordsPath = `${jobs}/${jobId}.records.jsonl`;

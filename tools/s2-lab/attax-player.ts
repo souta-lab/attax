@@ -6,7 +6,11 @@ import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
 import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { type SearchInput, search } from "./search.js";
 
-let loaded: { weights: Weights; profileId: string; source: string } | undefined;
+const profiles = new Map<
+  string | undefined,
+  { weights: Weights; profileId: string; source: string }
+>();
+let loaded: ReturnType<typeof loadProfile> | undefined;
 
 function mergeProfile(
   base: Record<string, unknown>,
@@ -40,25 +44,33 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function loadS2Weights(): { weights: Weights; profileId: string; source: string } {
-  if (loaded) return loaded;
-  const source = process.env.ATTAX_S2_PROFILE ?? "DEFAULT_WEIGHTS";
+function loadProfile(profilePath: string | undefined) {
+  const cached = profiles.get(profilePath);
+  if (cached) return cached;
+  const source = profilePath ?? "DEFAULT_WEIGHTS";
   const weights =
-    process.env.ATTAX_S2_PROFILE === undefined
+    profilePath === undefined
       ? DEFAULT_WEIGHTS
       : (mergeProfile(
           DEFAULT_WEIGHTS as unknown as Record<string, unknown>,
           JSON.parse(readFileSync(source, "utf8")),
         ) as unknown as Weights);
-  loaded = {
+  const loaded = {
     weights,
     profileId: createHash("sha256").update(canonical(weights)).digest("hex").slice(0, 16),
     source,
   };
+  profiles.set(profilePath, loaded);
+  return loaded;
+}
+
+export function loadS2Weights() {
+  loaded ??= loadProfile(process.env.ATTAX_S2_PROFILE);
   return loaded;
 }
 
 export interface PublicDecision {
+  lockTime?: { logicalFrame: number };
   board: { width: number; height: number; cells: string };
   pieces: {
     current: PieceKind;
@@ -86,13 +98,17 @@ export function projectAttax(decision: PublicDecision): SearchInput {
     throw new Error("invalid public chain/incoming counters");
   }
   const rows = new Uint16Array(40);
+  const garbageRows = Array<number>(40).fill(0);
   for (let y = 0; y < 40; y++) {
     for (let x = 0; x < 10; x++) {
+      if (board.cells[y * 10 + x] === "G") garbageRows[39 - y] = 1;
       if (board.cells[y * 10 + x] !== "_") rows[39 - y] |= 1 << x;
     }
   }
   return {
     board: rows,
+    frame: decision.lockTime?.logicalFrame,
+    garbageRows,
     active: { kind: pieces.current, ...spawnPosition(pieces.current, 40) },
     hold: pieces.hold,
     canHold: pieces.holdAvailable,
@@ -105,11 +121,25 @@ export function projectAttax(decision: PublicDecision): SearchInput {
   };
 }
 
+export function createAttaxDecider(profilePath: string | undefined) {
+  const { weights, profileId } = loadProfile(profilePath);
+  return {
+    weights,
+    profileId,
+    decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
+      return search(
+        { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
+        { weights, width: BOT_DEFAULTS.width },
+      );
+    },
+  };
+}
+
 export function decideAttax(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
-  return search(
-    { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
-    { weights: loadS2Weights().weights, width: BOT_DEFAULTS.width },
-  );
+  loadS2Weights();
+  return createAttaxDecider(
+    loaded?.source === "DEFAULT_WEIGHTS" ? undefined : loaded?.source,
+  ).decide(decision, acceptRoot);
 }
 
 /** Cell matching derives all origin/rotation offsets from the referee's geometry. */

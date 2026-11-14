@@ -22,9 +22,12 @@ const defaults = {
   "eval-runner": "",
 };
 const { values } = parseArgs({
-  options: Object.fromEntries(
-    Object.entries(defaults).map(([k, v]) => [k, { type: "string", default: v }]),
-  ),
+  options: {
+    ...Object.fromEntries(
+      Object.entries(defaults).map(([k, v]) => [k, { type: "string", default: v }]),
+    ),
+    league: { type: "boolean", default: false },
+  },
 });
 function number(key, min, integer = true) {
   const n = Number(values[key]);
@@ -110,18 +113,65 @@ let state = {
   ),
   history: [],
 };
+if (values.league) {
+  delete state.iteration;
+  Object.assign(state, {
+    league: true,
+    leagueIteration: 0,
+    pool: [
+      { id: "champion", kind: "champion", active: true },
+      {
+        id: "seed",
+        kind: "attax-profile",
+        profile: resolve(root, values["start-profile"]),
+        active: true,
+      },
+      {
+        id: "iter12",
+        kind: "attax-profile",
+        profile: "tools/s2-lab/profiles/s2-iter12.json",
+        active: true,
+      },
+    ],
+    snapshotCount: 0,
+    evalWindow: [],
+    bestEval: null,
+  });
+}
 try {
   state = JSON.parse(await readFile(statePath, "utf8"));
 } catch (error) {
   if (error.code !== "ENOENT") throw error;
 }
+if (!!state.league !== values.league) throw new Error("state mode does not match --league");
+if (state.halted) {
+  console.error(`SPSA HALTED: ${state.halted.reason}`);
+  process.exit(3);
+}
 const serialize = (u) =>
   `${JSON.stringify(expand(Object.fromEntries(Object.entries(u).map(([p, v]) => [p, v * state.scales[p]]))), null, 2)}\n`;
 const children = new Set();
-async function evaluate(u, blockStart, directory, label) {
+async function evaluate(
+  u,
+  blockStart,
+  directory,
+  label,
+  opponent = { id: "champion", kind: "champion" },
+) {
   const profile = resolve(directory, `${label}.json`);
   const output = resolve(directory, `${label}.jsonl`);
   await writeFile(profile, serialize(u));
+  const opponentPath =
+    opponent.kind === "attax-profile" ? resolve(directory, `${label}-opponent.json`) : null;
+  if (opponentPath)
+    await writeFile(opponentPath, await readFile(resolve(root, opponent.profile), "utf8"));
+  const env = { ...process.env, ATTAX_S2_PROFILE: profile };
+  delete env.ATTAX_S2_OPPONENT_ID;
+  delete env.ATTAX_S2_OPPONENT_PROFILE;
+  if (opponentPath && values["eval-runner"]) {
+    env.ATTAX_S2_OPPONENT_ID = opponent.id;
+    env.ATTAX_S2_OPPONENT_PROFILE = opponentPath;
+  }
   let records = [],
     excluded = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -130,7 +180,14 @@ async function evaluate(u, blockStart, directory, label) {
       const child = spawn(
         values["eval-runner"] || "bun",
         [
-          ...(values["eval-runner"] ? [] : ["tools/s2-lab/run-match.mjs"]),
+          ...(values["eval-runner"]
+            ? []
+            : [
+                "tools/s2-lab/run-match.mjs",
+                ...(opponentPath
+                  ? ["--opponent-profile", opponentPath, "--opponent-id", opponent.id]
+                  : []),
+              ]),
           "--games",
           String(games),
           "--seed",
@@ -140,7 +197,7 @@ async function evaluate(u, blockStart, directory, label) {
         ],
         {
           cwd: root,
-          env: { ...process.env, ATTAX_S2_PROFILE: profile },
+          env,
           stdio: "inherit",
         },
       );
@@ -160,6 +217,15 @@ async function evaluate(u, blockStart, directory, label) {
         .map((line) => JSON.parse(line));
     } catch (error) {
       if (code === 0) throw error;
+    }
+    for (const record of records) {
+      if (
+        record.settings?.wasmSha256 !==
+          "facb773f18feb041868e21022442e52754fbc5972c813577bc56586b1c653731" ||
+        record.settings?.championProfileSha256 !==
+          "b3d8686a4faa786746ed5b57d8bd09cdd30f88f1735b548e619b9ed63d498d6c"
+      )
+        throw new Error("campaign artifact integrity mismatch");
     }
     const compat = records.filter(
       (r) =>
@@ -206,6 +272,8 @@ async function evaluate(u, blockStart, directory, label) {
   attaxAPP /= records.length;
   champAPP /= records.length;
   return {
+    opponentId: opponent.id,
+    games,
     J: (wins - losses) / records.length + attaxAPP - champAPP,
     excluded,
     wins,
@@ -219,10 +287,20 @@ function describe(e) {
   return `${e.J.toFixed(6)} (${e.wins}-${e.losses}-${e.draws}; APP ${e.attaxAPP.toFixed(6)}/${e.champAPP.toFixed(6)})${e.excluded > 0 ? ` excl=${e.excluded}` : ""}`;
 }
 try {
-  for (let k = state.iteration; k < iterations; k++) {
+  for (let k = values.league ? state.leagueIteration : state.iteration; k < iterations; k++) {
+    const j = k + 1;
+    let opponent = { id: "champion", kind: "champion" };
+    if (values.league) {
+      const sample = mulberry32(20251115 + j);
+      if (sample() >= 0.5) {
+        const members = state.pool.filter((p) => p.active && p.kind === "attax-profile");
+        if (!members.length) throw new Error("league has no active profile opponents");
+        opponent = members[Math.floor(sample() * members.length)];
+      }
+    }
     // Checkpoint before launching either child, including the very first evaluation.
     await atomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
-    const rng = mulberry32(987654321 + k);
+    const rng = mulberry32(987654321 + (values.league ? 5000 + j : k));
     const delta = groups.map(() => (rng() < 0.5 ? -1 : 1));
     const c = c0 / (k + 1) ** 0.101;
     const a = a0 / (k + 11) ** 0.602;
@@ -240,15 +318,49 @@ try {
     try {
       if (concurrency >= 2)
         [jp, jm] = await Promise.all([
-          evaluate(plus, block, directory, "plus"),
-          evaluate(minus, block, directory, "minus"),
+          evaluate(plus, block, directory, "plus", opponent),
+          evaluate(minus, block, directory, "minus", opponent),
         ]);
       else {
-        jp = await evaluate(plus, block, directory, "plus");
-        jm = await evaluate(minus, block, directory, "minus");
+        jp = await evaluate(plus, block, directory, "plus", opponent);
+        jm = await evaluate(minus, block, directory, "minus", opponent);
       }
     } finally {
       if (children.size === 0) await rm(directory, { recursive: true, force: true });
+    }
+    if (values.league) {
+      state.evalWindow.push(...[jp, jm].map((e) => ({ games: e.games, excluded: e.excluded })));
+      state.evalWindow = state.evalWindow.slice(-20);
+      const totals = state.evalWindow.reduce(
+        (a, e) => ({ games: a.games + e.games, excluded: a.excluded + e.excluded }),
+        { games: 0, excluded: 0 },
+      );
+      const reason =
+        totals.excluded / totals.games > 0.05
+          ? "rolling exclusion rate exceeds 5%"
+          : jp.excluded > 0 !== jm.excluded > 0
+            ? "asymmetric arm exclusions"
+            : null;
+      if (reason) {
+        const timestamp = new Date().toISOString();
+        state.halted = { reason, leagueIteration: j, timestamp };
+        await atomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
+        await mkdir(dirname(logPath), { recursive: true });
+        await appendFile(logPath, `| HALT | ${timestamp} | ${reason} |\n`);
+        console.error(`SPSA LEAGUE HALT L${j}: ${reason}`);
+        process.exitCode = 3;
+        break;
+      }
+      for (const [arm, evaluation, u] of [
+        ["plus", jp, plus],
+        ["minus", jm, minus],
+      ]) {
+        if (!state.bestEval || evaluation.J > state.bestEval.J) {
+          const profilePath = "tools/s2-lab/profiles/league/best-eval.json";
+          await atomic(resolve(root, profilePath), serialize(u));
+          state.bestEval = { leagueIteration: j, arm, J: evaluation.J, profilePath };
+        }
+      }
     }
     const gradient = (jp.J - jm.J) / (2 * c);
     groups.forEach((paths, i) => {
@@ -265,9 +377,19 @@ try {
     const sha = createHash("sha256").update(contents).digest("hex").slice(0, 12);
     const signs = delta.map((d) => (d > 0 ? "+" : "-")).join("");
     const timestamp = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Tokyo" });
-    state.iteration = k + 1;
+    if (values.league) {
+      state.leagueIteration = j;
+      if (j % 10 === 0) {
+        const profile = `tools/s2-lab/profiles/league/snap-L${j}.json`;
+        await atomic(resolve(root, profile), contents);
+        state.pool.push({ id: `snap-L${j}`, kind: "attax-profile", profile, active: true });
+        state.snapshotCount++;
+        const dynamic = state.pool.filter((p) => p.active && p.id.startsWith("snap-"));
+        if (dynamic.length > 5) dynamic[0].active = false;
+      }
+    } else state.iteration = j;
     state.history.push({
-      iteration: k + 1,
+      ...(values.league ? { leagueIteration: j, opponentId: opponent.id } : { iteration: j }),
       timestamp,
       blockStart: block,
       delta,
@@ -279,13 +401,13 @@ try {
     await mkdir(dirname(logPath), { recursive: true });
     await appendFile(
       logPath,
-      `| ${k + 1} | ${timestamp} | ${block}-${block + games - 1} | ${signs} | ${describe(jp)} | ${describe(jm)} | ${sha} |\n`,
+      `| ${values.league ? `L${j}` : j} | ${timestamp} | ${block}-${block + games - 1} | ${values.league ? `opp=${opponent.id} | ` : ""}${signs} | ${describe(jp)} | ${describe(jm)} | ${sha} |\n`,
     );
     console.log(
       `SPSA iteration=${k + 1} seeds=${block}-${block + games - 1} delta=${signs} Jplus=${describe(jp)} Jminus=${describe(jm)} sha=${sha}`,
     );
   }
-  console.log(`SPSA DONE iterations=${iterations} finalProfile=${profileOut}`);
+  if (!state.halted) console.log(`SPSA DONE iterations=${iterations} finalProfile=${profileOut}`);
 } catch (error) {
   for (const child of children) child.kill("SIGTERM");
   console.error(error);
