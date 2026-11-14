@@ -15,7 +15,18 @@
  * choice with Attax's spin label first, then the same cells with the other spin labels,
  * then Attax's ranked alternative first moves. Every decision is logged (ATTAX_TBP_LOG).
  *
- * Env: ATTAX_TBP_LOG (optional JSONL decision log path).
+ * Host contract: the adapter tracks the piece queue from `start` and `new_piece`
+ * messages only. A host must keep the queue non-empty whenever it sends `suggest`:
+ * send `new_piece` as pieces are consumed (the usual TBP cadence), or resync with a
+ * fresh `start`. Attax decides on the current piece plus up to five preview pieces, so
+ * longer queues are welcome but never required. If the queue does run dry, the adapter
+ * answers `suggest` with an empty suggestion and stays alive — it never throws and
+ * never exits on a host message; normal operation resumes on the next `start` or
+ * `new_piece`. (A host that only resyncs via `start` when garbage rises will drain the
+ * queue in ~20 quiet turns; that pattern killed this adapter before 2026-11-15.)
+ *
+ * Env: ATTAX_TBP_LOG (optional JSONL decision log path),
+ *      ATTAX_TBP_ROWS (visible board rows in the snapshot: 20 default, or 40).
  */
 import { appendFileSync } from "node:fs";
 
@@ -24,6 +35,13 @@ import { cellsFor } from "../src/core/pieces.ts";
 import type { GameSnapshot } from "../src/core/types.ts";
 
 const LOG = process.env.ATTAX_TBP_LOG;
+
+// Visible board rows in the bot's snapshot. 20 (default) is the published
+// guideline view: cells above TBP row 19 are not represented. 40 exposes the
+// full TBP board, for hosts whose referee spawns pieces above row 20; the
+// spawn origin then follows the bot's tall-board convention (the same
+// rows - 21 origin the field40 rig uses), not the 20-row top edge.
+const FIELD_ROWS = process.env.ATTAX_TBP_ROWS === "40" ? 40 : 20;
 
 type Kind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 type Spin = "none" | "mini" | "full";
@@ -123,7 +141,10 @@ function tbpLocations(kind: Kind, cells: [number, number][]): Loc[] {
 
 /** Attax placement (kind, rotation, x, top-row y) -> absolute TBP cells. */
 function attaxCellsToTbp(kind: Kind, rotation: number, x: number, y: number): [number, number][] {
-  return cellsFor(kind, rotation).map((c: { x: number; y: number }) => [x + c.x, 19 - (y + c.y)]);
+  return cellsFor(kind, rotation).map((c: { x: number; y: number }) => [
+    x + c.x,
+    FIELD_ROWS - 1 - (y + c.y),
+  ]);
 }
 
 // ---- tracked game state (TBP coordinates) ------------------------------------------------
@@ -167,16 +188,19 @@ function applyPlay(mv: TbpMove) {
 // ---- decision --------------------------------------------------------------------------
 const bot = createBot({ name: "attax" }); // default preview 5, beam width 48, default weights
 
-function snapshot(): GameSnapshot {
-  // Attax grid: 20 rows, index 0 = top.  Cells above TBP row 19 cannot be represented.
-  const grid = Array.from({ length: 20 }, (_, r) => (rows[19 - r] ?? []).map((f) => (f ? 8 : 0)));
+function snapshot(): GameSnapshot | null {
+  // Attax grid: FIELD_ROWS rows, index 0 = top.  At 20 rows, cells above
+  // TBP row 19 cannot be represented; at 40 the whole TBP board is visible.
+  const grid = Array.from({ length: FIELD_ROWS }, (_, r) =>
+    (rows[FIELD_ROWS - 1 - r] ?? []).map((f) => (f ? 8 : 0)),
+  );
   const kind = queue[0];
-  if (!kind) throw new Error("suggest requires a nonempty queue from start");
+  if (!kind) return null; // queue ran dry: caller answers with an empty suggestion
   const shape = cellsFor(kind, 0) as { x: number; y: number }[];
   const minY = Math.min(0, ...shape.map((c) => c.y));
-  const posY = -minY;
+  const posY = FIELD_ROWS > 20 ? FIELD_ROWS - 21 : -minY;
   return {
-    board: { cols: 10, rows: 20, grid },
+    board: { cols: 10, rows: FIELD_ROWS, grid },
     active: {
       kind,
       rotation: 0,
@@ -213,9 +237,30 @@ function movesFor(kind: Kind, rotation: number, x: number, y: number, spin: Spin
   return out;
 }
 
+function sendEmptySuggestion(extra: string) {
+  send({
+    type: "suggestion",
+    moves: [],
+    move_info: { nodes: 0, nps: 0, extra },
+  });
+}
+
 function suggest() {
   const t0 = performance.now();
   const snap = snapshot();
+  if (snap === null) {
+    // The host let the queue run dry (see the host contract in the header).
+    // Answer with an empty suggestion and stay alive; the next start or
+    // new_piece resumes normal operation.
+    if (LOG) {
+      appendFileSync(
+        LOG,
+        `${JSON.stringify({ ms: 0, nodes: 0, depth: 0, primary: null, first: null, emptyQueue: true })}\n`,
+      );
+    }
+    sendEmptySuggestion("attax: empty queue");
+    return;
+  }
   const aiMove = bot.findBestMove(snap);
   const result = bot.lastSearch();
   const ms = performance.now() - t0;
@@ -266,31 +311,44 @@ send({
 for await (const line of console) {
   const text = line.trim();
   if (text === "") continue;
-  const msg = JSON.parse(text);
-  switch (msg.type) {
-    case "rules":
-      send({ type: "ready" });
-      break;
-    case "start":
-      setBoard(msg.board);
-      queue = [...msg.queue];
-      hold = msg.hold ?? null;
-      combo = msg.combo ?? 0;
-      b2b = !!msg.back_to_back;
-      bot.reset();
-      break;
-    case "play":
-      applyPlay(msg.move);
-      break;
-    case "new_piece":
-      queue.push(msg.piece);
-      break;
-    case "suggest":
-      suggest();
-      break;
-    case "stop":
-      break;
-    case "quit":
-      process.exit(0);
+  let msg: { type?: string; [k: string]: unknown };
+  try {
+    msg = JSON.parse(text);
+  } catch (err) {
+    // A malformed line must never kill the adapter (stderr is safe: stdout
+    // is the protocol channel).
+    console.error(`attax-tbp: ignoring unparseable line: ${err}`);
+    continue;
+  }
+  try {
+    switch (msg.type) {
+      case "rules":
+        send({ type: "ready" });
+        break;
+      case "start":
+        setBoard(msg.board as (string | null)[][]);
+        queue = [...(msg.queue as Kind[])];
+        hold = (msg.hold as Kind | null) ?? null;
+        combo = (msg.combo as number) ?? 0;
+        b2b = !!msg.back_to_back;
+        bot.reset();
+        break;
+      case "play":
+        applyPlay(msg.move as TbpMove);
+        break;
+      case "new_piece":
+        queue.push(msg.piece as Kind);
+        break;
+      case "suggest":
+        suggest();
+        break;
+      case "stop":
+        break;
+      case "quit":
+        process.exit(0);
+    }
+  } catch (err) {
+    console.error(`attax-tbp: error handling "${msg.type}": ${err}`);
+    if (msg.type === "suggest") sendEmptySuggestion("attax: decision failed");
   }
 }

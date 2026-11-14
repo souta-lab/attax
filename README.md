@@ -24,7 +24,8 @@ are in [`bench-results/`](bench-results/), the Hoiko-replica fidelity evidence i
 are in [`scripts/`](scripts/).
 
 > **Scoped claim:** in guideline versus rules, across every matchup measured so far, Attax
-> has won each matchup against Hoiko and clys; no opponent tested comes close. See [Caveats](#%EF%B8%8F-caveats--not-measured)
+> has won each matchup it has played — against Hoiko, clys and Cold Clear 2 (the official
+> upstream build and chouhy's fork). See [Caveats](#%EF%B8%8F-caveats--not-measured)
 > for what has *not* been measured.
 
 ## 📑 Contents
@@ -32,6 +33,8 @@ are in [`scripts/`](scripts/).
 - [Results at a glance](#-results-at-a-glance)
 - [Result: Hoiko](#-result-hoiko)
 - [Result: clys](#result-clys)
+- [Result: Cold Clear 2](#result-cold-clear-2)
+- [Profiles](#-profiles)
 - [TBP](#tbp)
 - [License](#license)
 - [Why it is strong](#-why-it-is-strong)
@@ -49,10 +52,13 @@ are in [`scripts/`](scripts/).
 |---|---|---|---|---|
 | **Hoiko** (Rust/WASM replica of Hoiko.exe) | 200 | **195–5** | **97.5%** (94.3–98.9%) | **0.70** vs 0.46 |
 | **clys** (by citrus610) | 100 | **88–12** | **88.0%** (80.2%–93.0%) | **0.7346** vs 0.7791 |
+| **Cold Clear 2** (official upstream, `ed8b193`) | 100 | **79–21** | **79.0%** (70.0–85.8%) | 0.8951 vs **0.9279** |
+| **Cold Clear 2 fork** (chouhy) | 40 | **27–13** | **67.5%** (52.0–79.9%) | **0.9218** vs 0.8298 |
 
-Both matchups use held-out seeds (never used for tuning), and every seed was played from
-both seats. In guideline versus rules, across everything measured so far, Attax has won
-every matchup and no opponent tested is close. The details, conditions and limits follow.
+All matchups use held-out seeds (never used for tuning), and every seed was played from
+both seats. The Cold Clear 2 matches were played by the competition profile, **attax v2**
+(see [Profiles](#-profiles)), under an external TBP rig; against the official build Attax
+won on survival despite the lower attack rate. The details, conditions and limits follow.
 
 ## 🥊 Result: Hoiko
 
@@ -112,6 +118,57 @@ runs on a dedicated CPU core, with only one bot thinking at a time within it.
 Neither bot receives pending-garbage information over TBP. All counted games were
 replay-verified. Source: the clys section of the local
 `~/workspace/attax-gauntlet/REPORT.md`.
+
+## Result: Cold Clear 2
+
+Cold Clear 2 is MinusKelvin's engine, the strongest open baseline in this class. Attax
+played it twice through the external rig in `tools/cc2-rematch/` (guideline rules over
+TBP, a strict 100 ms window with the child suspended during the local search, 5 PPS
+paired turns), using the competition profile described under
+[Profiles](#-profiles) — the field-40 view with exact 7-bag speculation. Both matches
+were replay-verified in full.
+
+Against the official upstream build at `ed8b193`, seeds 13001–13050 from both seats,
+Attax won **79–21** with no draws (win rate 79.0%, Wilson 95% CI 70.0–85.8%). The
+official build actually produced more attack per piece, 0.9279 to Attax's 0.8951;
+Attax won on survival, the same pattern as the clys match. Against chouhy's fork of
+the same upstream base, seeds 2701–2720 from both seats, Attax won **27–13** with no
+draws (67.5%, CI 52.0–79.9%), this time also ahead on attack per piece, 0.9218 to
+0.8298. Per-seed records and generated summaries live in
+`bench-results/external/cc2/` and `bench-results/external/cc2-fork/`; as with the
+external clys records, external attack per piece is pooled generated attack before
+cancellation, and the game-level Wilson intervals are descriptive (the independent
+units are the seat-swapped seed pairs).
+
+## 👤 Profiles
+
+One bot ships in three profiles. The guideline side shares a single weight table and
+a single search; the profiles differ in what the bot is allowed to see and which
+rules profile scores its locks.
+
+The **published profile** is the default build: a 20-row view of the board, the
+current piece plus a 5-piece preview, beam width 48, guideline rules. This is the
+build the live page runs and the one the Hoiko and clys results above were measured
+with.
+
+The **competition profile** widens the view to the full 40-row board, widens the
+beam to 96, and enables exact 7-bag speculation (SPECULATE): after the known queue,
+the search plays one additional ply over the exact remaining-bag distribution
+instead of a single guessed piece. It is env-gated in the rig adapter
+(`tools/cc2-rematch/attax-tbp.ts`: `ATTAX_ROWS=40`, `ATTAX_WIDTH=96`,
+`ATTAX_SPECULATE=1`) and is off by default everywhere else. This build is
+**attax v2** — the one that played both Cold Clear 2 matches — and it is the state
+`main` now carries. Attax versions count improvement iterations from this base:
+a future league iteration *j* produces v(2+*j*). The number is provenance, not a
+result claim.
+
+The **S2 profile** is a separate rules profile (`tetrio-s2` in `src/core/`, harness
+in `tools/s2-lab/`) for the S2 ruleset used by 61bi's bot lab, with its own weight
+group in the shared table (including a conversion-shaping term the guideline search
+never reads). A league-format tuning campaign against the lab's champion is in
+progress. No results are claimed for this profile yet, and no learned weights are
+part of this build: the profile ships with the same hand-set defaults as the
+guideline side.
 
 ## 🚀 Why it is strong
 
@@ -194,8 +251,18 @@ as the arena, with the default preview and beam width.
 The worked example is the [intetrigence match report](tbp/intetrigence-match.md):
 it describes the external-arena command, rules, timing and verification of the
 original match. The adapter keeps its original coordinate translation and ranked
-suggestions. It sees only the bottom 20 rows and receives no pending-garbage
-information; hosts must resend `start` after garbage changes the board.
+suggestions. By default it sees the bottom 20 rows of the board and receives no
+pending-garbage information; setting `ATTAX_TBP_ROWS=40` exposes the full 40-row
+board, for referees that spawn pieces above row 20.
+
+The host contract is simple. The adapter tracks the piece queue from `start` and
+`new_piece` messages only, so a host must keep the queue non-empty when it asks
+for a suggestion: send `new_piece` as pieces are consumed, or resync with a fresh
+`start` (a resync is also required after garbage changes the board, since TBP
+carries no pending-garbage information). If the queue does run dry, the adapter
+answers with an empty suggestion and stays alive; no host message, malformed or
+otherwise, can make it throw or exit. Normal operation resumes on the next
+`start` or `new_piece`.
 
 To smoke-test against an already-built intetrigence referee, without network access:
 
