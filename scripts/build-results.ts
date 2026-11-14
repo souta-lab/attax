@@ -19,7 +19,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { MatchRecord, SideRecord } from "../src/bench/match.js";
 import { type Oriented, summarize } from "../src/bench/summary.js";
 import type { GameRow, MatchupRow, Results } from "../src/data/results.js";
-import { clysGames, externalText, pageCopy } from "./external-results.js";
+import { cc2ForkGames, cc2Games, clysGames, externalText, pageCopy } from "./external-results.js";
 
 const DIR = new URL("../bench-results/", import.meta.url);
 
@@ -145,7 +145,7 @@ function dedupe(all: readonly Oriented[]): { games: Oriented[]; mirrored: number
 const { games: independent, mirrored } = dedupe(main);
 const headline = row(
   "bot",
-  "Attax vs Hoiko",
+  "Hoiko",
   mirrored === seeds.length
     ? "one game per seed (seat-swapped replays were identical, so counted once)"
     : `distinct games; ${mirrored} of ${seeds.length} seat-swapped replays were identical and counted once`,
@@ -183,6 +183,36 @@ if (exists("bot-vs-hoiko.adapt.jsonl")) {
   );
 }
 
+/** The audited totals a bench-results/external/<name>/summary.json must agree with. */
+interface ExternalSummary {
+  readonly games: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly draws: number;
+  readonly totals: {
+    readonly attax: { readonly attack_per_piece: number; readonly lines: number };
+    readonly opponent: { readonly attack_per_piece: number; readonly lines: number };
+  };
+  readonly seat_wins: { readonly "0": number; readonly "1": number };
+}
+
+// Keep summary-only audit facts in the repository; reject mismatched record imports.
+function assertExternal(r: MatchupRow, summary: ExternalSummary): void {
+  for (const [actual, expected] of [
+    [r.games, summary.games],
+    [r.wins, summary.wins],
+    [r.losses, summary.losses],
+    [r.draws, summary.draws],
+    [r.attackPerPiece, summary.totals.attax.attack_per_piece],
+    [r.rivalAttackPerPiece, summary.totals.opponent.attack_per_piece],
+    [r.linesPerGame * r.games, summary.totals.attax.lines],
+    [r.rivalLinesPerGame * r.games, summary.totals.opponent.lines],
+  ]) {
+    if (actual !== expected)
+      throw new Error(`External record/summary mismatch: ${actual} != ${expected}`);
+  }
+}
+
 const clysRecords = clysGames();
 const clys = row(
   "clys",
@@ -190,23 +220,33 @@ const clys = row(
   "external referee; generated attack before cancellation; both seats counted",
   clysRecords,
 );
-// Keep summary-only audit facts in the repository; reject mismatched record imports.
 const clysSummary = JSON.parse(externalText("clys/summary.json"));
-for (const [actual, expected] of [
-  [clys.games, clysSummary.games],
-  [clys.wins, clysSummary.wins],
-  [clys.losses, clysSummary.losses],
-  [clys.draws, clysSummary.draws],
-  [clys.attackPerPiece, clysSummary.totals.attax.attack_per_piece],
-  [clys.rivalAttackPerPiece, clysSummary.totals.opponent.attack_per_piece],
-  [clys.linesPerGame * clys.games, clysSummary.totals.attax.lines],
-  [clys.rivalLinesPerGame * clys.games, clysSummary.totals.opponent.lines],
-]) {
-  if (actual !== expected)
-    throw new Error(`External record/summary mismatch: ${actual} != ${expected}`);
-}
+assertExternal(clys, clysSummary);
 rows.push(clys);
-const tagline = `A versus AI for the falling-block game. It won ${headline.wins} of ${headline.games} games against Hoiko and ${clys.wins} of ${clys.games} against clys.`;
+
+const cc2Records = cc2Games();
+const cc2 = row(
+  "cc2",
+  "Cold Clear 2 (official upstream, by MinusKelvin)",
+  "external referee over TBP; generated attack before cancellation; both seats counted",
+  cc2Records,
+);
+const cc2Summary = JSON.parse(externalText("cc2/summary.json"));
+assertExternal(cc2, cc2Summary);
+rows.push(cc2);
+
+const cc2ForkRecords = cc2ForkGames();
+const cc2Fork = row(
+  "cc2-fork",
+  "Cold Clear 2 fork (by chouhy)",
+  "external referee over TBP; generated attack before cancellation; both seats counted",
+  cc2ForkRecords,
+);
+const cc2ForkSummary = JSON.parse(externalText("cc2-fork/summary.json"));
+assertExternal(cc2Fork, cc2ForkSummary);
+rows.push(cc2Fork);
+
+const tagline = `A versus AI for the falling-block game. It won ${cc2.wins} of ${cc2.games} games against the official Cold Clear 2 and ${cc2Fork.wins} of ${cc2Fork.games} against a Cold Clear 2 fork.`;
 const conditions = JSON.parse(externalText("conditions.json")).values;
 const clysSettings = JSON.parse(externalText("clys/clys-7001.json"));
 const parity = (name: string) =>
@@ -218,13 +258,24 @@ const seedRange = (records: readonly Oriented[]) => {
   const ids = records.map((r) => r.seed);
   return `${Math.min(...ids)}–${Math.max(...ids)}`;
 };
-const seatWins = (seat: "left" | "right") =>
-  clysRecords.filter((g) => g.aSide === seat && g.record.winner === seat).length;
+const seatWinsOf =
+  (records: readonly Oriented[]) =>
+  (seat: "left" | "right"): number =>
+    records.filter((g) => g.aSide === seat && g.record.winner === seat).length;
+const seatWins = seatWinsOf(clysRecords);
 if (
   seatWins("left") !== clysSummary.seat_wins["0"] ||
   seatWins("right") !== clysSummary.seat_wins["1"]
 )
   throw new Error("Seat summary mismatch");
+for (const [records, summary] of [
+  [cc2Records, cc2Summary],
+  [cc2ForkRecords, cc2ForkSummary],
+] as const) {
+  const wins = seatWinsOf(records);
+  if (wins("left") !== summary.seat_wins["0"] || wins("right") !== summary.seat_wins["1"])
+    throw new Error("Seat summary mismatch");
+}
 const copy = pageCopy({
   ...conditions,
   hoikoBeam: parityMain.primaryOptions.beamSizeLimit,
@@ -242,13 +293,31 @@ const copy = pageCopy({
   parityOther: `${parityTwo.matchedMoves}/${parityTwo.piecesPlayed}`,
   paritySeeds: `${parityTwo.seed} and ${paritySeven.seed}`,
   clysSeedCount: new Set(clysRecords.map((g) => g.seed)).size,
+  cc2Seeds: seedRange(cc2Records),
+  cc2Seats: `${seatWinsOf(cc2Records)("left")}/${seatWinsOf(cc2Records)("right")}`,
+  cc2Lines: (cc2.linesPerGame * cc2.games).toLocaleString("en-US"),
+  cc2RivalLines: (cc2.rivalLinesPerGame * cc2.games).toLocaleString("en-US"),
+  cc2App: cc2.attackPerPiece.toFixed(4),
+  cc2RivalApp: cc2.rivalAttackPerPiece.toFixed(4),
+  cc2Ms: cc2Summary.ms,
+  cc2Pps: cc2Summary.pps,
+  cc2Upstream: String(cc2Summary.upstream).slice(0, 7),
+  cc2WinRate: `${(cc2.winRate * 100).toFixed(1)}%`,
+  cc2Low: `${(cc2.low * 100).toFixed(1)}%`,
+  cc2High: `${(cc2.high * 100).toFixed(1)}%`,
+  forkSeeds: seedRange(cc2ForkRecords),
+  forkSeats: `${seatWinsOf(cc2ForkRecords)("left")}/${seatWinsOf(cc2ForkRecords)("right")}`,
+  forkLines: (cc2Fork.linesPerGame * cc2Fork.games).toLocaleString("en-US"),
+  forkRivalLines: (cc2Fork.rivalLinesPerGame * cc2Fork.games).toLocaleString("en-US"),
+  forkApp: cc2Fork.attackPerPiece.toFixed(4),
+  forkRivalApp: cc2Fork.rivalAttackPerPiece.toFixed(4),
 });
 const indexUrl = new URL("../index.html", import.meta.url);
 writeFileSync(
   indexUrl,
   readFileSync(indexUrl, "utf8")
     .replace(/(<meta name="description" content=")[^"]*(" \/>)/, `$1${tagline}$2`)
-    .replace(/<title>.*?<\/title>/, "<title>Attax vs Hoiko and clys</title>"),
+    .replace(/<title>.*?<\/title>/, "<title>Attax</title>"),
 );
 
 const games: GameRow[] = independent.map((g) => {

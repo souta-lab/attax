@@ -32,6 +32,7 @@ export interface Results {
   readonly headline: MatchupRow;
   readonly tagline: string;
   readonly copy: {
+    readonly hero: string;
     readonly claim: string;
     readonly profiles: readonly string[];
     readonly fairness: readonly string[];

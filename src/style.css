@@ -1,18 +1,18 @@
 :root {
-  --paper: #f5f3ee;
-  --card: #fbfaf7;
-  --ink: #1f2328;
-  --muted: #646b74;
-  --rule: #dedad1;
+  --paper: #121317;
+  --card: #1a1c20;
+  --ink: #e2e2e2;
+  --muted: #9aa1a9;
+  --rule: #2c2f36;
   --bot: #2450d6;
-  --bot-soft: #e3e9fb;
+  --bot-soft: #1d2748;
   --rival: #d4532b;
-  --rival-soft: #f9e3db;
-  --ok: #1d7a45;
-  --warn: #a35a00;
+  --rival-soft: #40231a;
+  --ok: #45b878;
+  --warn: #d98a2b;
   --radius: 10px;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 * {
@@ -80,7 +80,7 @@ section > p {
 code {
   font-family: var(--mono);
   font-size: 0.85em;
-  background: #ebe8e1;
+  background: #22242a;
   padding: 2px 6px;
   border-radius: 5px;
 }
@@ -94,7 +94,7 @@ code {
 }
 
 .label {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -312,7 +312,7 @@ canvas.board {
 .meter {
   width: 6px;
   align-self: stretch;
-  background: #ece9e2;
+  background: #26282e;
   border-radius: 3px;
   display: flex;
   flex-direction: column;
@@ -385,7 +385,7 @@ canvas.board {
 }
 
 .stat span {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -552,7 +552,7 @@ canvas.board {
 
 .bar {
   height: 8px;
-  background: #efece6;
+  background: #26282e;
   border-radius: 4px;
   overflow: hidden;
 }

@@ -1,0 +1,35 @@
+{
+  "opponent": "cold-clear-2-fork",
+  "games": 40,
+  "wins": 27,
+  "losses": 13,
+  "draws": 0,
+  "win_rate": 0.675,
+  "wilson95": [
+    0.5201774618987768,
+    0.799154977682173
+  ],
+  "totals": {
+    "attax": {
+      "pieces": 12627,
+      "attack": 11640,
+      "lines": 10639,
+      "attack_per_piece": 0.9218341648847708
+    },
+    "opponent": {
+      "pieces": 12613,
+      "attack": 10466,
+      "lines": 11512,
+      "attack_per_piece": 0.8297787996511535
+    }
+  },
+  "seat_wins": {
+    "0": 12,
+    "1": 15
+  },
+  "ms": 100,
+  "pps": 5.0,
+  "upstream": "ed8b19327b6bd1410ddd873d8611485bd45d8fae",
+  "run": "field40-spec-2701",
+  "note": "strict external TBP window; child is suspended during the local search and gets the same wall-clock window"
+}

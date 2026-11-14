@@ -57,16 +57,28 @@ function orient(game: ExternalGame, attaxSeat: number, rival: string): Oriented 
   };
 }
 
-export function clysGames(): Oriented[] {
-  const games = readdirSync(new URL("clys/", ROOT))
-    .filter((name) => /^clys-70\d\d\.json$/.test(name))
+function externalGames(dir: string, pattern: RegExp, rival: string): Oriented[] {
+  const games = readdirSync(new URL(`${dir}/`, ROOT))
+    .filter((name) => pattern.test(name))
     .sort()
     .flatMap((name) => {
-      const shard = JSON.parse(externalText(`clys/${name}`)) as { matches: ExternalGame[] };
-      return shard.matches.map((game) => orient(game, game.swapped ? 1 : 0, "clys"));
+      const shard = JSON.parse(externalText(`${dir}/${name}`)) as { matches: ExternalGame[] };
+      return shard.matches.map((game) => orient(game, game.swapped ? 1 : 0, rival));
     });
   checkPairs(games);
   return games;
+}
+
+export function clysGames(): Oriented[] {
+  return externalGames("clys", /^clys-70\d\d\.json$/, "clys");
+}
+
+export function cc2Games(): Oriented[] {
+  return externalGames("cc2", /^cc2-\d+\.json$/, "cold-clear-2");
+}
+
+export function cc2ForkGames(): Oriented[] {
+  return externalGames("cc2-fork", /^cc2fork-\d+\.json$/, "cold-clear-2-fork");
 }
 
 /** Resolve editorial templates exclusively from imported records and condition summaries. */

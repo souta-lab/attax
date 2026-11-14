@@ -16,6 +16,19 @@ result from checked-in records. No engine, search, arena, audit or replay code c
   clys: `ccae45fc3e30c3d3432af2b06d5b4f7f2e8dfbcc`. Attax checkout `c4c2435`,
   with relevant AI/core source identical to `4b2c724`. Unswapped Attax is seat zero;
   swapped Attax is seat one. Discarded runs are not imported.
+- `cc2/cc2-13001.json` through `cc2/cc2-13050.json`: per-seed arena records from the
+  `official-spec-13001` run of the `tools/cc2-rematch` rig, each containing both seat
+  games; only seeds whose replay read "verified 2 complete matches" were imported
+  (all 50). `cc2/summary.json` was generated from the imported records, and the
+  generator asserts it against them. Opponent: the official upstream Cold Clear 2
+  (MinusKelvin) at `ed8b19327b6bd1410ddd873d8611485bd45d8fae`. Attax played its
+  field-40 profile with exact bag speculation (SPECULATE), over TBP under guideline
+  rules, 100 ms window, 5 PPS paired turns. Unswapped Attax is seat zero; swapped
+  Attax is seat one.
+- `cc2-fork/cc2fork-2701.json` through `cc2-fork/cc2fork-2720.json`: the same rig's
+  `field40-spec-2701` run against chouhy's Cold Clear 2 fork (built from the same
+  upstream base), imported the same way (all 20 seeds replay-verified).
+  `cc2-fork/summary.json` likewise generated and asserted.
 
 ## Conversion and numerical provenance
 
@@ -46,6 +59,9 @@ Prose bindings come from:
   `summary-chase-seed2-postfix.jsonl`, `summary-chase-seed7-postfix.jsonl`.
 - clys seed bounds/counts, seat wins and both line totals: per-seed result records;
   ms/PPS: the shard's settings fields.
+- Cold Clear 2 seed bounds, seat wins, line totals, APP values and win-rate interval:
+  per-seed arena records; ms/PPS and the upstream commit: each run's `summary.json`
+  settings, transcribed from the rig's per-seed records.
 - `conditions.json`: a report-derived condition summary, not a new measurement.
   Hoiko pace is extracted from `hoiko-conditions-excerpt.md` (from
   `~/workspace/tetris-speed/REPORT.md`); clys width/depth/branch/thread count,

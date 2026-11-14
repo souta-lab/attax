@@ -8,40 +8,35 @@ import type { Side } from "../sim/arena.js";
 import { fixed, h, pct } from "./dom.js";
 
 export function createHero(): HTMLElement {
-  const r = RESULTS.headline;
+  const cc2 = RESULTS.rows.find((row) => row.id === "cc2") ?? RESULTS.headline;
+  const fork = RESULTS.rows.find((row) => row.id === "cc2-fork");
   const tile = (value: string, label: string, note: string): HTMLElement =>
     h("div", { class: "tile" }, [
       h("strong", { text: value }),
       h("span", { text: label }),
       h("small", { text: note }),
     ]);
-  const old = RESULTS.rows.find((row) => row.id === "old-ai");
+  const record = (row: typeof cc2): string =>
+    `${row.wins}–${row.losses}${row.draws > 0 ? `–${row.draws}` : ""} over ${row.games} games`;
   return h("section", { class: "hero", attrs: { id: "top" } }, [
     h("p", { class: "kicker", text: BRAND.tagline }),
     h("h1", {}, [
-      `${BRAND.botName} beats ${BRAND.rivalName} in `,
-      h("span", { class: "bot-ink", text: `${r.wins} of ${r.games}` }),
+      `${BRAND.botName} beats the official Cold Clear 2 in `,
+      h("span", { class: "bot-ink", text: `${cc2.wins} of ${cc2.games}` }),
       " games.",
     ]),
-    h("p", {
-      class: "lede",
-      text: `Same seeds, same rules, both seats tried (the swapped game came out identical, so each seed counts once). ${BRAND.rivalName} runs as a port of its shipping binary, checked move for move against it. Win rate ${pct(r.winRate)} (95% interval ${pct(r.low)}–${pct(r.high)}) on ${RESULTS.seeds} — seeds never used for tuning.`,
-    }),
+    h("p", { class: "lede", text: RESULTS.copy.hero }),
     h("div", { class: "tiles" }, [
+      tile(pct(cc2.winRate), "win rate, official Cold Clear 2", record(cc2)),
       tile(
-        pct(r.winRate),
-        "win rate",
-        `${r.wins}–${r.losses}${r.draws > 0 ? `–${r.draws}` : ""} over ${r.games} games`,
+        fork === undefined ? "–" : pct(fork.winRate),
+        "win rate, Cold Clear 2 fork",
+        fork === undefined ? "" : record(fork),
       ),
       tile(
-        `${fixed(r.attackPerPiece)} : ${fixed(r.rivalAttackPerPiece)}`,
-        "garbage sent per piece",
-        `${BRAND.botName} : ${BRAND.rivalName}`,
-      ),
-      tile(
-        old === undefined ? "–" : pct(old.winRate),
-        "previous AI, same test",
-        old === undefined ? "" : `${old.wins}–${old.losses} — the code this replaces`,
+        `${fixed(cc2.attackPerPiece)} : ${fixed(cc2.rivalAttackPerPiece)}`,
+        "attack generated per piece",
+        `${BRAND.botName} : Cold Clear 2`,
       ),
     ]),
     h("p", { class: "lede", text: RESULTS.copy.claim }),
@@ -78,8 +73,8 @@ function resultTable(): HTMLElement {
     h(
       "tbody",
       {},
-      RESULTS.rows
-        .filter((row) => ["bot", "preview2", "clys"].includes(row.id))
+      ["cc2", "cc2-fork", "bot", "preview2", "clys"]
+        .flatMap((id) => RESULTS.rows.filter((row) => row.id === id))
         .map((row) =>
           h("tr", {}, [
             h("td", {}, [
@@ -97,7 +92,7 @@ function resultTable(): HTMLElement {
               }),
             ]),
             h("td", {
-              text: `${fixed(row.attackPerPiece, row.id === "clys" ? 4 : 2)} vs ${fixed(row.rivalAttackPerPiece, row.id === "clys" ? 4 : 2)}`,
+              text: `${fixed(row.attackPerPiece, ["clys", "cc2", "cc2-fork"].includes(row.id) ? 4 : 2)} vs ${fixed(row.rivalAttackPerPiece, ["clys", "cc2", "cc2-fork"].includes(row.id) ? 4 : 2)}`,
             }),
           ]),
         ),

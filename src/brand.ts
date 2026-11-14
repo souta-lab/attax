@@ -9,7 +9,7 @@ export const BRAND = {
   /** The opponent. Hoiko is the original author's AI; keep its name for attribution. */
   rivalName: "Hoiko",
   /** Short page title. */
-  title: "Attax vs Hoiko and clys",
+  title: "Attax",
   /** One-line description of what the page is. */
   tagline: RESULTS.tagline,
 } as const;
