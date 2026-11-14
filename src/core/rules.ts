@@ -93,7 +93,9 @@ export function awardLock(
     attack:
       (stage ? Math.floor(raw * stage.multiplier + specialBonus) : Math.floor(raw)) +
       (info.perfectClear ? (stage ? Math.floor(5 * stage.multiplier) : 5) : 0) +
-      surgeReleased,
+      // The referee's calculateSurge multiplies the released charge by the
+      // lock's margin multiplier (amount = floor((chain - 1) * M)).
+      (stage ? Math.floor(surgeReleased * stage.multiplier) : surgeReleased),
     difficultChain: difficult ? difficultChain + 1 : 0,
     surgeReleased,
   };

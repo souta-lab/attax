@@ -13,6 +13,7 @@
     "tSlot": 60
   },
   "attack": 112.5,
+  "conversion": 0,
   "clear": {
     "single": -60,
     "double": -40,

@@ -50,6 +50,7 @@ const statePath = resolve(root, values.state);
 const logPath = resolve(root, values.log);
 const groups = [
   ["attack"],
+  ["conversion"],
   ["clear.quad", "clear.tspinMini", "clear.tspinSingle", "clear.tspinDouble", "clear.tspinTriple"],
   ["b2bBreak"],
   ["clear.single", "clear.double", "clear.triple"],

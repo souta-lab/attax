@@ -350,6 +350,8 @@ function expand(
   const lift = node.lift + (lines === 0 ? Math.min(dueThisLock, Math.max(0, pending - attack)) : 0);
 
   let reward = attack * w.attack;
+  // Attack is paid pre-cancel; only excess converts to pressure. Pending is known only at root.
+  if (node.depth === 0) reward += w.conversion * Math.max(0, attack - rootPending);
   const kind = clearKind(lines, placement.tspin, outcome.perfectClear);
   if (kind !== null) reward += w.clear[kind];
   if (node.b2b && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
