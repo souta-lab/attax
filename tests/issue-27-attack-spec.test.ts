@@ -1,15 +1,13 @@
 // Issue #27: mini T-spins, B2B and combo must follow one attack spec that the
-// engine applies and the AI predicts.
+// engine applies and the bot predicts.
 import { describe, expect, test } from "bun:test";
-import { beamBestMove } from "../src/ai/beam.js";
-import type { PlyContext } from "../src/ai/evaluation.js";
+import { generatePlacements, lockPlacement } from "../src/ai/bot/movegen.js";
 import {
   attackForClear,
   comboBonus,
   isDifficultClear,
   type TspinAttackKind,
 } from "../src/core/garbage.js";
-import { classifyPlacement } from "../src/core/tspin.js";
 
 const FULL = 0x3ff;
 const base = { combo: -1, b2bActive: false, perfectClear: false } as const;
@@ -60,53 +58,50 @@ describe("combo: the 0-based counter maps onto the guideline table", () => {
   });
 });
 
-describe("AI search sees minis as minis", () => {
-  // Left-edge notch: row0 misses col0, row1 misses cols 0/1. A T in rotation 1
-  // at x=-1 clears both rows; the engine's front-corner rule calls it a mini.
-  const MINI_EDGE = Uint16Array.from([FULL ^ 1, FULL ^ 0b11, ...new Array<number>(18).fill(0)]);
-  // Standard TSD notch (see deepseek-v2.test.ts).
+describe("the bot sees minis as minis", () => {
+  // Bottom-up fixtures (row 0 = floor). Wall notch: row0 misses col 0. A T kicked into it
+  // against the wall clears the row with only one front corner filled: a mini.
+  const MINI_WALL = Uint16Array.from([FULL ^ 1, ...new Array<number>(19).fill(0)]);
+  // A real TSD slot: stem hole at col 4, flat row open at cols 3-5, roof over col 3.
   const TSD = Uint16Array.from([
+    FULL ^ (1 << 4),
+    FULL ^ (1 << 3) ^ (1 << 4) ^ (1 << 5),
+    0b1111,
+    ...new Array<number>(18).fill(0),
+  ]).slice(0, 20);
+  // The same notch with no roof: a T dropped in touches only two corners, so the engine
+  // awards a plain Double. (The pre-overhaul AI's helper misread this as a T-spin double.)
+  const OPEN_NOTCH = Uint16Array.from([
     FULL ^ (1 << 4),
     FULL ^ (1 << 3) ^ (1 << 4) ^ (1 << 5),
     ...new Array<number>(18).fill(0),
   ]);
 
-  test("classifyPlacement matches the engine verdict for both slots", () => {
-    expect(classifyPlacement(MINI_EDGE, "T", 1, -1, 0)).toBe("mini");
-    expect(classifyPlacement(TSD, "T", 2, 3, 0)).toBe("full");
-  });
-
-  // Records every clearing placement the engine would award as a spin. The
-  // scorer's `tspin` argument is the post-clear shape heuristic (false once
-  // both rows are gone), so the engine verdict travels in `ctx.tspinKind`.
-  function spinCalls(board: Uint16Array) {
-    const calls: { lines: number; kind: PlyContext["tspinKind"] }[] = [];
-    beamBestMove(board, "T", [], null, false, false, -1, {
-      depth: 1,
-      useHold: false,
-      scorer: (_after, lines, _tspin, ctx: PlyContext) => {
-        if (lines > 0 && ctx.tspinKind !== undefined && ctx.tspinKind !== "none") {
-          calls.push({ lines, kind: ctx.tspinKind });
-        }
-        return 0;
-      },
-    });
-    return calls;
+  // The bot's move generator uses engine (top-down) row order; these fixtures are bottom-up.
+  function clears(bottomUp: Uint16Array) {
+    const board = Uint16Array.from(bottomUp).reverse();
+    return generatePlacements(board, "T")
+      .map((p) => ({ lines: lockPlacement(board, p).linesCleared, kind: p.tspin }))
+      .filter((c) => c.lines > 0);
   }
 
-  test("the mini T-spin double reaches the scorer flagged as a mini", () => {
-    const calls = spinCalls(MINI_EDGE);
-    const double = calls.filter((c) => c.lines === 2);
-    expect(double.length).toBeGreaterThan(0);
-    for (const c of double) expect(c.kind).toBe("mini");
-    // Its attack is the mini value (1), not the TSD value (4) it used to get.
+  test("a wall-kick T-spin single is generated flagged as a mini", () => {
+    const singles = clears(MINI_WALL).filter((c) => c.lines === 1);
+    expect(singles.some((c) => c.kind === "mini")).toBe(true);
+    expect(singles.some((c) => c.kind === "full")).toBe(false);
+    // Minis attack by the mini table: single 0, double 1 (not the TSD value 4).
+    expect(attackForClear(info(1, "mini"))).toBe(0);
     expect(attackForClear(info(2, "mini"))).toBe(1);
   });
 
-  test("a real TSD is still a full T-spin", () => {
-    const calls = spinCalls(TSD);
-    const tsd = calls.filter((c) => c.lines === 2);
-    expect(tsd.length).toBeGreaterThan(0);
-    for (const c of tsd) expect(c.kind).toBe("full");
+  test("a real TSD is a full T-spin", () => {
+    const doubles = clears(TSD).filter((c) => c.lines === 2);
+    expect(doubles.some((c) => c.kind === "full")).toBe(true);
+  });
+
+  test("an open notch without a roof is not a T-spin", () => {
+    const doubles = clears(OPEN_NOTCH).filter((c) => c.lines === 2);
+    expect(doubles.length).toBeGreaterThan(0);
+    for (const c of doubles) expect(c.kind).toBe("none");
   });
 });

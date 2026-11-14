@@ -20,7 +20,7 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { NextState } from "../../../src/ai/hoiko-next.js";
+import { NextState } from "../../../src/ai/hoiko/next.js";
 import { runExe } from "./exe.js";
 import { POSITIONS, type Position } from "./positions.js";
 

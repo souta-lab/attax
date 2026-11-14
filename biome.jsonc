@@ -14,7 +14,10 @@
       "!evidence/hoiko-fullgame/expand-turn196",
       "!evidence/hoiko-fullgame/eval-turn196",
       "!evidence/hoiko-fullgame/chase196",
-      "!evidence/native-app"
+      "!evidence/native-app",
+      "!dist",
+      "!bench-results",
+      "!src/data/results.json"
     ]
   },
   "formatter": {

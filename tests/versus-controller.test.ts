@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type CellValue, COLS, type CorePort, type GameSnapshot, ROWS } from "../src/ui/types.js";
+import { type CellValue, COLS, type CorePort, type GameSnapshot, ROWS } from "../src/core/types.js";
 import {
   type AiStep,
   boardFingerprint,

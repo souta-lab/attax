@@ -1,0 +1,16 @@
+diff --git a/src/core/tspin.ts b/src/core/tspin.ts
+index b4a2a0a..6c4f9f4 100644
+--- a/src/core/tspin.ts
++++ b/src/core/tspin.ts
+@@ -21,9 +21,9 @@ function filled(board: Board, x: number, y: number): boolean {
+  * piece's facing per rotation rather than a single fixed adjacent pair.
+  */
+ const FRONT_CORNER_PAIRS: Readonly<Record<number, readonly [number, number]>> = {
+-  0: [2, 3],
++  0: [0, 1],
+   1: [1, 2],
+-  2: [0, 1],
++  2: [2, 3],
+   3: [3, 0],
+ };
+ 

@@ -6,8 +6,8 @@ import type {
   AiMove,
   CorePort,
   GameSnapshot,
-} from "../ui/types.js";
-import { COLS } from "../ui/types.js";
+} from "../core/types.js";
+import { COLS } from "../core/types.js";
 import { resolveVersusConfig, VERSUS_MATCH_CONFIG } from "./config.js";
 
 /**

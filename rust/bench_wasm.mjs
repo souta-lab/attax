@@ -9,7 +9,7 @@
 // which is exactly what the native bench passes.
 
 const REPS = Number(process.argv[2] ?? 30);
-const WASM_PATH = process.env.HOIKO_WASM ?? "../src/ai/wasm/hoiko_core.wasm";
+const WASM_PATH = process.env.HOIKO_WASM ?? "../src/ai/hoiko/hoiko_core.wasm";
 const MINO_NONE = 7;
 const MAX_WEIGHTS = 4;
 

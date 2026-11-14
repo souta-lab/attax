@@ -78,7 +78,7 @@ same depth and still reports exactly `71600 nodes/move`.
 - `cargo run --release --example bench_search` → `71600 nodes/move, depth14`.
 - `tools/hoiko-oracle/diff/diff.ts` → **9/9 first-move match**, `DELAY-OK`.
 - `tools/hoiko-oracle/diff/twosearch.ts` → **9/9 beam-adaptation match**.
-- `bash rust/build.sh` → `src/ai/wasm/hoiko_core.wasm` rebuilt (103 071 bytes);
+- `bash rust/build.sh` → `src/ai/hoiko/hoiko_core.wasm` rebuilt (103 071 bytes);
   `wasm_smoke.ts` instantiates and exposes `h_search`/`h_alloc`/`h_dealloc`;
   `rust/verify.mjs` bit primitives correct. FFI `size_of` unchanged
   (input 1496 B, output 208 B).
@@ -142,7 +142,7 @@ boards).
 - `bench_search` → exactly **71 600 nodes/move**, depth 14.
 - Oracle `diff.ts` → **9/9 first-move**, `twosearch.ts` → **9/9 beam-adaptation**,
   run against the rebuilt wasm.
-- `src/ai/wasm/hoiko_core.wasm` rebuilt (103 071 → 104 227 bytes).
+- `src/ai/hoiko/hoiko_core.wasm` rebuilt (103 071 → 104 227 bytes).
 - **No behavioral drift**: a 150-position random differential across the
   original, pre-pass and post-pass wasm produced identical
   `(x, y, rotation, hold, score, node)` on every position (0 mismatches).

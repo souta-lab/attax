@@ -10,7 +10,7 @@
  * `diff.ts` (beamSizeLimit 150, timer started -> depth 14). The local game is
  * driven by `src/core/engine.ts` with a fixed seeded piece sequence; the same
  * board/next/hold/combo/b2b snapshot is fed to the exe and to
- * `createRustHoiko(...).searchSnapshot`.
+ * `createHoiko(...).searchSnapshot`.
  *
  * Primary verdict: `(x, rotation, m)` per turn, replica pinned to the exe's
  * fresh-process regime (`adapt:false`, beam 150, depth 14). A persistent
@@ -22,14 +22,14 @@
  */
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko-faithful.js";
-import type { RustHoikoFighter, RustOut } from "../../../src/ai/hoiko-rust-core.js";
-import { kindToMino, MINO_NONE } from "../../../src/ai/mino-codes.js";
+import type { RustHoikoFighter, RustOut } from "../../../src/ai/hoiko/engine.js";
+import { FAITHFUL_HOIKO } from "../../../src/ai/hoiko/faithful.js";
+import { kindToMino, MINO_NONE } from "../../../src/ai/hoiko/mino-codes.js";
 import { createEngine } from "../../../src/core/engine.js";
-import type { CorePort, GameSnapshot } from "../../../src/ui/types.js";
-import { ROWS } from "../../../src/ui/types.js";
+import type { CorePort, GameSnapshot } from "../../../src/core/types.js";
+import { ROWS } from "../../../src/core/types.js";
 import { seededRandom } from "../../../src/versus/controller.js";
-import { createRustHoiko } from "../../hoiko-rust/loader.js";
+import { createHoiko } from "../../hoiko-node.js";
 import {
   type ExeResult,
   exeHoldUsed,
@@ -166,7 +166,7 @@ function snapshotForDecision(snap: GameSnapshot, combo: number, btb: number): Ga
 }
 
 function queryPrimary(snap: GameSnapshot): RustDecision | null {
-  const fighter: RustHoikoFighter = createRustHoiko({ ...FAITHFUL_HOIKO, adapt: false });
+  const fighter: RustHoikoFighter = createHoiko({ ...FAITHFUL_HOIKO, adapt: false });
   return rustDecision(fighter.searchSnapshot(snap));
 }
 
@@ -175,7 +175,7 @@ const jsonlUrl = new URL(`${name}.jsonl`, EVIDENCE_DIR);
 writeFileSync(jsonlUrl, "");
 
 const core = createEngine({ random: seededRandom(seed) });
-const secondary = createRustHoiko({ ...FAITHFUL_HOIKO });
+const secondary = createHoiko({ ...FAITHFUL_HOIKO });
 
 let combo = 0;
 let btb = 0;
@@ -416,7 +416,7 @@ const report = [
   "- Exe: shipping `Hoiko.exe` under Wine, one fresh process per move via `tools/hoiko-oracle/run_oracle.sh`.",
   "- Exe inputs per move: `board` (32 bottom-up rows), `next` (28: current first), `hold`, `combo`, `b2b`, `timer=1`.",
   "- Exe regime: `beamSizeLimit=150`, depth 14 (timer started, search ~70 ms << 1000 ms limit).",
-  "- Replica (primary verdict): `createRustHoiko({...FAITHFUL_HOIKO, adapt:false})` — beam 150, depth 14, queried on the identical snapshot.",
+  "- Replica (primary verdict): `createHoiko({...FAITHFUL_HOIKO, adapt:false})` — beam 150, depth 14, queried on the identical snapshot.",
   "- Replica (secondary): faithful `adapt:true` app config, persistent across moves; recorded but not part of the verdict.",
   "- Local game: `src/core/engine.ts` with `seededRandom(seed)`; the exe's chosen move is applied via `placeMinoAt` (+ `hold()` when the exe's post-move hold slot shows a swap).",
   "",
