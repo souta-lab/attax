@@ -78,3 +78,8 @@ equals ["attax","cold_clear_2"] before trusting a batch. PC rig is now the gaunt
 - Profile: field40 + SPECULATE (ATTAX_ROWS=40 GUIDELINE=1 WIDTH=96 DIVERSE=0 EXPOSURE=0 SPECULATE=1), seeds 13001–13050 both seats, PC rig `official-spec-13001`, replay tally.
 - **Result: attax 79W–21L–0D.** APP attax 0.8951 (8112/9063) vs cc2 0.9279 (8367/9017) — attax wins the match decisively despite lower attack-per-piece.
 - Replay agents field verified: ["attax","cold_clear_2"] (official upstream binary, not the fork).
+
+## Fork decider — SPECULATE profile, fresh seeds 2701–2720, 2026-11-14
+- Profile: field40 + SPECULATE=1 vs chouhy CC2 fork (b20a92b), 40 games, replay tally, run dir `field40-spec-2701`.
+- **Result: attax 27W–13L–0D. APP attax 0.9218 (11640/12627) vs cc2 0.8298 (10466/12613)** — wins and APP both ahead, unlike the frozen profile's gate (19–13–8).
+- Publication / v2 unification judgment rests with Souta (his 圧勝 standard).
