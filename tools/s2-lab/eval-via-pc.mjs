@@ -27,6 +27,19 @@ async function pc(command, capture = false) {
     });
   });
 }
+let payloadCounter = 0;
+async function pcPayload(producerCommand) {
+  const nonce = `n${process.pid}x${payloadCounter++}x${Date.now().toString(36)}`;
+  const begin = `S2B-${nonce}`;
+  const end = `S2E-${nonce}`;
+  const output = await pc(`printf '${begin}\\n'; ${producerCommand}; printf '\\n${end}\\n'`, true);
+  const marker = output.lastIndexOf(`\n${begin}`);
+  const beginIndex = marker >= 0 ? marker + 1 : output.startsWith(begin) ? 0 : -1;
+  const payloadStart = beginIndex >= 0 ? output.indexOf("\n", beginIndex) : -1;
+  const payloadEnd = payloadStart >= 0 ? output.indexOf(`\n${end}`, payloadStart) : -1;
+  if (payloadStart < 0 || payloadEnd < 0) throw new Error("missing remote payload markers");
+  return output.slice(payloadStart + 1, payloadEnd).replace(/\r/g, "");
+}
 try {
   const games = Number(values.games),
     seed = Number(values.seed);
@@ -58,16 +71,17 @@ try {
       await pc(
         `cd ${attax} && PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath}`,
       );
-      const lengthOutput = (await pc(`base64 -w0 ${recordsPath} | wc -c`, true)).trim();
+      const lengthOutput = (await pcPayload(`base64 -w0 ${recordsPath} | wc -c`)).trim();
       const length = Number(lengthOutput);
       if (!/^\d+$/.test(lengthOutput) || !Number.isSafeInteger(length) || length < 1)
         throw new Error("invalid remote records base64 length");
       let recordsText = "";
       for (let offset = 0; offset < length; offset += 3000) {
-        recordsText += base64Text(
-          await pc(`base64 -w0 ${recordsPath} | tail -c +${offset + 1} | head -c 3000`, true),
+        recordsText += await pcPayload(
+          `base64 -w0 ${recordsPath} | tail -c +${offset + 1} | head -c 3000`,
         );
       }
+      recordsText = base64Text(recordsText.replace(/\s/g, ""));
       if (recordsText.length !== length)
         throw new Error(
           `remote records base64 length mismatch: expected ${length}, got ${recordsText.length}`,
@@ -80,10 +94,7 @@ try {
       if (!lines.length) throw new Error("remote records file is empty");
       for (const line of lines) JSON.parse(line);
       await writeFile(values.out, records);
-      const result = Buffer.from(
-        base64Text(await pc(`base64 -w0 ${resultPath}`, true)),
-        "base64",
-      ).toString("utf8");
+      const result = (await pcPayload(`cat ${resultPath}`)).trim();
       console.error(`PC evaluation: ${JSON.stringify(JSON.parse(result))}`);
       break;
     } catch (error) {
