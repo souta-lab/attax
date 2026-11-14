@@ -14,15 +14,23 @@ function remotePath(value) {
   if (value.startsWith("~/")) return `"$HOME"/${quote(value.slice(2))}`;
   return quote(value);
 }
-async function pc(command, capture = false) {
+async function pc(command, capture = false, timeoutMs = 90000) {
   return new Promise((accept, reject) => {
     const child = spawn("/home/hatch/bin/pc", [command], {
       stdio: ["ignore", capture ? "pipe" : "inherit", "inherit"],
     });
     const chunks = [];
     if (capture) child.stdout.on("data", (chunk) => chunks.push(chunk));
-    child.on("error", reject);
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`pc command timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on("close", (code) => {
+      clearTimeout(timer);
       if (code !== 0) reject(new Error(`pc command failed (exit ${code})`));
       else accept(Buffer.concat(chunks).toString("utf8"));
     });
@@ -57,7 +65,6 @@ try {
     throw new Error("--games, --seed and --out are required with valid integers");
   if (!process.env.ATTAX_S2_PROFILE) throw new Error("ATTAX_S2_PROFILE is required");
   const profile = JSON.parse(await readFile(process.env.ATTAX_S2_PROFILE, "utf8"));
-  const attax = remotePath(process.env.S2_PC_ATTAX || "~/attax-s2");
   const lab = remotePath(process.env.S2_PC_LAB || "~/s2-bot-lab");
   const jobs = remotePath(process.env.S2_PC_JOBS || "~/s2-jobs");
   const base64Text = (output) => output.replace(/[^A-Za-z0-9+/=]/g, "");
@@ -72,9 +79,9 @@ try {
       const logPath = `${jobs}/${jobId}.log`;
       const encoded = Buffer.from(JSON.stringify(job)).toString("base64");
       await pc(`mkdir -p ${jobs} && printf %s '${encoded}' | base64 -d > ${jobPath}`);
-      const workerCommand = `PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath}; echo $? > ${donePath}`;
+      const workerCommand = `PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath} > ${logPath} 2>&1; echo $? > ${donePath}`;
       await pc(
-        `cd ${attax} && rm -f ${resultPath} ${recordsPath} ${donePath} && { nohup sh -c ${quote(workerCommand)} > ${logPath} 2>&1 < /dev/null & echo launched; }`,
+        `rm -f ${resultPath} ${recordsPath} ${donePath} ${logPath} && systemd-run --user --collect --unit s2eval-${jobId} sh -c ${quote(workerCommand)}`,
       );
       const deadline = Date.now() + 15 * 60 * 1000;
       for (;;) {
