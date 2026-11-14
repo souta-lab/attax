@@ -339,7 +339,7 @@ impl Searcher {
         let mut finished: Vec<(u32, f64)> = Vec::new();
         let mut deepest: Vec<u32> = Vec::new();
         let mut opts = [PieceOption { kind: Kind::I, used_hold: false, next: 0, hold: None }; 2];
-        let mut seen: HashSet<(u32, Option<Kind>, bool, Board)> = HashSet::new();
+        let mut seen: HashSet<DedupeKey> = HashSet::new();
         let mut seen_diverse: HashSet<(u32, Option<Kind>, bool, bool, i32, i32, Board)> = HashSet::new();
 
         while !beam.is_empty() {
@@ -417,7 +417,7 @@ impl Searcher {
             let selected: Vec<u32> = if options.diverse {
                 select_beam(children, &self.order, options.width, &mut seen_diverse)
             } else {
-                dedupe(children, &self.order, options.width, &mut seen)
+                dedupe(children, &self.order, options.width, options.guideline, &mut seen)
             };
             beam.clear();
             for ci in selected {
@@ -508,12 +508,18 @@ impl Searcher {
     }
 }
 
-/// Keep the best `width` children, dropping later copies of an identical position.
+/// (next, hold, can_hold, b2b, combo, lift, board): every state the search reads later.
+type DedupeKey = (u32, Option<Kind>, bool, bool, i32, i32, Board);
+
+/// Keep the best `width` children, dropping later copies of an identical position
+/// (`dedupe` in search.ts). Combo is folded to -1 under the guideline rig, where it never
+/// reaches attack.
 fn dedupe(
     children: &[Node],
     order: &[u32],
     width: usize,
-    seen: &mut HashSet<(u32, Option<Kind>, bool, Board)>,
+    guideline: bool,
+    seen: &mut HashSet<DedupeKey>,
 ) -> Vec<u32> {
     seen.clear();
     let mut kept = Vec::with_capacity(width);
@@ -522,7 +528,8 @@ fn dedupe(
             break;
         }
         let n = &children[i as usize];
-        if !seen.insert((n.next, n.hold, n.b2b, n.board)) {
+        let combo = if guideline { -1 } else { n.combo };
+        if !seen.insert((n.next, n.hold, n.can_hold, n.b2b, combo, n.lift, n.board)) {
             continue;
         }
         kept.push(i);

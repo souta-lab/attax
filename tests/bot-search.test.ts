@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { boardFeatures } from "../src/ai/bot/features.js";
 import { createBot } from "../src/ai/bot/fighter.js";
 import { spawnPosition } from "../src/ai/bot/movegen.js";
-import { search } from "../src/ai/bot/search.js";
+import { dedupe, search } from "../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS } from "../src/ai/bot/weights.js";
 import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko/faithful.js";
 import { runMatch } from "../src/bench/match.js";
@@ -104,6 +104,78 @@ describe("search", () => {
     for (let i = 1; i < r.candidates.length; i += 1) {
       expect((r.candidates[i - 1]?.value ?? 0) >= (r.candidates[i]?.value ?? 0)).toBe(true);
     }
+  });
+});
+
+describe("beam dedupe key", () => {
+  // Two children that share board, queue index, hold and B2B. Sorted best-first.
+  const base = {
+    board: board(0x3f0, 0x3fe),
+    next: 2,
+    hold: "T" as PieceKind | null,
+    canHold: true,
+    b2b: false,
+    combo: -1,
+    lift: 0,
+  };
+
+  test("merges true duplicates", () => {
+    const kept = dedupe(
+      [
+        { ...base, id: "a" },
+        { ...base, id: "b" },
+      ],
+      10,
+    );
+    expect(kept.map((n) => n.id)).toEqual(["a"]);
+  });
+
+  test("keeps states that differ only in combo (combo feeds attack)", () => {
+    const kept = dedupe(
+      [
+        { ...base, combo: 3, id: "chain" },
+        { ...base, combo: -1, id: "cold" },
+      ],
+      10,
+    );
+    expect(kept.map((n) => n.id)).toEqual(["chain", "cold"]);
+  });
+
+  test("keeps states that differ only in lift (garbage still to land)", () => {
+    for (const guideline of [false, true]) {
+      const kept = dedupe(
+        [
+          { ...base, lift: 0, id: "clean" },
+          { ...base, lift: 4, id: "lifted" },
+        ],
+        10,
+        guideline,
+      );
+      expect(kept.map((n) => n.id)).toEqual(["clean", "lifted"]);
+    }
+  });
+
+  test("keeps states that differ only in hold availability", () => {
+    const kept = dedupe(
+      [
+        { ...base, canHold: true, id: "a" },
+        { ...base, canHold: false, id: "b" },
+      ],
+      10,
+    );
+    expect(kept).toHaveLength(2);
+  });
+
+  test("guideline rig folds combo: it never reaches attack there", () => {
+    const kept = dedupe(
+      [
+        { ...base, combo: 3, id: "chain" },
+        { ...base, combo: -1, id: "cold" },
+      ],
+      10,
+      true,
+    );
+    expect(kept.map((n) => n.id)).toEqual(["chain"]);
   });
 });
 
