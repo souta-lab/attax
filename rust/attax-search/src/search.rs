@@ -2,7 +2,8 @@
 //!
 //! Exactness notes (see rust/SEARCH-PORT.md):
 //! - every float expression is evaluated in the TS order (`scale * discount * dot`, etc.);
-//! - `discount ** depth` is `f64::powf` (bit-identical to Bun's `**`; `powi` is not);
+//! - `discount ** depth` uses `f64::powf`; libm and Bun can differ by one ULP
+//!   (observed at depth 6 with discount 0.97). See SEARCH-PORT.md.
 //! - children are sorted with a stable sort on value (TS `Array.prototype.sort` is stable),
 //!   and generation order follows movegen's BFS order, so ties break identically.
 
@@ -205,7 +206,7 @@ struct Ctx<'a> {
     w: &'a Weights,
     exposure: f64,
     guideline: bool,
-    /// `discount ** depth`, precomputed with `powf` (bit-identical to JS `**`).
+    /// `discount ** depth`, precomputed with `powf` (platform rounding can differ from JS).
     scale: Vec<f64>,
 }
 

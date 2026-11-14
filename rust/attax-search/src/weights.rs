@@ -1,7 +1,7 @@
 //! The bot's whole policy as data — mirror of `src/ai/bot/weights.ts`.
 //!
 //! `Weights::default()` is the ONLY place the default numbers appear on the Rust side.
-//! A tuner drives the policy through the flat parameter vector (`PARAM_NAMES`,
+//! A tuner drives the policy through the flat parameter vector (`param_names`,
 //! `to_params`, `from_params`) or through the JSON shape of the TS `Weights` object
 //! (handled by the CLI crate), never by editing literals in the search code.
 
@@ -50,8 +50,8 @@ pub struct Weights {
 }
 
 impl Default for Weights {
-    /// `DEFAULT_WEIGHTS` from weights.ts (checked against TS by the agreement harness,
-    /// which always ships the TS weights object with each case).
+    /// `DEFAULT_WEIGHTS` from weights.ts (checked independently by
+    /// `defaults_match_ts_reference`; the CLI instead loads each case's weights).
     fn default() -> Self {
         Weights {
             board: [-6.0, -40.0, -60.0, -12.0, -40.0, -8.0, -3.0, -6.0, 18.0, -40.0, 60.0],
@@ -122,6 +122,42 @@ impl Weights {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn defaults_match_ts_reference() {
+        // The agreement CLI loads weights from each case, so agreement alone cannot
+        // detect drift in Rust's defaults. Check the source table independently.
+        let ts = include_str!("../../../src/ai/bot/weights.ts")
+            .split("export const DEFAULT_WEIGHTS: Weights = ")
+            .nth(1)
+            .expect("TS default table");
+        let read = |name: &str| -> f64 {
+            ts.split(&format!("{name}:"))
+                .nth(1)
+                .unwrap_or_else(|| panic!("missing TS weight {name}"))
+                .split(',')
+                .next()
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap()
+        };
+        let w = Weights::default();
+        for (name, value) in crate::features::FEATURE_NAMES.iter().zip(w.board) {
+            assert_eq!(read(name).to_bits(), value.to_bits(), "board.{name}");
+        }
+        for (name, value) in CLEAR_NAMES.iter().zip(w.clear) {
+            assert_eq!(read(name).to_bits(), value.to_bits(), "clear.{name}");
+        }
+        for (name, value) in [
+            ("attack", w.attack),
+            ("b2bBreak", w.b2b_break),
+            ("wastedT", w.wasted_t),
+            ("discount", w.discount),
+        ] {
+            assert_eq!(read(name).to_bits(), value.to_bits(), "{name}");
+        }
+    }
 
     #[test]
     fn params_round_trip() {
