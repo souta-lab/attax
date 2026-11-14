@@ -89,6 +89,7 @@ try {
       { encoding: "utf8" },
     ).trim(),
   };
+  const attax = remotePath(process.env.S2_PC_ATTAX || "~/attax-s2");
   const lab = remotePath(process.env.S2_PC_LAB || "~/s2-bot-lab");
   const jobs = remotePath(process.env.S2_PC_JOBS || "~/s2-jobs");
   const base64Text = (output) => output.replace(/[^A-Za-z0-9+/=]/g, "");
@@ -103,7 +104,7 @@ try {
       const logPath = `${jobs}/${jobId}.log`;
       const encoded = Buffer.from(JSON.stringify(job)).toString("base64");
       await pc(`mkdir -p ${jobs} && printf %s '${encoded}' | base64 -d > ${jobPath}`);
-      const workerCommand = `PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath} > ${logPath} 2>&1; echo $? > ${donePath}`;
+      const workerCommand = `PATH=$HOME/.bun/bin:$PATH S2_LAB_ROOT=${lab} bun ${attax}/tools/s2-lab/eval-worker.mjs --job ${jobPath} --result ${resultPath} --records ${recordsPath} > ${logPath} 2>&1; echo $? > ${donePath}`;
       await pc(
         `rm -f ${resultPath} ${recordsPath} ${donePath} ${logPath} && systemd-run --user --collect --unit s2eval-${jobId} sh -c ${quote(workerCommand)}`,
       );
