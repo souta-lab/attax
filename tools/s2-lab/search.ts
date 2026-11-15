@@ -28,6 +28,7 @@ import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { awardLock, s2GarbageMultiplier } from "../../src/core/rules.js";
 import { classifyS2Spin } from "../../src/core/s2-spin.js";
 import type { TspinKind } from "../../src/core/tspin.js";
+import { type StockParams, stockPotential } from "./stock.js";
 
 export interface SearchInput {
   readonly board: BitBoard;
@@ -59,6 +60,13 @@ export interface SearchOptions {
   readonly diverse?: boolean;
   /** Cost per squared exposed row on every intermediate board. */
   readonly exposure?: number;
+  /** C1 stock potential (canonical §C1). Absent or scale 0 = Φ ≡ 0. */
+  readonly stock?: StockParams;
+}
+
+/** Optional mechanism layers threaded through expand(). All S2-only. */
+interface Mechanisms {
+  readonly stock?: StockParams;
 }
 
 export interface Step {
@@ -119,6 +127,7 @@ interface Node {
 
 export function search(input: SearchInput, options: SearchOptions): SearchResult | null {
   const { weights: w, width } = options;
+  const mech: Mechanisms = { stock: options.stock };
   const sequence: PieceKind[] = [input.active.kind, ...input.preview];
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
@@ -176,6 +185,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                   0,
                   options.exposure ?? 0,
                   input.frame ?? 0,
+                  mech,
                 );
                 nodes += 1;
                 if (child !== null) best = Math.max(best, child.value);
@@ -208,6 +218,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             firstMoves.length,
             options.exposure ?? 0,
             input.frame ?? 0,
+            mech,
           );
           nodes += 1;
           if (child === null) continue;
@@ -305,6 +316,7 @@ function expand(
   rootIndex: number,
   exposure: number,
   rootFrame: number,
+  mech: Mechanisms,
 ): Node | null {
   // Use staged S2 lock awards and All-Mini+; exact d is never reduced to a flag.
   const spin = classifyS2Spin(
@@ -341,6 +353,7 @@ function expand(
   const outcome = lockPlacement(node.board, placement);
   const lines = outcome.linesCleared;
   const combo = lines > 0 ? node.combo + 1 : -1;
+  const multiplier = s2GarbageMultiplier(rootFrame + 60 * node.depth);
   const award = awardLock(
     "tetrio-s2",
     {
@@ -352,7 +365,7 @@ function expand(
       perfectClear: outcome.perfectClear,
     },
     node.b2b,
-    { multiplier: s2GarbageMultiplier(rootFrame + 60 * node.depth), garbageCleared },
+    { multiplier, garbageCleared },
   );
   const attack = award.attack;
   const difficult = lines > 0 && (lines === 4 || spin !== "none" || outcome.perfectClear);
@@ -420,7 +433,27 @@ function expand(
   const dead = features.maxHeight >= deathLimit;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
-  const value = accumulated + scale * w.discount * dot(features, w);
+  // C1: the stock potential is part of this node's terminal estimate, inside
+  // the same discounted bracket as the board evaluation (canonical §C1).
+  // Skipped entirely when absent or scaled to 0, so Φ ≡ 0 is bit-identical.
+  const phi =
+    mech.stock !== undefined && mech.stock.scale !== 0
+      ? stockPotential(
+          {
+            chain: b2b,
+            combo,
+            pending,
+            maxHeight: features.maxHeight,
+            tSlot: features.tSlot,
+            wellDepth: features.wellDepth,
+            multiplier,
+          },
+          mech.stock,
+          w.attack,
+          w.discount,
+        )
+      : 0;
+  const value = accumulated + scale * w.discount * (dot(features, w) + phi);
 
   return {
     board,
