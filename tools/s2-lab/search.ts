@@ -162,6 +162,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                 node.board,
                 option.kind,
                 spawnPosition(option.kind, node.board.length),
+                { spinEvidence: true },
               )) {
                 const child = expand(
                   node,
@@ -189,7 +190,9 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             : option.usedHold && node.hold !== null
               ? { rotation: 0, x: 3, y: node.board.length > 20 ? node.board.length - 21 : 0 }
               : spawnPosition(option.kind, node.board.length);
-        for (const placement of generatePlacements(node.board, option.kind, start)) {
+        for (const placement of generatePlacements(node.board, option.kind, start, {
+          spinEvidence: true,
+        })) {
           if (node.depth === 0 && input.acceptRoot && !input.acceptRoot(placement, option.usedHold))
             continue;
           const child = expand(

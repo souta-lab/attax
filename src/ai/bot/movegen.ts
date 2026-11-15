@@ -139,6 +139,15 @@ export function generatePlacements(
     kind,
     board.length,
   ),
+  options?: {
+    /**
+     * Keep rotation evidence (lastSrs) for non-T pieces, preferring the
+     * spin-proving arrival among cell-identical duplicates. Rulesets that
+     * award non-T spins (S2 all-spin) need this; the default keeps the
+     * historical output (lastSrs 0 for non-T) byte-identical.
+     */
+    readonly spinEvidence?: boolean;
+  },
 ): Placement[] {
   const out: Placement[] = [];
   if (
@@ -227,6 +236,7 @@ export function generatePlacements(
   }
 
   const seen = new Set<number>();
+  const evidenceIndex = new Map<number, number>();
   for (const id of resting) {
     const x = (id % X_SPAN) - X_OFF;
     const y = (Math.floor(id / X_SPAN) % Y_SPAN) - Y_OFF;
@@ -237,10 +247,27 @@ export function generatePlacements(
     const tspin = kind === "T" && lastSrs > 0 ? tspinKind(board, rotation, x, y, lastSrs) : "none";
     if (kind !== "T") {
       const key = cellKey(shape, x, y);
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        // Spin-evidence mode only: a cell-identical duplicate that arrived by
+        // rotation replaces the kept representative, so its evidence survives.
+        if (options?.spinEvidence) {
+          const idx = evidenceIndex.get(key) as number;
+          if (lastSrs > (out[idx] as Placement).lastSrs)
+            out[idx] = { kind, rotation, x, y, lastSrs, tspin };
+        }
+        continue;
+      }
       seen.add(key);
+      if (options?.spinEvidence) evidenceIndex.set(key, out.length);
     }
-    out.push({ kind, rotation, x, y, lastSrs: kind === "T" ? lastSrs : 0, tspin });
+    out.push({
+      kind,
+      rotation,
+      x,
+      y,
+      lastSrs: kind === "T" || options?.spinEvidence ? lastSrs : 0,
+      tspin,
+    });
   }
   return out;
 }
