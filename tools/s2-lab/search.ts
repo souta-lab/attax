@@ -427,7 +427,7 @@ function dedupe(sorted: readonly Node[], width: number): Node[] {
   const seen = new Set<string>();
   for (const node of sorted) {
     if (kept.length >= width) break;
-    const key = `${node.next}|${node.hold}|${node.b2b}|${node.combo}|${node.board.join(",")}`;
+    const key = `${node.next}|${node.hold}|${node.b2b}|${node.combo}|${node.lift}|${node.pending}|${node.garbageRows.join(",")}|${node.board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     kept.push(node);
@@ -445,6 +445,8 @@ export function selectBeam<
     b2b: number;
     combo: number;
     lift: number;
+    pending: number;
+    garbageRows: Uint8Array;
     root: number;
     value: number;
   },
@@ -453,7 +455,7 @@ export function selectBeam<
   const pool: T[] = [];
   const seen = new Set<string>();
   for (const node of sorted) {
-    const key = `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${node.combo}|${node.lift}|${node.board.join(",")}`;
+    const key = `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${node.combo}|${node.lift}|${node.pending}|${node.garbageRows.join(",")}|${node.board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     pool.push(node);
