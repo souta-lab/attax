@@ -358,7 +358,13 @@ function expand(
   if (placement.kind === "T" && placement.tspin === "none" && node.tSlot > 0) reward += w.wastedT;
 
   const features = boardFeatures(outcome.board, lift);
-  if (features.maxHeight >= node.board.length) return null;
+  // Referee death rule (occupied-buffer): a post-lock state with any occupied
+  // cell above the visible 20-row field is already a loss (run-match.mjs,
+  // "occupied-buffer-lab-placement-rule"), however much buffer remains above
+  // it. This also disposes of buffer-locking placements (movegen generates
+  // them at every depth): they are never retained or selected from here.
+  const deathLimit = Math.min(node.board.length, 21);
+  if (features.maxHeight >= deathLimit) return null;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
   const value = accumulated + scale * w.discount * dot(features, w);
