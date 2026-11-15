@@ -548,7 +548,7 @@ def run_lbfgsb(
     tau: float,
     theta0: np.ndarray,
     lam: float,
-    maxiter: int = 300,
+    maxiter: int = 800,
 ) -> tuple[np.ndarray, float, bool]:
     def obj(th: np.ndarray) -> tuple[float, np.ndarray]:
         return set_ranking_loss_and_grad(th, packed, tau=tau, theta0=theta0, lam=lam)
@@ -614,7 +614,10 @@ def fit_with_val_and_multistart(
     eval_scope = val_scope if val_packed.n_decisions > 0 else train_packed.n_decisions
 
     for tau in tau_grid:
-        for lam in lam_grid:
+        tau_scale_sq = max(1.0, float(tau) * float(tau))
+        for lam_norm in lam_grid:
+            # Normalize logit-space penalty: lam * ||theta - theta0||^2 = lam_norm * ||(theta - theta0)/tau||^2
+            lam = lam_norm / tau_scale_sq
             th, tr_obj, conv = run_lbfgsb(theta0, train_packed, tau=tau, theta0=theta0, lam=lam)
             val_metrics = evaluate_packed_metrics(th, eval_packed, tau=tau, total_records_in_scope=eval_scope)
             # Compare hyperparameters on scale-invariant strict NLL or top-1 + setNll
@@ -702,7 +705,7 @@ def evaluate_joint_survival_and_selection(
     post-rescue (`rescueApplied == true`) and overall (`selectedActionIndex`) accuracy
     without hurting pure preference (`rescueApplied == false`).
     """
-    alpha_candidates = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0]
+    alpha_candidates = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 15.0, 50.0, 150.0, 400.0]
     chosen_alpha = 0.0
     if val_indices:
         best_val_acc = -1.0
