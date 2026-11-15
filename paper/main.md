@@ -2,7 +2,7 @@
 
 **souta-lab (s0u7a)**
 
-*Draft v1 — November 2026. Status: unpublished draft. All benchmark figures are
+*Draft v2 — November 2026. Status: unpublished draft. All benchmark figures are
 regenerated from the records in `bench-results/` with the repository's results
 generator; see the provenance notes at the end.*
 
@@ -77,28 +77,102 @@ against real engine inputs. Spin classification uses the engine's own
 function, so the search cannot disagree with the referee about what a spin
 is.
 
-**Evaluation.** A board is scored by eleven named features: maximum height,
-danger (height plus incoming garbage above row 10, squared), holes, blocks
-over holes, rows containing holes, bumpiness and its square, row transitions,
-well depth, extra wells, and T-slot readiness. Along a searched line, each
-lock additionally earns rewards from the same table: a per-line attack
-reward, shaping per clear type (single through quad, T-spin mini/single/
-double/triple, perfect clear), a penalty for breaking a back-to-back chain
-with a plain clear, and a penalty for wasting a T piece while a T-slot was
-available. The complete policy is one table of 24 parameters: eleven board
-weights, nine clear-shaping values, the attack reward, the two penalties,
-and a discount factor γ = 0.97 applied to rewards along the line.
+**Evaluation.** Let $s$ be a board with column heights $h_1, \dots, h_{10}$,
+$H = \max_x h_x$, and let $L \ge 0$ be the number of garbage rows that
+have landed under the stack along the line leading to $s$. The board
+evaluator is linear in eleven features $\varphi(s, L)$:
 
-**Search.** A beam search (default width 48) expands the current piece, the
-hold piece, and the five-piece preview. Back-to-back state, combo count, and
-pending garbage are part of the search state from the start; incoming garbage
-cancels against a line's attack and the remainder lands under the stack, as
-in the engine. A node's value is its discounted reward sum plus the board
-score at the end of the line; the first move of the best line is played. In
-the profile used for the external matches of Section 4 (the *field-40*
-profile), the search board is 40 rows tall and the known queue is extended by
-one exact chance ply — SPECULATE — which enumerates the remaining contents of
-the current 7-bag with their exact probabilities rather than sampling them.
+$$f(s) = \mathbf{w} \cdot \varphi(s, L) = \sum_{i=1}^{11} w_i \, \varphi_i(s, L). \qquad (1)$$
+
+The features are: *maxHeight* $= H + L$; *danger* $= \max(0, H +
+L - 10)^2$; *holes*, the empty cells with a filled cell above them in
+their column; *holeCover*, the filled cells stacked above holes, capped at
+4 per hole; *holeRows*, the rows containing at least one hole; *bumpiness*
+$= \sum_x |h_x - h_{x+1}|$ and *bumpinessSq* $= \sum_x (h_x - h_{x+1})^2$,
+both sums excluding the pairs adjacent to the well column (the argmin of
+$h_x$); *rowTransitions*, the filled/empty transitions along each row with
+the walls counted as filled; *wellDepth* $= \min(4, \min(h_{w-1}, h_{w+1})
+- h_w)$ for well column $w$; *extraWells*, the columns other than $w$
+sitting at least 3 below both neighbours; and *tSlot* $\in \{0, 1, 2\}$, the
+number of lines a T-spin into the best open T-slot would clear.
+
+**Attack.** The rules engine prices a lock that clears $\ell$ lines with
+spin class $\sigma \in \{\text{none}, \text{mini}, \text{full}\}$, post-lock
+combo counter $c$, incoming back-to-back state $b$, and perfect-clear flag
+$\mathrm{PC}$ as
+
+$$A = B(\ell, \sigma) + \mathbf{1}[\,b \wedge \mathrm{difficult}(\ell, \sigma)\,] + \beta(c) + 10 \cdot \mathbf{1}[\mathrm{PC}], \qquad (2)$$
+
+where $\mathrm{difficult}(\ell, \sigma) \Leftrightarrow \ell > 0 \wedge
+(\ell = 4 \vee \sigma \neq \text{none})$, the base table $B$ (tuples indexed
+by $\ell$ from 0) is
+
+$$B(\ell, \sigma) = \begin{cases} (0, 0, 1, 2, 4)_\ell & \sigma = \text{none} \\ (0, 2, 4, 6)_\ell & \sigma = \text{full} \\ (0, 0, 1, 0)_\ell & \sigma = \text{mini} \end{cases} \qquad (3)$$
+
+(the full T-spin row is indexed by T-spin lines, the mini row by lines
+cleared), and the combo bonus is the step function
+
+$$\beta(c) = \begin{cases} 0 & c \le 0 \\ 1 & 1 \le c \le 2 \\ 2 & 3 \le c \le 4 \\ 3 & 5 \le c \le 6 \\ 4 & 7 \le c \le 9 \\ 5 & c \ge 10. \end{cases} \qquad (4)$$
+
+The state updates are $c \leftarrow c + 1$ on a clear and $c \leftarrow -1$
+otherwise, and $b$ persists through non-clears and on a clear becomes
+$\mathrm{difficult}(\ell, \sigma)$ — or $\ell \ge 4$ after a perfect clear.
+An attack first cancels the attacker's own pending garbage; the remainder
+is queued to the opponent and lands after a one-lock delay. Inside the
+search only the root's pending amount $P$ is known, and what lands enters
+the state as lift, $L \leftarrow L + \max(0, P - A)$ at the
+root lock.
+
+**Reward.** Each lock on a searched line earns
+
+$$r = w_{\mathrm{atk}} \, A + c_{\mathrm{kind}} + w_{\mathrm{brk}} \cdot \mathbf{1}[\,b \wedge \ell > 0 \wedge \neg\mathrm{difficult} \wedge \neg\mathrm{PC}\,] + w_{\mathrm{wst}} \cdot \mathbf{1}[\,\text{T locked without a spin} \wedge \varphi_{\mathrm{tSlot}}(s) > 0\,], \qquad (5)$$
+
+where $A$ is the attack of (2), priced before cancellation, $c_{\mathrm{kind}}$
+is the shaping value of the lock's clear kind (single through quad, T-spin
+mini/single/double/triple, perfect clear; zero when $\ell = 0$), and the
+last term reads the T-slot feature of the board *before* the lock. The
+complete policy is one table of 24 parameters:
+
+| Parameters | Shipped values |
+|---|---|
+| Board weights $\mathbf{w}$ (11) | maxHeight −6 · danger −40 · holes −60 · holeCover −12 · holeRows −40 · bumpiness −8 · bumpinessSq −3 · rowTransitions −6 · wellDepth +18 · extraWells −40 · tSlot +60 |
+| Clear shaping $c_{\mathrm{kind}}$ (9) | single −60 · double −40 · triple −30 · quad +60 · T-mini −20 · T-single +40 · T-double +120 · T-triple +160 · perfect clear +400 |
+| Attack, penalties, discount | $w_{\mathrm{atk}} = 90$ · $w_{\mathrm{brk}} = -90$ · $w_{\mathrm{wst}} = -50$ · $\gamma = 0.97$ |
+
+*Table 1: The complete policy — 24 parameters (shipped defaults,
+`src/ai/bot/weights.ts`). Only their ratios matter.*
+
+**Search.** A node at depth $D$ on a line whose locks earned $r_1, \dots,
+r_D$ and ended on board $s_D$ is valued
+
+$$V(n) = \sum_{i=1}^{D} \gamma^{i-1} r_i + \gamma^D f(s_D), \qquad (6)$$
+
+with $\gamma = 0.97$. At each ply the beam expands every surviving node
+with every reachable placement of the current piece and of the hold piece,
+discards children whose post-lock stack reaches the top row, and keeps
+
+$$\mathcal{B}_{d+1} = \text{the } W \text{ highest-}V \text{ children, deduplicated on } (\text{queue index}, \text{hold}, b, \text{board}), \qquad (7)$$
+
+sorting before deduplication so the higher-$V$ copy of a position survives.
+Lines end when the known queue (the current piece, the hold piece, and the
+five-piece preview) is exhausted; the first lock of the line ending at the
+highest-$V$ finished node is played — or, if every line tops out, of the
+deepest surviving beam. The default width is $W = 48$.
+
+In the profile used for the external matches of Section 4 (the *field-40*
+profile), the search board is 40 rows tall and the known queue is extended
+by one exact chance ply — SPECULATE. Let $\mathcal{R}$ be the set of piece
+kinds not yet observed in the current 7-bag, tracked exactly (if the bag
+boundary cannot be established from the observed queue, $\mathcal{R} =
+\emptyset$ and the ply is skipped). The bag holds one of each kind, so each
+$k \in \mathcal{R}$ is equally likely, and a horizon node $n$ is scored
+
+$$V(n) = \frac{1}{|\mathcal{R}|} \sum_{k \in \mathcal{R}} \max_{a \in \mathcal{A}(n, k)} V(\mathrm{child}(n, a; k)), \qquad (8)$$
+
+where $\mathcal{A}(n, k)$ ranges over the placements of kind $k$ (with the
+hold option) and child values are (6) extended by one lock. A kind with no
+legal placement contributes $-10^6$ rather than being dropped, so a dead
+branch cannot vanish from the chance average.
 
 **Rust port.** The search was ported to Rust for throughput. On a sampled
 corpus of 298 recorded decision inputs, each evaluated with and without the
@@ -128,9 +202,13 @@ every result in Section 4.
   for tuning campaigns are registered in writing before the run starts
   (Section 5). A missed bar is reported as a miss; a stopped campaign is not
   restarted on fresh seeds to try again.
-- **Uncertainty.** Win rates carry Wilson 95% intervals. For external
-  matches the intervals are descriptive: the independent units are seed
-  pairs, not individual games.
+- **Uncertainty.** Win rates carry 95% Wilson score intervals over decided
+  games ($n = W + L$, $\hat p = W / n$, $z = 1.96$):
+
+$$\frac{\hat p + z^2 / 2n \;\mp\; z \sqrt{\hat p (1 - \hat p) / n + z^2 / 4n^2}}{1 + z^2 / n} \qquad (9)$$
+
+  For external matches the intervals are descriptive: the independent
+  units are seed pairs, not individual games.
 - **Attack rate.** We report attack per piece (APP) alongside wins. The two
   harnesses define it differently — the Hoiko harness counts garbage *sent
   after cancellation* per piece; the external rig counts attack *generated
@@ -150,7 +228,7 @@ while Attax searched, so both sides received the same wall-clock window.
 
 ## 4. Guideline results
 
-Table 1 collects the headline matchups. All were played under guideline
+Table 2 collects the headline matchups. All were played under guideline
 versus rules, with identical piece sequences for both sides.
 
 | Opponent | Games | W–L | Win rate (95% Wilson) | APP, Attax vs opp. |
@@ -160,7 +238,7 @@ versus rules, with identical piece sequences for both sides.
 | Cold Clear 2 (official) | 100 | 79–21 | 79.0% (70.0–85.8) | 0.8951 vs 0.9279 |
 | Cold Clear 2 fork (chouhy) | 40 | 27–13 | 67.5% (52.0–79.9) | 0.9218 vs 0.8298 |
 
-*Table 1: Headline results, generated from `bench-results/` records.
+*Table 2: Headline results, generated from `bench-results/` records.
 APP is compared only within a harness (Section 3).*
 
 **Hoiko.** Held-out seeds 1001–1200, one lock per 120 ms of game time for
@@ -217,8 +295,9 @@ deployed code, not an approximation) shows the champion to be the Cold Clear
 prices the conversion of combo (REN) stock into back-to-back and surge
 pressure — with a scale of ≈ 0.116 per conversion unit, a penalty of −0.6 on
 shallow REN, and the shaping switched off above board height 8 — together
-with a quantity-only solvency veto at the root (a margin of 20 − height −
-tanked garbage − remaining input) and a top-out fallback. Its weights are
+with a quantity-only solvency veto at the root (a margin $M = 20 - h - T -
+I$ over height $h$, tanked garbage $T$, and remaining input $I$) and a
+top-out fallback. Its weights are
 the eleventh of eleven published SPSA generations; generation comments
 indicate the seventh generation was tuned for attack rate and the tenth and
 eleventh for attack rate plus wins. A widely repeated scoreline for the
@@ -233,11 +312,30 @@ not 7-bag). Its first counted match, on 2026-11-14 (seeds 3101–3120), was a
 
 ### 5.2 Two tuning campaigns
 
+Both campaigns tuned the S2 profile's weights — partitioned into $G = 11$
+coupled groups — by maximizing, over blocks of $n$ games,
+
+$$J(\theta) = \frac{W - L}{n} + \overline{\mathrm{APP}}_{\mathrm{attax}} - \overline{\mathrm{APP}}_{\mathrm{opp}} + \lambda_s \cdot \frac{1}{n} \sum_{g=1}^{n} \log_2(\mathrm{locks}_g + 1), \qquad (10)$$
+
+where $\overline{\mathrm{APP}}$ is the mean over games of per-game attack
+per lock and $\mathrm{locks}_g$ is Attax's lock count in game $g$. The
+optimizer is SPSA on the groups: at iteration $k = 0, 1, 2, \dots$, with a
+Rademacher perturbation vector $\Delta_k \in \{-1, +1\}^G$ (frozen groups
+held at 0),
+
+$$\theta^{\pm} = \theta_k \pm c_k \Delta_k, \qquad \hat g_k = \frac{J(\theta^{+}) - J(\theta^{-})}{2 c_k}, \qquad \theta_{k+1} = \Pi\big[\theta_k + a_k \, \hat g_k \, \Delta_k\big], \qquad (11)$$
+
+applied componentwise to every parameter of each group, in per-parameter
+normalized units, and projected ($\Pi$) onto registered bounds, with gain
+sequences
+
+$$a_k = \frac{0.3}{(k + 11)^{0.602}}, \qquad c_k = \frac{0.12}{(k + 1)^{0.101}}. \qquad (12)$$
+
 **Campaign 1 (league SPSA).** After a preliminary fixed-target SPSA phase
 whose gradients an independent audit found to be noise-dominated, the main
-campaign tuned its coupled weight groups by SPSA (gain G = 4) against a
-pool of the frozen champion (≈ 50%) and Attax snapshots (≈ 50%), with the
-objective combining wins and attack-rate difference. The pre-registered bar
+campaign tuned against a pool of the frozen champion (≈ 50%) and Attax
+snapshots (≈ 50%), under (10) with $\lambda_s = 0$ and $n_{\mathrm{arm}} =
+4$ games per evaluation arm. The pre-registered bar
 for the held-out validation (40 games, fresh seeds) was at least 8 wins and
 a selection score above the seed profile's. The campaign missed it on both
 checkpoints: the intermediate validation scored 0–40, and the final
@@ -251,14 +349,18 @@ scoring, so the objective carries little gradient about Attax's play.⁴
 
 **Campaign 2 (redesigned objective, registered abort).** The second campaign
 tuned against the champion only, with the objective redesigned to repair the
-saturation: wins plus attack-rate difference plus a survival shaping term,
-0.3 × mean log₂(locks + 1); the perfect-clear weight group was frozen, and
-G was raised to 8. Its design pre-registered early-abort probes at
-iterations 30, 60, and 90: if the paired improvement over the seed profile
-ΔJ did not exceed +0.10, the campaign would stop. The first stepped
+saturation: $\lambda_s = 0.3$ in (10); the perfect-clear weight group was
+frozen ($\Delta_i = 0$ in (11)), and $n_{\mathrm{arm}}$ was raised to 8.
+Its design pre-registered early-abort probes at iterations 30, 60, and 90,
+as the formal criterion
+
+$$\text{abort} \iff \bar{\Delta J} \le +0.10, \qquad (13)$$
+
+where $\bar{\Delta J}$ is the mean paired per-game difference $J(\theta_k)
+- J(\theta_{\mathrm{seed}})$ over the probe block. The first stepped
 iterations showed the shaping term doing what it was designed to do — J
 values of +0.45 and +0.64 on arms that nevertheless lost all eight games —
-but at the iteration-30 probe (40 paired games, no exclusions) ΔJ measured
+but at the iteration-30 probe (40 paired games, no exclusions) $\bar{\Delta J}$ measured
 +0.0834 with standard deviation 0.581: a positive point estimate well inside
 noise. The campaign aborted under its own rule.⁵ A later audit of the probe
 found two accounting defects worth recording here: only 21 of the 30 counted
@@ -320,15 +422,70 @@ The response, in registered order, is: correct the driver defects with the
 guideline path fenced off and its regression suite as the non-interference
 proof; ablate the champion's mechanisms (conversion shaping off, solvency
 veto off, both off, and the unmodified Cold Clear 2 profile) to measure what
-each mechanism is worth before porting anything; port a stock potential —
-a per-node value on back-to-back charge and REN stock, gated by height and
-pending pressure — and a geometry-aware solvency rule that improves on the
-champion's quantity-only veto by using the garbage geometry Attax can
-legally observe; then fit weights by imitation of the champion's move
-choices before any further SPSA, with tuning gates sized so that the
-standard error of a paired comparison is at most a third of the effect
-worth detecting. None of this has produced an S2 result at the time of
-writing, and none is claimed.
+each mechanism is worth before porting anything; port a stock potential
+and a geometry-aware solvency rule; then fit weights by imitation of the
+champion's move choices before any further SPSA, with tuning gates sized
+so that the standard error of a paired comparison is at most a third of
+the effect worth detecting.
+
+The stock potential is a state potential added to the terminal bracket at
+every beam layer — (6) with the bracket extended:
+
+$$V_D = \sum_{i=1}^{D} \gamma^{i-1} r_i + \gamma^D \big[ f(s_D) + \Phi_{\mathrm{stock}}(s_D) \big], \qquad (14)$$
+
+$$\Phi_{\mathrm{stock}}(s) = w_A \Big[ q_B(s) \, S(d, m) + g(s) \big( \beta_B U_B(s) + \beta_R U_R(s) \big) \Big], \qquad (15)$$
+
+where $w_A$ is the attack weight (score units per attack row), $d$ is the
+difficult-clear chain count, $S(d, m)$ is the cashable surge under the
+lab's authoritative award function at current multiplier $m$ (zero at $d
+\le 4$), $q_B(s)$ is the estimated probability of converting the cashable
+stock before death, $U_B$ is the additional value of preserving or building
+the chain, and $U_R$ is the incremental future attack attributable to the
+current REN stock:
+
+$$U_R(s) = \max_{\pi \in \mathcal{P}_K(s)} \sum_{j=1}^{K} \gamma^{j-1} \Big[ A_j(\pi \mid c) - A_j(\pi \mid c = -1) \Big], \qquad (16)$$
+
+the difference between continuing a continuation $\pi$ with the current
+combo counter $c$ and with the chain reset, over identical moves ($K = 3$
+in the port). Only the growth terms are gated, by $g = g_h g_m$ with $g_h
+= \mathrm{clip}((14 - h)/6, 0, 1)$ on post-lock height $h$ and $g_m =
+\mathrm{clip}(M_K/6, 0, 1)$ on the estimated worst safety margin $M_K$;
+cashable surge is discounted by $q_B$ but never height-erased. The
+solvency port tracks residual pending through the search, $P_{j+1} = P_j -
+C_j - T_j + I_j$ (cancellation $C_j$, tank $T_j$, arrivals $I_j$), and
+scores a continuation under scenario $\omega$ by its worst margin
+$M(\pi, \omega) = \min_j [20 - h_j(\pi, \omega)]$ — using the garbage
+geometry Attax can legally observe, where the champion's veto (Section
+5.1) sees only amounts.
+
+As implemented, both mechanisms sit inside the bracket of (6):
+
+$$V(n) = \sum_{i=1}^{D} \gamma^{i-1} r_i + \gamma^D \big[ f(s_D) + \Phi(s_D) - \mathrm{risk}(s_D) \big], \qquad (17)$$
+
+with $\Phi$ as in (15) up to a profile scale factor and the implementation's
+$q_B = \mathrm{clip}((18 - (h + P))/8, 0, 1)$ on effective height, and with
+$\mathrm{risk}(s) = 40 \cdot \max(0, 6 - M)^2 + 10^6 \cdot
+\mathbf{1}[M < 0]$ on the exact post-lock margin $M = 20 - H - P$. One
+deliberate deviation from the canonical design: the design also writes
+$\Phi$ in potential-shaping transition form, $F(s, a, s') = \gamma \Phi(s')
+- \Phi(s)$; the port instead pays $\Phi$ once per node in the terminal
+bracket, which preserves the never-pay-twice invariant the transition form
+protects. Beam-slot reservation for both mechanisms is deferred until
+telemetry shows stock-preserving lines disappearing despite the
+potential.
+
+The imitation fit, finally, minimizes the set-valued ranking loss
+
+$$L_{\mathrm{choice}} = -\sum_s w_s \log \frac{\sum_{a \in A^*_s} e^{Q_\theta(s, a) / \tau}}{\sum_{a \in A_s} e^{Q_\theta(s, a) / \tau}} + \lambda \, \| \theta - \theta_0 \|_2^2, \qquad (18)$$
+
+where $A_s$ is the set of legal root actions at $s$, $A^*_s \subseteq A_s$
+the teacher-preferred or empirically near-equivalent actions, $Q_\theta$
+the search's action value under weights $\theta$, $\tau$ a temperature,
+$w_s$ a per-state weight, and the second term anchors the fit to the seed
+weights $\theta_0$; a separate survival loss prices avoidable-death
+decisions, so a rare fatal error is not outweighed by frequent safe ones.
+None of this has produced an S2 result at the time of writing, and none is
+claimed.
 
 ## 6. Discussion
 
