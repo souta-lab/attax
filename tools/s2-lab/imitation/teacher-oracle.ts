@@ -432,24 +432,35 @@ export function buildLegalActions(canonicalState: CanonicalState): LegalActionsB
     const blocks = pieceBlocksAtPose(geometry, p);
     const cKey = canonicalCellsKey(blocks);
     const fullCellKey = `${p.piece}:${p.usedHold ? 1 : 0}:${cKey}`;
+    const witness = toWitnessRecord(p);
+    const wPoseKey = witnessPoseKey(p);
+    const isNo180 = no180PoseKeys.has(wPoseKey);
+    if (isNo180) matchedNo180PoseKeys.add(wPoseKey);
+
+    if (!witness.rotationEvidence.lastInputWasRotation) {
+      const nonSpinKey = `${p.piece}:${p.usedHold ? 1 : 0}:none:${cKey}`;
+      const existingNonSpin = accBySemantic.get(nonSpinKey);
+      if (existingNonSpin !== undefined) {
+        existingNonSpin.witnesses.push(witness);
+        if (isNo180) existingNonSpin.reachableWithout180 = true;
+        continue;
+      }
+    }
+
     const projection = projectS2AmountOnlyLock(
       canonicalState,
       { kind: "placement", placement: p },
       incoming,
     );
-    const solvency = assessS2AmountOnlySolvency(projection);
     const spin = projection.spin as "none" | "mini" | "normal";
     const sKey = `${p.piece}:${p.usedHold ? 1 : 0}:${spin}:${cKey}`;
-    const witness = toWitnessRecord(p);
-    const wPoseKey = witnessPoseKey(p);
-    const isNo180 = no180PoseKeys.has(wPoseKey);
-    if (isNo180) matchedNo180PoseKeys.add(wPoseKey);
 
     const existing = accBySemantic.get(sKey);
     if (existing !== undefined) {
       existing.witnesses.push(witness);
       if (isNo180) existing.reachableWithout180 = true;
     } else {
+      const solvency = assessS2AmountOnlySolvency(projection);
       accBySemantic.set(sKey, {
         semanticKey: sKey,
         cellKey: fullCellKey,
@@ -770,6 +781,13 @@ function buildTeacherLabelFromResponse(args: {
   };
 }
 
+const EMPTY_LEGAL_RESULT: LegalActionsBuildResult = {
+  legalActions: [],
+  indexBySemantic: new Map(),
+  indexByCell: new Map(),
+  no180SemanticSet: new Set(),
+};
+
 /**
  * Manages a single persistent WASM champion driver session and isolated fresh-session probes.
  */
@@ -817,7 +835,7 @@ export class TeacherOracle {
     session: Cc2WasmSession,
     sessionMode: "persistent" | "fresh",
     canonicalState: CanonicalState,
-    legal: LegalActionsBuildResult,
+    legal: LegalActionsBuildResult | undefined,
     guiOverride?: Record<string, unknown>,
   ): Promise<ChampionEvalOutcome> {
     const t0 = performance.now();
@@ -828,10 +846,13 @@ export class TeacherOracle {
       generation: this.reqCounter,
       type: this.botType,
     }) as Record<string, unknown>;
-    const requestWithDiagnostics = {
-      ...baseRequest,
-      diagnostics: { rootValues: true, rootChildValues: true },
-    };
+    const skipLabel = legal === undefined;
+    const requestWithDiagnostics = skipLabel
+      ? baseRequest
+      : {
+          ...baseRequest,
+          diagnostics: { rootValues: true, rootChildValues: true },
+        };
     const response = await session.decideF14({
       request: requestWithDiagnostics,
       profile: this.profile,
@@ -857,7 +878,7 @@ export class TeacherOracle {
       configHash: this.configHash,
       sessionMode,
       canonicalState,
-      legal,
+      legal: legal ?? EMPTY_LEGAL_RESULT,
       resolved,
       response,
     });
@@ -873,7 +894,7 @@ export class TeacherOracle {
 
   async decidePersistent(
     canonicalState: CanonicalState,
-    legal: LegalActionsBuildResult,
+    legal: LegalActionsBuildResult | undefined,
     guiOverride?: Record<string, unknown>,
   ): Promise<ChampionEvalOutcome> {
     const session = await this.ensurePersistentSession();

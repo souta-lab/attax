@@ -206,15 +206,38 @@ export interface DecisionRecord {
   };
 }
 
+const SPLIT_CYCLE_20: readonly SplitKind[] = [
+  "train",
+  "val",
+  "train",
+  "train",
+  "test",
+  "train",
+  "train",
+  "train",
+  "val",
+  "train",
+  "train",
+  "test",
+  "train",
+  "train",
+  "train",
+  "val",
+  "train",
+  "train",
+  "test",
+  "train",
+];
+
 /** Deterministic whole-seed split (70% train / 15% val / 15% test). */
 export function splitForSeed(seed: number): SplitKind {
-  // Golden-ratio Weyl mix gives uniform distribution even on consecutive seed blocks,
-  // while strictly mapping every position from the same game/seed to the same split.
-  const h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
-  const bucket = h % 20;
-  if (bucket < 14) return "train";
-  if (bucket < 17) return "val";
-  return "test";
+  // Balanced 20-cycle with evenly spaced val/test slots and per-block shift guarantees
+  // strict whole-seed isolation and non-empty val/test representation even on small subsets.
+  const s = Math.trunc(seed) >>> 0;
+  const block = Math.floor(s / 20);
+  const pos = s % 20;
+  const shift = (((Math.floor(s / 50_000) * 3 + block * 7) % 20) + 20) % 20;
+  return SPLIT_CYCLE_20[(pos + shift) % 20] as SplitKind;
 }
 
 export function normalizeSpinLabel(spin: string): TspinKind {

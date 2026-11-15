@@ -377,6 +377,23 @@ export async function playAndLogMatch(args: {
       const driver = drivers[side] as SeatDriver;
       const otherDriver = drivers[otherSide] as SeatDriver;
       const gui = controller.botMatchToGuiState(match, side) as Record<string, unknown>;
+      if (driver.kind === "champion" && !driver.logMoves) {
+        const evalRes = await driver.oracle.decidePersistent(bot.state, undefined, gui);
+        if (!evalRes.ok) {
+          abortedNoLegalMove = { reason: evalRes.status, losingSeat: side };
+          break;
+        }
+        if (evalRes.resolved.transition.tankResult?.toppedOut) {
+          lastTankTopout[side] = true;
+        }
+        submissions.push({
+          botId: side,
+          positionFingerprint: fullStateKey(bot.state) as string,
+          result: evalRes.resolved,
+        });
+        continue;
+      }
+
       const legal = buildLegalActions(bot.state);
 
       if (legal.legalActions.length === 0) {
@@ -390,37 +407,35 @@ export async function playAndLogMatch(args: {
           abortedNoLegalMove = { reason: evalRes.status, losingSeat: side };
           break;
         }
-        if (driver.logMoves) {
-          plyCounter += 1;
-          let freshLabel: TeacherLabel | null = null;
-          if (freshEveryPlies > 0 && (plyCounter === 1 || plyCounter % freshEveryPlies === 0)) {
-            const freshRes = await championOracleLeft.decideFresh(bot.state, legal, gui);
-            if (freshRes.ok) freshLabel = freshRes.label;
-          }
-          let rec = assembleDecisionRecord({
-            source,
-            gameId,
-            seed,
-            ply: plyCounter,
-            actorSeat: side,
-            actorBot: driver.botType,
-            opponentBot:
-              otherDriver.kind === "champion" ? otherDriver.botType : otherDriver.profileId,
-            tacticalTag: null,
-            canonicalState: bot.state,
-            legal,
-            teacher: evalRes.label,
-            freshTeacher: freshLabel,
-          });
-          if (annotateVariants.length > 0) {
-            rec = annotateDecisionRecord(rec, {
-              variants: annotateVariants,
-              weightSpec,
-              width,
-            });
-          }
-          records.push(rec);
+        plyCounter += 1;
+        let freshLabel: TeacherLabel | null = null;
+        if (freshEveryPlies > 0 && (plyCounter === 1 || plyCounter % freshEveryPlies === 0)) {
+          const freshRes = await championOracleLeft.decideFresh(bot.state, legal, gui);
+          if (freshRes.ok) freshLabel = freshRes.label;
         }
+        let rec = assembleDecisionRecord({
+          source,
+          gameId,
+          seed,
+          ply: plyCounter,
+          actorSeat: side,
+          actorBot: driver.botType,
+          opponentBot:
+            otherDriver.kind === "champion" ? otherDriver.botType : otherDriver.profileId,
+          tacticalTag: null,
+          canonicalState: bot.state,
+          legal,
+          teacher: evalRes.label,
+          freshTeacher: freshLabel,
+        });
+        if (annotateVariants.length > 0) {
+          rec = annotateDecisionRecord(rec, {
+            variants: annotateVariants,
+            weightSpec,
+            width,
+          });
+        }
+        records.push(rec);
         if (evalRes.resolved.transition.tankResult?.toppedOut) {
           lastTankTopout[side] = true;
         }

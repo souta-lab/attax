@@ -17,7 +17,6 @@ import {
   collides,
   FULL_ROW,
   generatePlacements,
-  lockPlacement,
   type Placement,
   ROWS,
   spawnPosition,
@@ -443,8 +442,8 @@ export function generateS2Placements(
   }
 
   // Deduplicate cleanly by (cells, spin) or at root by (cells, lastSrs>0, spin) so witness checks match.
-  const seenKey = new Set<string>();
-  const seenSemantic = new Set<string>();
+  const seenKey = new Set<number>();
+  const seenSemantic = new Set<number>();
   for (const id of resting) {
     const x = (id % X_SPAN) - X_OFF;
     const y = (Math.floor(id / X_SPAN) % Y_SPAN) - Y_OFF;
@@ -460,8 +459,9 @@ export function generateS2Placements(
     if (hasSpin) {
       const cand: Placement = { kind, rotation, x, y, lastSrs, tspin: "none" };
       const spin = isS2SpinCandidate(board, cand);
-      const semKey = `${cKey}:${spin}`;
-      const key = includeBothWitnessesAtRoot ? `${cKey}:1:${spin}` : semKey;
+      const spinCode = spin === "none" ? 0 : spin === "mini" ? 1 : 2;
+      const semKey = cKey * 8 + spinCode;
+      const key = includeBothWitnessesAtRoot ? semKey + 4 : semKey;
       if (!seenKey.has(key)) {
         seenKey.add(key);
         seenSemantic.add(semKey);
@@ -470,11 +470,10 @@ export function generateS2Placements(
     }
 
     if (hasNonSpin) {
-      const semKey = `${cKey}:none`;
+      const semKey = cKey * 8;
       if (includeBothWitnessesAtRoot) {
-        const key = `${cKey}:0:none`;
-        if (!seenKey.has(key)) {
-          seenKey.add(key);
+        if (!seenKey.has(semKey)) {
+          seenKey.add(semKey);
           seenSemantic.add(semKey);
           out.push({ kind, rotation, x, y, lastSrs: 0, tspin: "none" });
         }
@@ -699,39 +698,65 @@ function expandSimNode(
   );
   const placement: Placement = { ...rawPlacement, tspin: spin };
 
-  const filled = node.board.slice();
-  for (const cell of cellsFor(placement.kind, placement.rotation)) {
-    const row = placement.y + cell.y;
-    if (row >= 0 && row < filled.length) {
-      filled[row] = (filled[row] as number) | (1 << (placement.x + cell.x));
+  const nextBoard = node.board.slice();
+  const shape = SHAPES[placement.kind][placement.rotation] as Shape;
+  for (let i = 0; i < shape.rows.length; i += 1) {
+    const row = placement.y + shape.minY + i;
+    if (row >= 0 && row < nextBoard.length) {
+      nextBoard[row] =
+        (nextBoard[row] as number) | ((shape.rows[i] as number) << (placement.x + shape.minX));
     }
   }
 
   const garbageRows = new Uint8Array(node.board.length);
   let garbageCleared = 0;
+  let lines = 0;
   if (mode === "existing") {
-    let write = 0;
-    for (let read = 0; read < filled.length; read += 1) {
-      if (filled[read] === FULL_ROW) {
+    let gWrite = 0;
+    let bWrite = nextBoard.length - 1;
+    for (let read = 0; read < nextBoard.length; read += 1) {
+      if (nextBoard[read] === FULL_ROW) {
         garbageCleared += node.garbageRows[read] ?? 0;
       } else {
-        garbageRows[write++] = node.garbageRows[read] ?? 0;
+        garbageRows[gWrite++] = node.garbageRows[read] ?? 0;
       }
     }
+    for (let read = nextBoard.length - 1; read >= 0; read -= 1) {
+      const row = nextBoard[read] as number;
+      if (row === FULL_ROW) {
+        lines += 1;
+      } else {
+        nextBoard[bWrite--] = row;
+      }
+    }
+    for (; bWrite >= 0; bWrite -= 1) nextBoard[bWrite] = 0;
   } else {
     // Bottom-up survivor collapse matching lockPlacement.
-    let write = filled.length - 1;
-    for (let read = filled.length - 1; read >= 0; read -= 1) {
-      if (filled[read] === FULL_ROW) {
+    let write = nextBoard.length - 1;
+    for (let read = nextBoard.length - 1; read >= 0; read -= 1) {
+      const row = nextBoard[read] as number;
+      if (row === FULL_ROW) {
         garbageCleared += node.garbageRows[read] ?? 0;
+        lines += 1;
       } else {
-        garbageRows[write--] = node.garbageRows[read] ?? 0;
+        garbageRows[write] = node.garbageRows[read] ?? 0;
+        nextBoard[write] = row;
+        write -= 1;
+      }
+    }
+    for (; write >= 0; write -= 1) nextBoard[write] = 0;
+  }
+
+  let empty = true;
+  if (lines > 0) {
+    for (let row = 0; row < nextBoard.length; row += 1) {
+      if (nextBoard[row] !== 0) {
+        empty = false;
+        break;
       }
     }
   }
-
-  const outcome = lockPlacement(node.board, placement);
-  const lines = outcome.linesCleared;
+  const perfectClear = lines > 0 && empty;
   const combo = lines > 0 ? node.combo + 1 : -1;
   const award = awardLock(
     "tetrio-s2",
@@ -741,13 +766,13 @@ function expandSimNode(
       tspinKind: spin,
       combo,
       b2bActive: node.b2b > 0,
-      perfectClear: outcome.perfectClear,
+      perfectClear,
     },
     node.b2b,
     { multiplier: s2GarbageMultiplier(rootFrame + 60 * node.depth), garbageCleared },
   );
   const attack = award.attack;
-  const difficult = lines > 0 && (lines === 4 || spin !== "none" || outcome.perfectClear);
+  const difficult = lines > 0 && (lines === 4 || spin !== "none" || perfectClear);
   const b2b = award.difficultChain;
 
   let pendingThisStep: number;
@@ -784,8 +809,8 @@ function expandSimNode(
         ? Math.max(0, attack - rootPending)
         : 0
       : Math.max(0, attack - pendingThisStep);
-  const cKind = clearKindOf(lines, spin, outcome.perfectClear);
-  const brokeB2b = node.b2b > 0 && lines > 0 && !difficult && !outcome.perfectClear;
+  const cKind = clearKindOf(lines, spin, perfectClear);
+  const brokeB2b = node.b2b > 0 && lines > 0 && !difficult && !perfectClear;
   const isWastedT = placement.kind === "T" && spin === "none" && node.tSlot > 0;
 
   let reward = attack * w.attack + convUnits * w.conversion;
@@ -793,10 +818,10 @@ function expandSimNode(
   if (brokeB2b) reward += w.b2bBreak;
   if (isWastedT) reward += w.wastedT;
 
-  const features = boardFeatures(outcome.board, lift);
+  const features = boardFeatures(nextBoard, lift);
   if (mode === "existing" && features.maxHeight >= node.board.length) return null;
 
-  const occAfterLock = occupiedHeightOf(outcome.board);
+  const occAfterLock = occupiedHeightOf(nextBoard);
   const stepSolvency = S2_VISIBLE_ROWS - occAfterLock - lift - nextPending;
   const fatalNow = occAfterLock + lift > S2_VISIBLE_ROWS;
   const rootSolvency = node.depth === 0 ? stepSolvency : node.rootSolvencyMargin;
@@ -806,9 +831,12 @@ function expandSimNode(
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * reward;
 
-  const clears = Float64Array.from(node.acc.clears);
   const ckIdx = clearKindIndex(cKind);
-  if (ckIdx >= 0) clears[ckIdx] = (clears[ckIdx] as number) + scale;
+  let clears = node.acc.clears;
+  if (ckIdx >= 0) {
+    clears = Float64Array.from(node.acc.clears);
+    clears[ckIdx] = (clears[ckIdx] as number) + scale;
+  }
 
   const acc: TraceAcc = {
     attack: node.acc.attack + scale * attack,
@@ -849,7 +877,7 @@ function expandSimNode(
   }
 
   return {
-    board: outcome.board,
+    board: nextBoard,
     garbageRows,
     hold: option.hold,
     next: option.next,
