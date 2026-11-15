@@ -103,7 +103,8 @@ interface Node {
   readonly pending: number;
   /** Referee-given rows due on the root lock (deeper locks: see expand). */
   readonly dueThisLock: number;
-  /** Garbage rows that have landed under the stack during the line. */
+  /** Unmaterialized landed rows; landed garbage is inserted into the board
+   * itself (see expand), so this is 0 in the S2 search. */
   readonly lift: number;
   readonly tSlot: number;
   readonly reward: number;
@@ -358,12 +359,11 @@ function expand(
   // residual row is due at the next non-clearing lock.
   const pendingIn = node.pending;
   let pending = pendingIn;
-  let lift = node.lift;
+  let landed = 0;
   if (lines > 0) {
     pending = Math.max(0, pendingIn - attack);
   } else {
-    const landed = Math.min(node.depth === 0 ? node.dueThisLock : pendingIn, pendingIn);
-    lift += landed;
+    landed = Math.min(node.depth === 0 ? node.dueThisLock : pendingIn, pendingIn);
     pending = pendingIn - landed;
   }
 
@@ -376,7 +376,29 @@ function expand(
   if (node.b2b && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
   if (placement.kind === "T" && placement.tspin === "none" && node.tSlot > 0) reward += w.wastedT;
 
-  const features = boardFeatures(outcome.board, lift);
+  // Materialize the landed rows into the child board: in the referee they
+  // tank under the stack before the next decision, so deeper placements must
+  // plan around real garbage rows, not a height scalar (the child lift is
+  // therefore 0; the field stays for key/breakdown compatibility). The hole
+  // column is the post-lock board's well — the amount-only interface cannot
+  // know the referee's hole, and one shared hole per tank matches the lab's
+  // one-cell-hole model.
+  let board = outcome.board;
+  let childGarbageRows = garbageRows;
+  if (landed > 0) {
+    const len = outcome.board.length;
+    const mask = FULL_ROW ^ (1 << wellColumn(outcome.board));
+    const shifted = new Uint16Array(len);
+    const shiftedFlags = new Uint8Array(len);
+    for (let row = 0; row < len; row += 1) {
+      const source = row + landed;
+      shifted[row] = source < len ? (outcome.board[source] as number) : mask;
+      shiftedFlags[row] = source < len ? (garbageRows[source] as number) : 1;
+    }
+    board = shifted;
+    childGarbageRows = shiftedFlags;
+  }
+  const features = boardFeatures(board, 0);
   // Referee death rule (occupied-buffer): a post-lock state with any occupied
   // cell above the visible 20-row field is already a loss (run-match.mjs,
   // "occupied-buffer-lab-placement-rule"), however much buffer remains above
@@ -389,8 +411,8 @@ function expand(
   const value = accumulated + scale * w.discount * dot(features, w);
 
   return {
-    board: outcome.board,
-    garbageRows,
+    board,
+    garbageRows: childGarbageRows,
     hold: option.hold,
     next: option.next,
     canHold: true,
@@ -398,7 +420,7 @@ function expand(
     combo,
     pending,
     dueThisLock: 0,
-    lift,
+    lift: 0,
     tSlot: features.tSlot,
     reward: accumulated,
     value,
@@ -407,6 +429,26 @@ function expand(
     parent: node,
     root: node.depth === 0 ? rootIndex : node.root,
   };
+}
+
+/** Column with the lowest stack (the board's well), in board coordinates. */
+function wellColumn(board: BitBoard): number {
+  let well = 0;
+  let lowest = Number.POSITIVE_INFINITY;
+  for (let x = 0; x < 10; x += 1) {
+    let height = 0;
+    for (let row = 0; row < board.length; row += 1) {
+      if (((board[row] as number) & (1 << x)) !== 0) {
+        height = board.length - row;
+        break;
+      }
+    }
+    if (height < lowest) {
+      lowest = height;
+      well = x;
+    }
+  }
+  return well;
 }
 
 function dot(features: BoardFeatures, w: Weights): number {
