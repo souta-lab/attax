@@ -28,7 +28,7 @@ import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { awardLock, s2GarbageMultiplier } from "../../src/core/rules.js";
 import { classifyS2Spin } from "../../src/core/s2-spin.js";
 import type { TspinKind } from "../../src/core/tspin.js";
-import { assessSolvency, type SolvencyParams } from "./solvency.js";
+import { assessSolvency, type SolvencyParams, solvencyMargin } from "./solvency.js";
 import { type StockParams, stockPotential } from "./stock.js";
 
 export interface SearchInput {
@@ -65,6 +65,12 @@ export interface SearchOptions {
   readonly stock?: StockParams;
   /** C2 solvency layer (canonical §C2). Absent or coefficient 0 = no penalty. */
   readonly solvency?: SolvencyParams;
+  /**
+   * Hard root solvency veto: the champion's choose_rescue as a pure
+   * decision-stage filter over the ranked root lines (see search()).
+   * Absent/false = no veto; the search values are never modified by it.
+   */
+  readonly rootVeto?: boolean;
 }
 
 /** Optional mechanism layers threaded through expand(). All S2-only. */
@@ -242,23 +248,55 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   // back to the deepest surviving positions so the bot still picks its best try.
   const leaves = finished.length > 0 ? finished : deepest;
   let bestLeaf: Node | null = null;
+  const rootBest = new Map<number, number>();
+  const bestLeafByRoot = new Map<number, Node>();
   for (const leaf of leaves) {
     if (leaf.depth === 0) continue;
     if (bestLeaf === null || leaf.value > bestLeaf.value) bestLeaf = leaf;
+    const prev = rootBest.get(leaf.root);
+    if (prev === undefined || leaf.value > prev) {
+      rootBest.set(leaf.root, leaf.value);
+      bestLeafByRoot.set(leaf.root, leaf);
+    }
   }
   if (bestLeaf === null) return null;
+
+  // Hard root solvency veto — the champion's choose_rescue, a pure
+  // decision-stage filter over the ranked root lines. A root is insolvent
+  // when its post-lock state cannot pay the pending margin, quantity-only:
+  // margin = 20 − post-lock height − residual pending < 0 (the landed tank
+  // is already inside the child's height; see solvencyMargin). If the
+  // value-best root is insolvent and any other root is solvent, play the
+  // FIRST solvent root in rank order (not the best-scoring solvent one —
+  // the champion does not re-rank). If no root is solvent, the value-best
+  // line stands: it is the least-bad try, and search still returns a move.
+  // Search values are untouched, so veto-off is bit-identical.
+  if (options.rootVeto) {
+    const marginOf = (rootIndex: number): number => {
+      const first = firstMoves[rootIndex];
+      if (first === undefined) return Number.NEGATIVE_INFINITY;
+      return solvencyMargin({
+        maxHeight: boardFeatures(first.board, first.lift).maxHeight,
+        pending: first.pending,
+      });
+    };
+    if (marginOf(bestLeaf.root) < 0) {
+      const ranked = [...rootBest.entries()].sort((a, b) => b[1] - a[1]);
+      for (const [rootIndex] of ranked) {
+        if (rootIndex === bestLeaf.root) continue;
+        if (marginOf(rootIndex) >= 0) {
+          bestLeaf = bestLeafByRoot.get(rootIndex) ?? bestLeaf;
+          break;
+        }
+      }
+    }
+  }
 
   const line: Step[] = [];
   for (let n: Node | null = bestLeaf; n !== null && n.step !== null; n = n.parent)
     line.unshift(n.step);
   const first = firstMoves[bestLeaf.root] as Node;
 
-  const rootBest = new Map<number, number>();
-  for (const leaf of leaves) {
-    if (leaf.depth === 0) continue;
-    const prev = rootBest.get(leaf.root);
-    if (prev === undefined || leaf.value > prev) rootBest.set(leaf.root, leaf.value);
-  }
   const candidates: Candidate[] = [...rootBest.entries()]
     .map(([index, value]) => {
       const n = firstMoves[index] as Node;
