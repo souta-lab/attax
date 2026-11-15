@@ -34,6 +34,7 @@ const { values } = parseArgs({
     "debug-log": { type: "string" },
     games: { type: "string", default: "1" },
     seed: { type: "string", default: "42" },
+    "seat-offset": { type: "string", default: "0" },
     out: { type: "string" },
     "max-locks": { type: "string", default: "1000" },
     "champion-vs-champion": { type: "boolean", default: false },
@@ -69,7 +70,14 @@ const wasmSha256 = createHash("sha256")
 async function play(gameIndex) {
   const started = performance.now();
   const gameSeed = seed + gameIndex;
-  const attaxSide = values["champion-vs-champion"] ? null : gameIndex % 2 === 0 ? "left" : "right";
+  // Seat offset 1 swaps the parity, so a seed block can be played in both
+  // seats (the registered pairing the campaign-2 probe lacked).
+  const seatOffset = values["seat-offset"] === "1" ? 1 : 0;
+  const attaxSide = values["champion-vs-champion"]
+    ? null
+    : (gameIndex + seatOffset) % 2 === 0
+      ? "left"
+      : "right";
   const scenario = createGame(gameSeed);
   const initial = guiStateToCanonical(toS2GuiState(scenario));
   const rules = resolvePlacementRules(initial.rulesetId);

@@ -103,7 +103,8 @@ try {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const jobId = `pc-${seed}-${games}-${process.pid}-${attempt}`;
-      const job = { jobId, profile, seedStart: seed, games, opponent, expect };
+      const seatOffset = process.env.S2_SEAT_OFFSET === "1" ? 1 : 0;
+      const job = { jobId, profile, seedStart: seed, games, opponent, expect, seatOffset };
       const jobPath = `${jobs}/${jobId}.json`;
       const resultPath = `${jobs}/${jobId}.result.json`;
       const recordsPath = `${jobs}/${jobId}.records.jsonl`;

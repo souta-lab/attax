@@ -42,6 +42,9 @@ try {
   );
   await writeFile(profilePath, JSON.stringify(job.profile));
   const opponentArgs = [];
+  if (job.seatOffset === 1) opponentArgs.push("--seat-offset", "1");
+  else if (job.seatOffset !== undefined && job.seatOffset !== 0)
+    throw new Error(`invalid seatOffset: ${job.seatOffset}`);
   if (job.opponent?.kind === "attax-profile") {
     const opponentPath = join(directory, "opponent.json");
     await writeFile(opponentPath, JSON.stringify(job.opponent.profile));
