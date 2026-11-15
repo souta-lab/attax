@@ -11,14 +11,13 @@
 // (~/.local/bin/ts-connect). The identity file is passed explicitly:
 // ssh resolves default identities from the passwd home, which is not
 // where this VM keeps its key.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { execFileSync } from "node:child_process";
 
 const { values } = parseArgs({
   options: Object.fromEntries(["games", "seed", "out"].map((key) => [key, { type: "string" }])),

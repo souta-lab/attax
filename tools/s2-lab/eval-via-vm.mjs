@@ -9,13 +9,12 @@
 // C5-qualified nodes. Rotation reaches this backend at most one job at
 // a time, keeping VM load conservative next to the orchestrator and
 // the item-90 units.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { execFileSync } from "node:child_process";
 
 const { values } = parseArgs({
   options: Object.fromEntries(["games", "seed", "out"].map((key) => [key, { type: "string" }])),

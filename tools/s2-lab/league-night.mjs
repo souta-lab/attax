@@ -193,8 +193,7 @@ async function runTuning(target, stageLabel, markerName) {
       await sleep(60000);
     }
   }
-  if (code === 0)
-    await json(marker(markerName), { completed: new Date().toISOString(), target });
+  if (code === 0) await json(marker(markerName), { completed: new Date().toISOString(), target });
   return code;
 }
 async function runSelection({ suffix, seed, heading, markerName, stageLabel }) {
@@ -212,15 +211,11 @@ async function runSelection({ suffix, seed, heading, markerName, stageLabel }) {
     candidates.push({
       id,
       profile,
-      ...(await evaluate(
-        profile,
-        20,
-        seed,
-        resolve(workDir, `selection${suffix}-${id}.jsonl`),
-      )),
+      ...(await evaluate(profile, 20, seed, resolve(workDir, `selection${suffix}-${id}.jsonl`))),
     });
   }
-  if (!candidates.some((c) => c.id === "seed")) throw new Error("selection requires seed candidate");
+  if (!candidates.some((c) => c.id === "seed"))
+    throw new Error("selection requires seed candidate");
   const priority = { final: 2, "best-eval": 1, seed: 0 };
   const winner = [...candidates].sort(
     (a, b) =>
