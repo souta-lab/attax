@@ -314,14 +314,17 @@ function expand(
     if (row >= 0 && row < filled.length)
       filled[row] = (filled[row] as number) | (1 << (placement.x + cell.x));
   }
+  // Compact the surviving flags in the same direction lockPlacement collapses
+  // the board (write cursor from the high-index end), so each flag stays on
+  // its own board row after a clear.
   const garbageRows = new Uint8Array(node.board.length);
   let garbageCleared = 0;
-  let write = 0;
-  for (let read = 0; read < filled.length; read += 1) {
+  let write = node.board.length - 1;
+  for (let read = filled.length - 1; read >= 0; read -= 1) {
     if (filled[read] === FULL_ROW) {
       garbageCleared += node.garbageRows[read] ?? 0;
     } else {
-      garbageRows[write++] = node.garbageRows[read] ?? 0;
+      garbageRows[write--] = node.garbageRows[read] ?? 0;
     }
   }
   const outcome = lockPlacement(node.board, placement);
