@@ -1,5 +1,5 @@
 {
-  "claim": "Measured head-to-head in guideline versus rules against the official Cold Clear 2, a Cold Clear 2 fork, Hoiko and clys.",
+  "claim": "Measured head-to-head in guideline versus rules against the official Cold Clear 2, a Cold Clear 2 fork, Hoiko and clys — every matchup won. The next target is the S2 ruleset, where Attax is now challenging for the strongest; no S2 results are claimed yet.",
   "fairness": [],
   "hero": "Same pieces, both seats, guideline versus rules over the Tetris Bot Protocol. Cold Clear 2 had a {{cc2Ms}} ms window per move at {{cc2Pps}} PPS paired turns; Attax played its field-40 profile with exact bag speculation. Cold Clear 2 generated more attack per piece ({{cc2RivalApp}} to {{cc2App}}); Attax won on survival. Win rate {{cc2WinRate}} (95% interval {{cc2Low}}–{{cc2High}}) on seeds {{cc2Seeds}} — fresh seeds, never used for tuning.",
   "profiles": [

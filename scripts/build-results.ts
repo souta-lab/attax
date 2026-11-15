@@ -246,7 +246,7 @@ const cc2ForkSummary = JSON.parse(externalText("cc2-fork/summary.json"));
 assertExternal(cc2Fork, cc2ForkSummary);
 rows.push(cc2Fork);
 
-const tagline = `A versus AI for the falling-block game. It won ${cc2.wins} of ${cc2.games} games against the official Cold Clear 2 and ${cc2Fork.wins} of ${cc2Fork.games} against a Cold Clear 2 fork.`;
+const tagline = `A versus AI for the falling-block game — the strongest measured in guideline rules. It won ${cc2.wins} of ${cc2.games} games against the official Cold Clear 2 and ${cc2Fork.wins} of ${cc2Fork.games} against a Cold Clear 2 fork.`;
 const conditions = JSON.parse(externalText("conditions.json")).values;
 const clysSettings = JSON.parse(externalText("clys/clys-7001.json"));
 const parity = (name: string) =>

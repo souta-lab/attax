@@ -2,9 +2,10 @@
 
 # ⚔️ Attax
 
-**A versus AI for the falling-block game, with reproducible head-to-head results.**
+**A versus AI for the falling-block game — the strongest in guideline versus, measured head-to-head.**
 
 [![Play live](https://img.shields.io/badge/play-live%20arena-2ea44f)](https://s0u7a.f5.si/attax/)
+[![vs Cold Clear 2](https://img.shields.io/badge/vs%20Cold%20Clear%202-79%E2%80%9321%20(79.0%25)-blue)](#result-cold-clear-2)
 [![vs Hoiko](https://img.shields.io/badge/vs%20Hoiko-195%E2%80%935%20(97.5%25)-blue)](#-result-hoiko)
 ![TypeScript](https://img.shields.io/badge/TypeScript-bun%20%2B%20vite-3178c6)
 ![Rust](https://img.shields.io/badge/Rust-WASM-dea584)
@@ -23,10 +24,13 @@ are in [`bench-results/`](bench-results/), the Hoiko-replica fidelity evidence i
 [`evidence/hoiko-fullgame/`](evidence/hoiko-fullgame/), and the benchmark and audit scripts
 are in [`scripts/`](scripts/).
 
-> **Scoped claim:** in guideline versus rules, across every matchup measured so far, Attax
-> has won each matchup it has played — against Hoiko, clys and Cold Clear 2 (the official
-> upstream build and chouhy's fork). See [Caveats](#%EF%B8%8F-caveats--not-measured)
-> for what has *not* been measured.
+> **The world's strongest in guideline versus.** Across every matchup measured so far,
+> Attax has won each matchup it has played: the official Cold Clear 2 **79–21**,
+> chouhy's fork **27–13**, Hoiko **195–5** and clys **88–12** (conditions and details
+> below). The next target is the **S2 ruleset**: an S2 profile ships in this repo and
+> its tuning campaign is under way, aiming at the strongest there too — no S2 results
+> are claimed yet. See [Caveats](#%EF%B8%8F-caveats--not-measured) for what has *not*
+> been measured.
 
 ## 📑 Contents
 
@@ -166,9 +170,9 @@ The **S2 profile** is a separate rules profile (`tetrio-s2` in `src/core/`, harn
 in `tools/s2-lab/`) for the S2 ruleset used by 61bi's bot lab, with its own weight
 group in the shared table (including a conversion-shaping term the guideline search
 never reads). A league-format tuning campaign against the lab's champion is in
-progress. No results are claimed for this profile yet, and no learned weights are
-part of this build: the profile ships with the same hand-set defaults as the
-guideline side.
+progress, aiming to make this profile the strongest in S2 as well. No results are
+claimed for this profile yet, and no learned weights are part of this build: the
+profile ships with the same hand-set defaults as the guideline side.
 
 ## 🚀 Why it is strong
 
