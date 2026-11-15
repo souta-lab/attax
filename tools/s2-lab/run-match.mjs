@@ -147,7 +147,10 @@ async function play(gameIndex) {
           // Receipts stay on the controller side: they can include private hole data.
           const reachable = generateReachablePlacements(visible, {
             kickTable: rules.kickTable,
-            allow180: false,
+            // The ruleset's public rules allow 180 (allow180: true); the
+            // stage-2 harness ran with it off as a conservatism, which
+            // filtered legal roots the referee itself would witness.
+            allow180: true,
           });
           const witnesses = new Map();
           for (const p of reachable) {

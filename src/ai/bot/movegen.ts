@@ -34,6 +34,68 @@ interface Shape {
 
 const KINDS: readonly PieceKind[] = ["I", "O", "T", "S", "Z", "J", "L"];
 
+/**
+ * SRS+ 180° kick tests, keyed by the FROM rotation (target = from + 2).
+ * Converted from the referee's kick table (@haelp/teto SRS+): dx as-is,
+ * dy negated, the implicit (0,0) test first, referee test order preserved.
+ * The conversion was verified against every quarter-turn table in srs.ts
+ * (16/16 transitions identical as sets under this transform). Only used
+ * when generatePlacements is asked for rotate180; the guideline engine
+ * has no 180 input and never requests these.
+ */
+const KICKS_180_JLSTZ: Readonly<Record<number, readonly Kick[]>> = {
+  0: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 1, dy: 1 },
+    { dx: -1, dy: 1 },
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+  ],
+  2: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: -1, dy: -1 },
+    { dx: 1, dy: -1 },
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
+  ],
+  1: [
+    { dx: 0, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: 1, dy: 2 },
+    { dx: 1, dy: 1 },
+    { dx: 0, dy: 2 },
+    { dx: 0, dy: 1 },
+  ],
+  3: [
+    { dx: 0, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: -1, dy: 2 },
+    { dx: -1, dy: 1 },
+    { dx: 0, dy: 2 },
+    { dx: 0, dy: 1 },
+  ],
+};
+const KICKS_180_I: Readonly<Record<number, readonly Kick[]>> = {
+  0: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: 1 },
+  ],
+  2: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: -1 },
+  ],
+  1: [
+    { dx: 0, dy: 0 },
+    { dx: 1, dy: 0 },
+  ],
+  3: [
+    { dx: 0, dy: 0 },
+    { dx: -1, dy: 0 },
+  ],
+};
+
 /** `KICKS[kind][from][0]` = CW kick list, `[1]` = CCW kick list (engine order). */
 const KICKS: Readonly<Record<PieceKind, readonly (readonly (readonly Kick[])[])[]>> =
   Object.fromEntries(
@@ -147,6 +209,13 @@ export function generatePlacements(
      * historical output (lastSrs 0 for non-T) byte-identical.
      */
     readonly spinEvidence?: boolean;
+    /**
+     * Add 180° rotations as single BFS inputs with the SRS+ 180 kick
+     * tables above. Rulesets that allow 180 (S2) need this; two quarter
+     * turns are not equivalent (kick paths and rotation evidence differ).
+     * Default off: the historical reachable set is unchanged.
+     */
+    readonly rotate180?: boolean;
   },
 ): Placement[] {
   const out: Placement[] = [];
@@ -221,6 +290,27 @@ export function generatePlacements(
         const ny = y - kick.dy;
         if (collides(board, kind, to, nx, ny)) continue;
         // Engine `tryRotate`: first fitting kick wins; lastSrs = 1 for kick 0, else i + 1.
+        const lastSrs = i === 0 ? 1 : i + 1;
+        if (collides(board, kind, to, nx, ny + 1)) {
+          const target = encode(to, nx, ny);
+          if (spinStamp[target] !== stamp || lastSrs > (spinArrival[target] as number)) {
+            spinStamp[target] = stamp;
+            spinArrival[target] = lastSrs;
+          }
+        }
+        visit(to, nx, ny);
+        break;
+      }
+    }
+    if (options?.rotate180) {
+      const to = (rotation + 2) & 3;
+      const kicks = (kind === "I" ? KICKS_180_I : KICKS_180_JLSTZ)[rotation] as readonly Kick[];
+      for (let i = 0; i < kicks.length; i += 1) {
+        const kick = kicks[i] as Kick;
+        const nx = x + kick.dx;
+        const ny = y - kick.dy;
+        if (collides(board, kind, to, nx, ny)) continue;
+        // Same evidence convention as quarter turns: kick 0 reports 1.
         const lastSrs = i === 0 ? 1 : i + 1;
         if (collides(board, kind, to, nx, ny + 1)) {
           const target = encode(to, nx, ny);

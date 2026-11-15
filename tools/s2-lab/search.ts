@@ -163,7 +163,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                 node.board,
                 option.kind,
                 spawnPosition(option.kind, node.board.length),
-                { spinEvidence: true },
+                { spinEvidence: true, rotate180: true },
               )) {
                 const child = expand(
                   node,
@@ -193,6 +193,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
               : spawnPosition(option.kind, node.board.length);
         for (const placement of generatePlacements(node.board, option.kind, start, {
           spinEvidence: true,
+          rotate180: true,
         })) {
           if (node.depth === 0 && input.acceptRoot && !input.acceptRoot(placement, option.usedHold))
             continue;
