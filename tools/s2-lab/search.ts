@@ -99,6 +99,10 @@ interface Node {
   readonly canHold: boolean;
   readonly b2b: number;
   readonly combo: number;
+  /** Residual incoming garbage not yet landed or cancelled. */
+  readonly pending: number;
+  /** Referee-given rows due on the root lock (deeper locks: see expand). */
+  readonly dueThisLock: number;
   /** Garbage rows that have landed under the stack during the line. */
   readonly lift: number;
   readonly tSlot: number;
@@ -122,6 +126,8 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     canHold: input.canHold,
     b2b: input.b2b,
     combo: input.combo,
+    pending: input.pending,
+    dueThisLock: input.dueThisLock,
     lift: 0,
     tSlot: rootFeatures.tSlot,
     reward: 0,
@@ -161,11 +167,9 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                   node,
                   placement,
                   option,
-                  0,
                   w,
                   0,
                   options.exposure ?? 0,
-                  0,
                   input.frame ?? 0,
                 );
                 nodes += 1;
@@ -192,11 +196,9 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             node,
             placement,
             option,
-            input.pending,
             w,
             firstMoves.length,
             options.exposure ?? 0,
-            input.dueThisLock,
             input.frame ?? 0,
           );
           nodes += 1;
@@ -288,11 +290,9 @@ function expand(
   node: Node,
   placement: Placement,
   option: PieceOption,
-  rootPending: number,
   w: Weights,
   rootIndex: number,
   exposure: number,
-  dueThisLock: number,
   rootFrame: number,
 ): Node | null {
   // Use staged S2 lock awards and All-Mini+; exact d is never reduced to a flag.
@@ -344,14 +344,27 @@ function expand(
   const difficult = lines > 0 && (lines === 4 || spin !== "none" || outcome.perfectClear);
   const b2b = award.difficultChain;
 
-  // Garbage: our attack cancels what is pending; the rest lands under the stack on this
-  // lock (garbage delay 1). Only the root's pending garbage is known.
-  const pending = node.depth === 0 ? rootPending : 0;
-  const lift = node.lift + (lines === 0 ? Math.min(dueThisLock, Math.max(0, pending - attack)) : 0);
+  // Garbage: our attack cancels what is pending; the due remainder lands under
+  // the stack on a non-clearing lock. The residual pending is carried into the
+  // child: a clear blocks this lock's intake but does not erase the uncanceled
+  // remainder, and a non-clearing lock lands only the due part. The lab runs
+  // zero-frame garbage delay with instant entry, so past the root every
+  // residual row is due at the next non-clearing lock.
+  const pendingIn = node.pending;
+  let pending = pendingIn;
+  let lift = node.lift;
+  if (lines > 0) {
+    pending = Math.max(0, pendingIn - attack);
+  } else {
+    const landed = Math.min(node.depth === 0 ? node.dueThisLock : pendingIn, pendingIn);
+    lift += landed;
+    pending = pendingIn - landed;
+  }
 
   let reward = attack * w.attack;
-  // Attack is paid pre-cancel; only excess converts to pressure. Pending is known only at root.
-  if (node.depth === 0) reward += w.conversion * Math.max(0, attack - rootPending);
+  // Attack is paid pre-cancel; only excess converts to pressure. Priced at the
+  // root only, against the referee's known pending figure.
+  if (node.depth === 0) reward += w.conversion * Math.max(0, attack - pendingIn);
   const kind = clearKind(lines, placement.tspin, outcome.perfectClear);
   if (kind !== null) reward += w.clear[kind];
   if (node.b2b && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
@@ -377,6 +390,8 @@ function expand(
     canHold: true,
     b2b,
     combo,
+    pending,
+    dueThisLock: 0,
     lift,
     tSlot: features.tSlot,
     reward: accumulated,
