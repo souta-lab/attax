@@ -21,8 +21,16 @@ test("S2 search prices root-frame margin and bottom-first garbage flags", () => 
   };
   const options = { weights: DEFAULT_WEIGHTS, width: 32 };
   const clean = search(input, options);
-  const garbage = search({ ...input, garbageRows: [1, 1] }, options);
-  const uncleared = search({ ...input, garbageRows: [0, 0, 0, 0, 1] }, options);
+  // Flags are in board row-index order (as projectAttax produces): the quad
+  // clears board rows 36-39, so flag the bottom two cleared rows directly,
+  // and for the uncleared case a row the quad does not clear (35).
+  const flags = (...rows: number[]) => {
+    const out = Array<number>(40).fill(0);
+    for (const row of rows) out[row] = 1;
+    return out;
+  };
+  const garbage = search({ ...input, garbageRows: flags(38, 39) }, options);
+  const uncleared = search({ ...input, garbageRows: flags(35) }, options);
   expect(clean?.best.linesCleared).toBe(4);
   // Frame 14550 sits on a SIM-003 boundary: the referee's per-frame IEEE
   // accumulator yields M = 1.499999999999945, so floor(4 * M) = 5, not 6.

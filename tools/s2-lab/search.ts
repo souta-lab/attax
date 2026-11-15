@@ -33,7 +33,7 @@ export interface SearchInput {
   readonly board: BitBoard;
   /** Logical referee frame at the root decision (lockTime). */
   readonly frame?: number;
-  /** Garbage flags in bottom-first order, index 0 = bottom. */
+  /** Garbage flags aligned with board row indices (same index space as board). */
   readonly garbageRows?: readonly number[];
   readonly active: { kind: PieceKind; rotation: number; x: number; y: number };
   readonly hold: PieceKind | null;

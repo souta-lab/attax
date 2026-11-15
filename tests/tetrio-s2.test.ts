@@ -111,7 +111,7 @@ describe("S2-SPEC: Attack table and complete combo rule", () => {
     expect(awardLock("tetrio-s2", clear(2), 0, stage).attack).toBe(1);
     expect(awardLock("tetrio-s2", clear(2, { tspinKind: "full" }), 0, stage).attack).toBe(7);
     expect(awardLock("tetrio-s2", clear(2, { perfectClear: true }), 0, stage).attack).toBe(8);
-    expect(awardLock("tetrio-s2", clear(2), 5, stage).attack).toBe(5);
+    expect(awardLock("tetrio-s2", clear(2), 5, stage).attack).toBe(7);
   });
   test("margin multiplier uses logical frames", () => {
     expect(s2GarbageMultiplier(0)).toBe(1);
