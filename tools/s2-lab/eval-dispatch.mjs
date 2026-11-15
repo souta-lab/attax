@@ -5,11 +5,14 @@
 // job lands on does not affect its records (all nodes run the launched
 // code + the pinned champion WASM and are C5-qualified to identical
 // recordsSha256 on the standard job).
-// Routing: tuning-size evals rotate PC -> bench -> main via a counter
-// file; larger evals (selection 20 / validation 40) always run on the
-// PC reference node. Backend exit codes pass through unchanged (0 ok,
-// 75 transport, 1 worker failure), so the driver's registered error
-// policies apply per node exactly as before.
+// Routing: tuning-size evals rotate PC -> bench -> main -> koenigsegg
+// -> VM via a counter file (the five-node formation completed by the
+// campaign-2 amendment 2026-11-15: boxes woken from hibernation,
+// koenigsegg and the VM qualified under C5 at the campaign-2 tree and
+// wired in); larger evals (selection 20 / validation 40) always run on
+// the PC reference node. Backend exit codes pass through unchanged
+// (0 ok, 75 transport, 1 worker failure), so the driver's registered
+// error policies apply per node exactly as before.
 // Campaign 2 (S2-CAMPAIGN2-DESIGN.md): the rotating job size and the
 // counter path are env-configurable (S2_DISPATCH_ROTATE_GAMES,
 // comma-separated, default "4"; S2_DISPATCH_COUNTER, default the
@@ -31,6 +34,8 @@ const backends = [
   { name: "pc", runner: resolve(here, "eval-via-pc.mjs"), env: {} },
   { name: "bench", runner: resolve(here, "eval-via-box.mjs"), env: { S2_BOX_NAME: "bench" } },
   { name: "main", runner: resolve(here, "eval-via-box.mjs"), env: { S2_BOX_NAME: "main" } },
+  { name: "koenigsegg", runner: resolve(here, "eval-via-koenigsegg.mjs"), env: {} },
+  { name: "vm", runner: resolve(here, "eval-via-vm.mjs"), env: {} },
 ];
 
 async function pickBackend() {
