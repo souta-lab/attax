@@ -109,6 +109,8 @@ interface Node {
   readonly tSlot: number;
   readonly reward: number;
   readonly value: number;
+  /** Terminal under the referee death rule: valued as a leaf, never expanded. */
+  readonly dead: boolean;
   readonly depth: number;
   readonly step: Step | null;
   readonly parent: Node | null;
@@ -133,6 +135,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     tSlot: rootFeatures.tSlot,
     reward: 0,
     value: 0,
+    dead: false,
     depth: 0,
     step: null,
     parent: null,
@@ -209,7 +212,10 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
           nodes += 1;
           if (child === null) continue;
           if (node.depth === 0) firstMoves.push(child);
-          children.push(child);
+          // Dead lines are leaves: valued for the fallback/best-try choice
+          // (and as root moves when every lock is fatal), never expanded.
+          if (child.dead) finished.push(child);
+          else children.push(child);
         }
       }
     }
@@ -403,10 +409,15 @@ function expand(
   // Referee death rule (occupied-buffer): a post-lock state with any occupied
   // cell above the visible 20-row field is already a loss (run-match.mjs,
   // "occupied-buffer-lab-placement-rule"), however much buffer remains above
-  // it. This also disposes of buffer-locking placements (movegen generates
-  // them at every depth): they are never retained or selected from here.
+  // it. Death is TERMINAL, not null: the node is valued and kept as a leaf
+  // but never expanded (the game is over). Returning null instead made the
+  // search report "no move" in states where every root lock is fatal -
+  // under heavy due garbage that is most losing endgames - while the
+  // referee still requires a submitted placement and records a normal
+  // top-out. This also disposes of buffer-locking placements (movegen
+  // generates them at every depth): they can only ever be terminal leaves.
   const deathLimit = Math.min(node.board.length, 21);
-  if (features.maxHeight >= deathLimit) return null;
+  const dead = features.maxHeight >= deathLimit;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
   const value = accumulated + scale * w.discount * dot(features, w);
@@ -425,6 +436,7 @@ function expand(
     tSlot: features.tSlot,
     reward: accumulated,
     value,
+    dead,
     depth: node.depth + 1,
     step: { placement, usedHold: option.usedHold, linesCleared: lines, attack, reward },
     parent: node,
