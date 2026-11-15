@@ -12,6 +12,14 @@ import { DEFAULT_STOCK_PARAMS, type StockParams } from "./stock.js";
 export interface MechanismSettings {
   readonly stock?: StockParams;
   readonly solvency?: SolvencyParams;
+  /**
+   * Solvency form: "soft" = the C2 per-layer penalty (needs the solvency
+   * parameter section, or the env force-on); "hard" = the root-stage veto
+   * (choose_rescue), which needs no parameters and disables the soft
+   * penalty — the two forms are mutually exclusive A/B settings.
+   * Absent = "soft" when a solvency section is present, off otherwise.
+   */
+  readonly solvencyMode?: "soft" | "hard";
 }
 
 const profiles = new Map<
@@ -79,12 +87,21 @@ function parseMechanisms(raw: unknown): MechanismSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("expected an object at mechanisms");
   }
-  const out: { stock?: StockParams; solvency?: SolvencyParams } = {};
+  const out: {
+    stock?: StockParams;
+    solvency?: SolvencyParams;
+    solvencyMode?: "soft" | "hard";
+  } = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key === "stock") {
       out.stock = mechanismParams(DEFAULT_STOCK_PARAMS, value, "mechanisms.stock");
     } else if (key === "solvency") {
       out.solvency = mechanismParams(DEFAULT_SOLVENCY_PARAMS, value, "mechanisms.solvency");
+    } else if (key === "solvencyMode") {
+      if (value !== "soft" && value !== "hard") {
+        throw new Error(`expected "soft" or "hard" at mechanisms.solvencyMode`);
+      }
+      out.solvencyMode = value;
     } else {
       throw new Error(`unknown mechanism: mechanisms.${key}`);
     }
@@ -110,7 +127,9 @@ function loadProfile(profilePath: string | undefined) {
   // Profiles without mechanisms keep the historical weights-only identity;
   // mechanism-bearing profiles hash the full configuration.
   const identity =
-    mechanisms.stock === undefined && mechanisms.solvency === undefined
+    mechanisms.stock === undefined &&
+    mechanisms.solvency === undefined &&
+    mechanisms.solvencyMode === undefined
       ? canonical(weights)
       : canonical({ weights, mechanisms });
   const loaded = {
@@ -202,11 +221,26 @@ export function createAttaxDecider(profilePath: string | undefined) {
     mechanisms.stock,
     DEFAULT_STOCK_PARAMS,
   );
-  const solvency = envMechanism(
-    process.env.ATTAX_S2_SOLVENCY,
-    mechanisms.solvency,
-    DEFAULT_SOLVENCY_PARAMS,
-  );
+  // Solvency mode resolution: ATTAX_S2_SOLVENCY "0" forces every form off;
+  // ATTAX_S2_SOLVENCY_MODE overrides the profile's form; the profile form
+  // defaults to "soft" when a solvency section (or the env force-on) is in
+  // play. "hard" swaps the per-layer penalty for the root-stage veto.
+  const solvencyEnv = process.env.ATTAX_S2_SOLVENCY;
+  const modeEnv = process.env.ATTAX_S2_SOLVENCY_MODE;
+  if (modeEnv !== undefined && modeEnv !== "soft" && modeEnv !== "hard") {
+    throw new Error(`expected "soft" or "hard" in ATTAX_S2_SOLVENCY_MODE`);
+  }
+  const solvencyMode: "soft" | "hard" | undefined =
+    solvencyEnv === "0"
+      ? undefined
+      : (modeEnv ??
+        mechanisms.solvencyMode ??
+        (mechanisms.solvency !== undefined || solvencyEnv === "1" ? "soft" : undefined));
+  const solvency =
+    solvencyMode === "soft"
+      ? envMechanism(solvencyEnv, mechanisms.solvency, DEFAULT_SOLVENCY_PARAMS)
+      : undefined;
+  const rootVeto = solvencyMode === "hard";
   return {
     weights,
     mechanisms,
@@ -219,6 +253,7 @@ export function createAttaxDecider(profilePath: string | undefined) {
           width: BOT_DEFAULTS.width,
           ...(stock ? { stock } : {}),
           ...(solvency ? { solvency } : {}),
+          ...(rootVeto ? { rootVeto } : {}),
         },
       );
     },
