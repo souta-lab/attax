@@ -6,7 +6,7 @@ import { spawnPosition } from "../../src/ai/bot/movegen.js";
 import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
 import { createAttaxDecider, type PublicDecision, projectAttax } from "./attax-player.js";
 import { type SearchInput, search } from "./search.js";
-import { assessSolvency, DEFAULT_SOLVENCY_PARAMS } from "./solvency.js";
+import { assessSolvency, DEFAULT_SOLVENCY_PARAMS, solvencyMargin } from "./solvency.js";
 import { DEFAULT_STOCK_PARAMS, type StockState, stockPotential } from "./stock.js";
 
 const ATTACK = DEFAULT_WEIGHTS.attack;
@@ -319,6 +319,165 @@ describe("C2 search integration", () => {
       expect(forcedOn?.best.linesCleared).toBe(2);
       expect(forcedOn?.value).toBeLessThanOrEqual(baseline?.value ?? 0);
     } finally {
+      delete process.env.ATTAX_S2_SOLVENCY;
+    }
+  });
+});
+
+/**
+ * Height-15 stack (well at column 0, notch at columns 3-4 on the top two
+ * rows), 5 pending all due this lock. The value-best root (a hold-J line)
+ * is insolvent by the quantity-only margin (20 - height - pending = -1);
+ * the first solvent root in rank order is the plain O placement at x = 2
+ * (margin 0). Verified against a manual root-lock simulation of expand().
+ */
+function vetoInput(patch: Partial<SearchInput> = {}): SearchInput {
+  const board = new Uint16Array(40);
+  for (let r = 25; r < 40; r += 1) board[r] = 0x3ff ^ (1 << 0);
+  for (const r of [25, 26]) {
+    let row = board[r] as number;
+    row &= ~(1 << 3);
+    row &= ~(1 << 4);
+    board[r] = row;
+  }
+  return {
+    board,
+    garbageRows: Array.from({ length: 40 }, (_, r) => (r >= 25 ? 1 : 0)),
+    active: { kind: "O", ...spawnPosition("O", 40) },
+    hold: "J",
+    canHold: true,
+    preview: ["T", "I", "O"],
+    b2b: 0,
+    combo: -1,
+    pending: 5,
+    dueThisLock: 5,
+    speculativePieces: [],
+    ...patch,
+  };
+}
+
+describe("C2 hard root veto (choose_rescue)", () => {
+  test("solvencyMargin is the champion's quantity-only arithmetic", () => {
+    expect(solvencyMargin({ maxHeight: 17, pending: 4 })).toBe(-1);
+    expect(solvencyMargin({ maxHeight: 12, pending: 8 })).toBe(0);
+    expect(solvencyMargin({ maxHeight: 4, pending: 0 })).toBe(16);
+  });
+
+  test("veto-off is bit-identical (absent vs explicit false)", () => {
+    const input = vetoInput();
+    const absent = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const explicit = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: false });
+    expect(fingerprint(explicit)).toBe(fingerprint(absent));
+  });
+
+  test("insolvent rank 0 is replaced by the first solvent rank, values untouched", () => {
+    const input = vetoInput();
+    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const hard = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    // Rank 0 without the veto: the hold-J line (root margin -1, insolvent).
+    expect(off?.best.placement.kind).toBe("J");
+    expect(off?.best.placement.rotation).toBe(3);
+    expect(off?.best.placement.x).toBe(3);
+    expect(off?.best.usedHold).toBe(true);
+    // With the veto: the first solvent root in rank order (root margin 0).
+    expect(hard?.best.placement.kind).toBe("O");
+    expect(hard?.best.placement.rotation).toBe(0);
+    expect(hard?.best.placement.x).toBe(2);
+    expect(hard?.best.usedHold).toBe(false);
+    // The veto is a pure selector: the ranked candidate list is unchanged
+    // and the played line keeps its unmodified search value.
+    expect(JSON.stringify(hard?.candidates)).toBe(JSON.stringify(off?.candidates));
+    const picked = off?.candidates.find(
+      (c) =>
+        c.placement.kind === hard?.best.placement.kind &&
+        c.placement.rotation === hard?.best.placement.rotation &&
+        c.placement.x === hard?.best.placement.x &&
+        c.usedHold === hard?.best.usedHold,
+    );
+    expect(picked).toBeDefined();
+    expect(off?.candidates.indexOf(picked as never)).toBeGreaterThan(0);
+    expect(hard?.value).toBe(picked?.value);
+  });
+
+  test("when every root is insolvent, the least-bad line still stands", () => {
+    // 30 pending, all due: clearing roots cancel at most a few rows and
+    // non-clearing roots tank the full 30 — no root can pay the margin.
+    const input = vetoInput({ pending: 30, dueThisLock: 30 });
+    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const hard = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    expect(off).not.toBeNull();
+    expect(fingerprint(hard)).toBe(fingerprint(off));
+  });
+
+  test("when rank 0 is solvent, the veto changes nothing", () => {
+    const input = projectAttax(decision()); // empty board, no pending
+    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const hard = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    expect(fingerprint(hard)).toBe(fingerprint(off));
+  });
+
+  test("profile solvencyMode parses, validates, and separates identities", () => {
+    const dir = mkdtempSync(join(tmpdir(), "s2-veto-test-"));
+    const softPath = join(dir, "soft.json");
+    writeFileSync(
+      softPath,
+      JSON.stringify({ mechanisms: { stock: {}, solvency: { ...DEFAULT_SOLVENCY_PARAMS } } }),
+    );
+    const hardPath = join(dir, "hard.json");
+    writeFileSync(
+      hardPath,
+      JSON.stringify({
+        mechanisms: {
+          stock: {},
+          solvency: { ...DEFAULT_SOLVENCY_PARAMS },
+          solvencyMode: "hard",
+        },
+      }),
+    );
+    const soft = createAttaxDecider(softPath);
+    const hard = createAttaxDecider(hardPath);
+    expect(hard.mechanisms.solvencyMode).toBe("hard");
+    expect(soft.mechanisms.solvencyMode).toBeUndefined();
+    expect(hard.profileId).not.toBe(soft.profileId);
+    const bad = join(dir, "bad.json");
+    writeFileSync(bad, JSON.stringify({ mechanisms: { solvencyMode: "banana" } }));
+    expect(() => createAttaxDecider(bad)).toThrow("solvencyMode");
+  });
+
+  test("hard profile and env mode reproduce the search-level veto exactly", () => {
+    // The vetoInput stack as a public decision (filled cells are garbage).
+    const input = vetoInput();
+    const cells = Array<string>(400).fill("_");
+    for (let y = 0; y < 40; y += 1) {
+      const row = input.board[39 - y] as number;
+      for (let x = 0; x < 10; x += 1) if ((row & (1 << x)) !== 0) cells[y * 10 + x] = "G";
+    }
+    const d: PublicDecision = {
+      board: { width: 10, height: 40, cells: cells.join("") },
+      pieces: { current: "O", known: ["T", "I", "O"], hold: "J", holdAvailable: true },
+      chain: { b2b: 0, combo: 0 },
+      incoming: { pendingRows: 5, dueThisLockRows: 5 },
+    };
+    const expected = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    const dir = mkdtempSync(join(tmpdir(), "s2-veto-test-"));
+    const hardPath = join(dir, "hard.json");
+    writeFileSync(hardPath, JSON.stringify({ mechanisms: { solvencyMode: "hard" } }));
+    const viaProfile = createAttaxDecider(hardPath).decide(d);
+    expect(viaProfile?.best.placement).toEqual(expected?.best.placement);
+    expect(viaProfile?.value).toBe(expected?.value);
+    // Env force: hard around a plain profile; SOLVENCY=0 overrides the mode.
+    const plain = join(dir, "plain.json");
+    writeFileSync(plain, JSON.stringify({}));
+    try {
+      process.env.ATTAX_S2_SOLVENCY_MODE = "hard";
+      const viaEnv = createAttaxDecider(plain).decide(d);
+      expect(viaEnv?.best.placement).toEqual(expected?.best.placement);
+      process.env.ATTAX_S2_SOLVENCY = "0";
+      const forcedOff = createAttaxDecider(plain).decide(d);
+      const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+      expect(forcedOff?.best.placement).toEqual(off?.best.placement);
+    } finally {
+      delete process.env.ATTAX_S2_SOLVENCY_MODE;
       delete process.env.ATTAX_S2_SOLVENCY;
     }
   });
