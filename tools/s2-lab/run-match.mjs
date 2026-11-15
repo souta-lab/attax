@@ -291,6 +291,8 @@ async function play(gameIndex) {
       error,
     }),
   );
-  if (error) throw new Error(error);
+  // Per-game errors stay data (amendment 2026-11-15 03:27 JST): the record
+  // above carries them into the driver compat/exclusion accounting (C3);
+  // rethrowing here aborted the remaining games and bypassed that policy.
 }
 for (let index = 0; index < games; index++) await play(index);
