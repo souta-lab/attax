@@ -5,11 +5,13 @@ import { type Placement, spawnPosition } from "../../src/ai/bot/movegen.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
 import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { type SearchInput, search } from "./search.js";
+import { DEFAULT_SOLVENCY_PARAMS, type SolvencyParams } from "./solvency.js";
 import { DEFAULT_STOCK_PARAMS, type StockParams } from "./stock.js";
 
 /** Optional mechanism layers a profile may switch on (canonical §C1/§C2). */
 export interface MechanismSettings {
   readonly stock?: StockParams;
+  readonly solvency?: SolvencyParams;
 }
 
 const profiles = new Map<
@@ -77,10 +79,12 @@ function parseMechanisms(raw: unknown): MechanismSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("expected an object at mechanisms");
   }
-  const out: { stock?: StockParams } = {};
+  const out: { stock?: StockParams; solvency?: SolvencyParams } = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key === "stock") {
       out.stock = mechanismParams(DEFAULT_STOCK_PARAMS, value, "mechanisms.stock");
+    } else if (key === "solvency") {
+      out.solvency = mechanismParams(DEFAULT_SOLVENCY_PARAMS, value, "mechanisms.solvency");
     } else {
       throw new Error(`unknown mechanism: mechanisms.${key}`);
     }
@@ -106,7 +110,9 @@ function loadProfile(profilePath: string | undefined) {
   // Profiles without mechanisms keep the historical weights-only identity;
   // mechanism-bearing profiles hash the full configuration.
   const identity =
-    mechanisms.stock === undefined ? canonical(weights) : canonical({ weights, mechanisms });
+    mechanisms.stock === undefined && mechanisms.solvency === undefined
+      ? canonical(weights)
+      : canonical({ weights, mechanisms });
   const loaded = {
     weights,
     mechanisms,
@@ -196,6 +202,11 @@ export function createAttaxDecider(profilePath: string | undefined) {
     mechanisms.stock,
     DEFAULT_STOCK_PARAMS,
   );
+  const solvency = envMechanism(
+    process.env.ATTAX_S2_SOLVENCY,
+    mechanisms.solvency,
+    DEFAULT_SOLVENCY_PARAMS,
+  );
   return {
     weights,
     mechanisms,
@@ -203,7 +214,12 @@ export function createAttaxDecider(profilePath: string | undefined) {
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
       return search(
         { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
-        { weights, width: BOT_DEFAULTS.width, ...(stock ? { stock } : {}) },
+        {
+          weights,
+          width: BOT_DEFAULTS.width,
+          ...(stock ? { stock } : {}),
+          ...(solvency ? { solvency } : {}),
+        },
       );
     },
   };

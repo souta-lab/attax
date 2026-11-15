@@ -1,0 +1,6 @@
+{
+  "mechanisms": {
+    "solvency": { "coefficient": 40, "doomedPenalty": 1000000, "marginBand": 6 },
+    "stock": { "betaB": 0.5, "betaR": 0.5, "scale": 1 }
+  }
+}

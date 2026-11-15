@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnPosition } from "../../src/ai/bot/movegen.js";
 import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
 import { createAttaxDecider, type PublicDecision, projectAttax } from "./attax-player.js";
-import { search } from "./search.js";
+import { type SearchInput, search } from "./search.js";
+import { assessSolvency, DEFAULT_SOLVENCY_PARAMS } from "./solvency.js";
 import { DEFAULT_STOCK_PARAMS, type StockState, stockPotential } from "./stock.js";
 
 const ATTACK = DEFAULT_WEIGHTS.attack;
@@ -155,7 +157,7 @@ describe("C1 profile and env wiring", () => {
   test("unknown mechanism keys and parameters fail loudly", () => {
     const dir = mkdtempSync(join(tmpdir(), "s2-ports-test-"));
     const bad1 = join(dir, "bad1.json");
-    writeFileSync(bad1, JSON.stringify({ mechanisms: { solvency: {} } }));
+    writeFileSync(bad1, JSON.stringify({ mechanisms: { warp: {} } }));
     expect(() => createAttaxDecider(bad1)).toThrow("unknown mechanism");
     const bad2 = join(dir, "bad2.json");
     writeFileSync(bad2, JSON.stringify({ mechanisms: { stock: { nope: 1 } } }));
@@ -179,6 +181,145 @@ describe("C1 profile and env wiring", () => {
       expect(forcedOn?.value).toBeGreaterThan(baseline?.value ?? 0);
     } finally {
       delete process.env.ATTAX_S2_STOCK_POTENTIAL;
+    }
+  });
+});
+
+describe("C2 solvency assessment", () => {
+  const params = DEFAULT_SOLVENCY_PARAMS;
+
+  test("no penalty at or above the margin band", () => {
+    expect(assessSolvency({ maxHeight: 10, pending: 0 }, params)).toEqual({
+      penalty: 0,
+      margin: 10,
+      doomed: false,
+    });
+    expect(assessSolvency({ maxHeight: 14, pending: 0 }, params).penalty).toBe(0);
+  });
+
+  test("smooth quadratic penalty below the band, before any doom", () => {
+    // Margin 4 -> shortfall 2 -> 40 * 4.
+    expect(assessSolvency({ maxHeight: 16, pending: 0 }, params).penalty).toBe(160);
+    // Pending counts against the margin exactly like height.
+    const a = assessSolvency({ maxHeight: 15, pending: 4 }, params);
+    expect(a).toEqual({ penalty: 1000, margin: 1, doomed: false });
+  });
+
+  test("tank-doomed states are demoted, not removed", () => {
+    const a = assessSolvency({ maxHeight: 17, pending: 4 }, params);
+    expect(a.doomed).toBe(true);
+    expect(a.margin).toBe(-1);
+    expect(a.penalty).toBe(40 * 49 + 1_000_000);
+    // A worse doom is still worse: the least-bad doomed line ranks first.
+    const b = assessSolvency({ maxHeight: 19, pending: 4 }, params);
+    expect(b.penalty).toBeGreaterThan(a.penalty);
+  });
+});
+
+/**
+ * Height-16 stack, 4 pending due next lock. Rows 24-25 (from the top) miss
+ * exactly columns 8-9, so one O placement completes a double there; every
+ * other O placement stacks on top and is tank-doomed (height 18 + 4 > 20).
+ */
+function cliffInput(): SearchInput {
+  const board = new Uint16Array(40);
+  for (let r = 26; r < 40; r += 1) board[r] = 0x3ff ^ (1 << 2) ^ (1 << 6);
+  board[24] = 0x3ff ^ (1 << 8) ^ (1 << 9);
+  board[25] = 0x3ff ^ (1 << 8) ^ (1 << 9);
+  const garbageRows = Array.from({ length: 40 }, (_, r) => (r >= 26 ? 1 : 0));
+  return {
+    board,
+    garbageRows,
+    active: { kind: "O", ...spawnPosition("O", 40) },
+    hold: null,
+    canHold: false,
+    preview: [],
+    b2b: 0,
+    combo: -1,
+    pending: 4,
+    dueThisLock: 0,
+    speculativePieces: [],
+  };
+}
+
+describe("C2 search integration", () => {
+  test("absent and zero-coefficient solvency are bit-identical", () => {
+    const input = cliffInput();
+    const base = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const zeroed = search(input, {
+      width: 48,
+      weights: DEFAULT_WEIGHTS,
+      solvency: { ...DEFAULT_SOLVENCY_PARAMS, coefficient: 0 },
+    });
+    expect(fingerprint(zeroed)).toBe(fingerprint(base));
+    const both = search(input, {
+      width: 48,
+      weights: DEFAULT_WEIGHTS,
+      stock: { ...DEFAULT_STOCK_PARAMS, scale: 0 },
+      solvency: { ...DEFAULT_SOLVENCY_PARAMS, coefficient: 0 },
+    });
+    expect(fingerprint(both)).toBe(fingerprint(base));
+  });
+
+  test("the solvency layer demotes doomed roots and crowns the surviving clear", () => {
+    const input = cliffInput();
+    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const on = search(input, {
+      width: 48,
+      weights: DEFAULT_WEIGHTS,
+      solvency: DEFAULT_SOLVENCY_PARAMS,
+    });
+    // Placement x is the piece-box origin: O cells sit at +1/+2, so the
+    // notch clear (cells at columns 8-9) is x = 7 and the leftmost
+    // stack-top placement (cells at columns 0-1) is x = -1.
+    const byX = (r: ReturnType<typeof search>, x: number) =>
+      r?.candidates.find((c) => c.placement.x === x)?.value;
+    const doomedOff = byX(off, -1);
+    const doomedOn = byX(on, -1);
+    const survivorOff = byX(off, 7);
+    const survivorOn = byX(on, 7);
+    expect(doomedOff).toBeDefined();
+    expect(survivorOff).toBeDefined();
+    // The stack-top root is tank-doomed: its value collapses by the demotion.
+    expect((doomedOn ?? 0) - (doomedOff ?? 0)).toBeLessThan(-500_000);
+    // The double-clear root only pays its small smooth penalty.
+    expect((survivorOn ?? 0) - (survivorOff ?? 0)).toBeGreaterThan(-20_000);
+    expect((survivorOn ?? 0) - (survivorOff ?? 0)).toBeLessThan(0);
+    // And it becomes the chosen root.
+    expect(on?.candidates[0]?.placement.x).toBe(7);
+    expect(on?.best.linesCleared).toBe(2);
+  });
+
+  test("env switch forces solvency on around a plain profile", () => {
+    // The cliff stack as a public decision (rows are top-first cells).
+    const cells = Array<string>(400).fill("_");
+    for (let y = 0; y < 40; y += 1) {
+      const r = 39 - y;
+      if (r >= 26) {
+        for (let x = 0; x < 10; x += 1) if (x !== 2 && x !== 6) cells[y * 10 + x] = "G";
+      } else if (r === 24 || r === 25) {
+        for (let x = 0; x < 8; x += 1) cells[y * 10 + x] = "X";
+      }
+    }
+    const d: PublicDecision = {
+      board: { width: 10, height: 40, cells: cells.join("") },
+      pieces: { current: "O", known: [], hold: null, holdAvailable: false },
+      chain: { b2b: 0, combo: 0 },
+      incoming: { pendingRows: 4, dueThisLockRows: 0 },
+    };
+    const dir = mkdtempSync(join(tmpdir(), "s2-ports-test-"));
+    const plain = join(dir, "plain.json");
+    writeFileSync(plain, JSON.stringify({}));
+    try {
+      const baseline = createAttaxDecider(plain).decide(d);
+      process.env.ATTAX_S2_SOLVENCY = "1";
+      const forcedOn = createAttaxDecider(plain).decide(d);
+      // The chosen root becomes the surviving double clear; penalties only
+      // subtract, so the value never exceeds the unpenalized baseline.
+      expect(forcedOn?.best.linesCleared).toBe(2);
+      expect(forcedOn?.value).toBeLessThanOrEqual(baseline?.value ?? 0);
+    } finally {
+      delete process.env.ATTAX_S2_SOLVENCY;
     }
   });
 });

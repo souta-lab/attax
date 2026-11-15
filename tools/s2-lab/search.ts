@@ -28,6 +28,7 @@ import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { awardLock, s2GarbageMultiplier } from "../../src/core/rules.js";
 import { classifyS2Spin } from "../../src/core/s2-spin.js";
 import type { TspinKind } from "../../src/core/tspin.js";
+import { assessSolvency, type SolvencyParams } from "./solvency.js";
 import { type StockParams, stockPotential } from "./stock.js";
 
 export interface SearchInput {
@@ -62,11 +63,14 @@ export interface SearchOptions {
   readonly exposure?: number;
   /** C1 stock potential (canonical §C1). Absent or scale 0 = Φ ≡ 0. */
   readonly stock?: StockParams;
+  /** C2 solvency layer (canonical §C2). Absent or coefficient 0 = no penalty. */
+  readonly solvency?: SolvencyParams;
 }
 
 /** Optional mechanism layers threaded through expand(). All S2-only. */
 interface Mechanisms {
   readonly stock?: StockParams;
+  readonly solvency?: SolvencyParams;
 }
 
 export interface Step {
@@ -127,7 +131,7 @@ interface Node {
 
 export function search(input: SearchInput, options: SearchOptions): SearchResult | null {
   const { weights: w, width } = options;
-  const mech: Mechanisms = { stock: options.stock };
+  const mech: Mechanisms = { stock: options.stock, solvency: options.solvency };
   const sequence: PieceKind[] = [input.active.kind, ...input.preview];
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
@@ -453,7 +457,15 @@ function expand(
           w.discount,
         )
       : 0;
-  const value = accumulated + scale * w.discount * (dot(features, w) + phi);
+  // C2: the solvency penalty shares the terminal bracket, so survival is
+  // priced at every beam layer, not vetoed at the root (canonical §C2).
+  // Skipped entirely when absent or coefficient 0, keeping the off state
+  // bit-identical.
+  const risk =
+    mech.solvency !== undefined && mech.solvency.coefficient !== 0
+      ? assessSolvency({ maxHeight: features.maxHeight, pending }, mech.solvency).penalty
+      : 0;
+  const value = accumulated + scale * w.discount * (dot(features, w) + phi - risk);
 
   return {
     board,
