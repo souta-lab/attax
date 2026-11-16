@@ -140,3 +140,36 @@ Timing fields and path-derived IDs change when regenerating; use the retained co
 for the exact case hash. Final workspace `cargo test`: 6 search unit tests,
 1 CLI integration test (8 recorded boards), 60 Hoiko tests, all passing.
 No tests were weakened. No TS edits or commits were made.
+
+## Addendum 2026-11-16 — S2 profile port, lab hookup, and the engine rule
+
+The port now covers the S2 rules profile in full, and the S2 lab runs on it:
+
+- `search.rs` gained `expand_s2`: the staged S2 lock award (spin reclassification via
+  the All-Mini+ table, surge, conversion at the root, mini deltas), garbage-flag
+  compaction with the clear, landed-garbage materialization, terminal death as a
+  flag, the Φ stock potential (`stock.rs`), the solvency penalty (`solvency.rs`),
+  the root-stage solvency veto, and the referee acceptRoot witness filter.
+- `movegen.rs` gained 180° rotations with both kick tables (guideline SRS+ and the
+  S2 table, selected by profile like TS `RulesProfile.kicks180`) and spin-evidence
+  mode. `rules.rs` carries the frame multiplier cache, `s2ComboRaw` and the staged
+  award; `features.rs` the hole-geometry terms.
+- Float exactness: the per-depth scale now uses `f64::powi`, which matches Bun's
+  `0.97 ** d` bit-for-bit at every depth (libm `powf` was the divergence documented
+  above). The retained guideline corpus consequently rose from 431/596 to
+  **596/596 full agreement**, and the new S2 corpus (720 decisions × the 4 standard
+  profiles, dumped by `tools/search-port/dump-s2-cases.ts`) agrees
+  **720/720 on decisions and on full results**. The S2 decision-corpus digest
+  through the Rust driver path is byte-identical to the TS record:
+  `d12375f7935ca9f94b0fedeee96877b2ef6c6118be6fac1bd5110cf12297f286`.
+
+Engine rule (repo AGENTS.md, "Search engine rule"): the lab driver
+(`tools/s2-lab/attax-player.ts`) defaults to this CLI (`--oneshot` per decision);
+the TS search is the reference implementation and requires the explicit opt-in
+`ATTAX_ENGINE=ts-reference`. There is no fallback — the driver handshakes the
+binary (`attax-agree --version`, which reports the build commit stamped by
+`build.rs`) before a run and aborts if it does not answer. Every record names its
+engine (match JSONL `settings.attaxEngine`, corpus `<output>.engine.json`
+sidecar, bench `engine` field), the driver feeds the CLI's per-decision
+`searchMs` to a speed tripwire that warns when a "Rust" run performs at TS-like
+levels, and CI's `agreement` job re-runs both corpora plus the digest pin.

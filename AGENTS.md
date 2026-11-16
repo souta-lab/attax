@@ -30,8 +30,27 @@ shows the measured head-to-head result and lets anyone replay any benchmark game
   inputs. The bot executes via `placeMinoAt`, which only checks free cells, so never
   weaken that test.
 
+## Search engine rule (2026-11-16)
+- Matches and benchmarks run on the **Rust search** (`rust/attax-search`, driven through
+  the `attax-agree` CLI). The TS search (`src/ai/bot/search.ts`) is the **reference
+  implementation**: it exists for agreement checking, never for producing match records.
+- The S2 lab driver (`tools/s2-lab/attax-player.ts`) defaults to the Rust engine. Running
+  on TS requires the explicit opt-in `ATTAX_ENGINE=ts-reference`. There is **no fallback**:
+  a missing or failing Rust binary aborts the run at startup (the driver handshakes the
+  binary before the first decision).
+- Every run record names the engine that produced it (engine id + build commit): match
+  JSONL carries `settings.attaxEngine`, corpus runs write a `<output>.engine.json`
+  sidecar, bench outputs carry an `engine` field. A result that does not name its engine
+  is not evidence.
+- The TS↔Rust agreement harness and the S2 corpus digest pin run in CI (job `agreement`)
+  and fail on divergence. Case expectations are dumped from the TS reference only
+  (`tools/search-port/dump-s2-cases.ts` refuses any other engine).
+
 ## Gates
 `bunx tsc --noEmit`, `bun test`, `bun run lint`, `bun run build`; `cargo test` for rust/.
+Note: `bun test` exercises the lab driver on its default (Rust) engine — build the
+release CLI first (`cargo build --release --manifest-path rust/Cargo.toml -p attax-search-cli`),
+or opt into the reference with `ATTAX_ENGINE=ts-reference bun test`.
 
 ## Naming
 Display names live in `src/brand.ts` (+ `index.html` title/meta, `package.json` name).
