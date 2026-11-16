@@ -217,6 +217,9 @@ struct Ctx<'a> {
     w: &'a Weights,
     exposure: f64,
     guideline: bool,
+    /// The adopt state terms mirror the TS guideline evaluation (`stateValue`); the TS S2
+    /// path does not read them, so the `S2` profile keeps the plain `dot`.
+    adopt: bool,
     /// `discount ** depth`, precomputed with `powf` (platform rounding can differ from JS).
     scale: Vec<f64>,
 }
@@ -284,7 +287,7 @@ fn expand(
     }
     let scale = ctx.scale(node.depth);
     let accumulated = node.reward + scale * (reward - ctx.exposure * features[F_DANGER] as f64);
-    let value = accumulated + scale * w.discount * w.dot(&features);
+    let value = accumulated + scale * w.discount * state_value(ctx, &features, b2b);
 
     Some(Node {
         board: outcome.board,
@@ -304,6 +307,21 @@ fn expand(
     })
 }
 
+/// Terminal state value (`stateValue` in search.ts): the weighted board plus the adopt
+/// state terms, each skipped when its weight is 0 so the default is exactly `dot`.
+#[inline(always)]
+fn state_value(ctx: &Ctx, features: &Features, b2b: bool) -> f64 {
+    let w = ctx.w;
+    let mut total = w.dot(features);
+    if !ctx.adopt {
+        return total;
+    }
+    if w.b2b_state != 0.0 && b2b {
+        total += w.b2b_state;
+    }
+    total
+}
+
 impl Searcher {
     pub fn new() -> Searcher {
         Searcher::default()
@@ -315,6 +333,7 @@ impl Searcher {
             w,
             exposure: options.exposure,
             guideline: options.guideline,
+            adopt: options.profile == SearchProfile::Guideline,
             scale: (0..32).map(|d| w.discount.powf(d as f64)).collect(),
         };
         let mut sequence: Vec<Kind> = Vec::with_capacity(input.preview.len() + 2);
@@ -617,4 +636,120 @@ fn select_beam(
         children[b as usize].value.partial_cmp(&children[a as usize].value).unwrap_or(std::cmp::Ordering::Equal)
     });
     chosen
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bottom rows of a 40-row board, lowest last (engine row order).
+    fn board(rows: &[u16]) -> Board {
+        let mut b = Board::new(40);
+        let off = 40 - rows.len();
+        b.rows[off..].copy_from_slice(rows);
+        b
+    }
+
+    fn midgame() -> Board {
+        board(&[
+            0b0000000000,
+            0b1000000000,
+            0b1100000001,
+            0b1110000011,
+            0b1111000111,
+            0b1101101111,
+            0x3ff ^ 0b10,
+            0x3ff ^ 0b100,
+        ])
+    }
+
+    fn input(board: Board, kind: Kind, preview: &[Kind], b2b: bool, speculative: &[Kind]) -> SearchInput {
+        SearchInput {
+            board,
+            active: (kind, spawn_position(kind, board.len)),
+            hold: None,
+            can_hold: true,
+            preview: preview.to_vec(),
+            b2b,
+            combo: -1,
+            pending: 0,
+            speculative: speculative.to_vec(),
+        }
+    }
+
+    fn opts(weights: Weights) -> SearchOptions {
+        SearchOptions {
+            weights,
+            width: 24,
+            diverse: false,
+            exposure: 0.0,
+            guideline: true,
+            profile: SearchProfile::Guideline,
+        }
+    }
+
+    /// Everything the agreement harness compares, with values as bits.
+    fn fingerprint(r: &Option<SearchResult>) -> String {
+        match r {
+            None => "null".into(),
+            Some(r) => format!(
+                "{:?}|{:?}|{:x}|{:?}|{}|{}",
+                r.best,
+                r.line,
+                r.value.to_bits(),
+                r.candidates.iter().map(|c| (c.placement, c.used_hold, c.value.to_bits())).collect::<Vec<_>>(),
+                r.nodes,
+                r.depth
+            ),
+        }
+    }
+
+    #[test]
+    fn c1_b2b_state_zero_is_bit_identical() {
+        let mut s = Searcher::new();
+        for b2b in [false, true] {
+            for spec in [&[][..], &[Kind::S, Kind::Z, Kind::J][..]] {
+                let i = input(midgame(), Kind::T, &[Kind::I, Kind::L, Kind::O], b2b, spec);
+                let base = fingerprint(&s.search(&i, &opts(Weights::default())));
+                let zero = Weights { b2b_state: 0.0, ..Weights::default() };
+                assert_eq!(fingerprint(&s.search(&i, &opts(zero))), base);
+            }
+        }
+    }
+
+    #[test]
+    fn c1_b2b_state_adds_discounted_value_when_alive() {
+        let mut s = Searcher::new();
+        let mut i = input(Board::new(40), Kind::J, &[], true, &[]);
+        i.can_hold = false;
+        let off = s.search(&i, &opts(Weights::default())).unwrap();
+        let on = s.search(&i, &opts(Weights { b2b_state: 100.0, ..Weights::default() })).unwrap();
+        assert_eq!(on.best, off.best);
+        assert_eq!(on.candidates.len(), off.candidates.len());
+        for (a, b) in on.candidates.iter().zip(&off.candidates) {
+            assert!((a.value - b.value - 97.0).abs() < 1e-9);
+        }
+        // No B2B anywhere: the term never fires and the result is bit-identical.
+        let i = input(Board::new(40), Kind::J, &[Kind::L], false, &[]);
+        let off = fingerprint(&s.search(&i, &opts(Weights::default())));
+        let on = fingerprint(&s.search(&i, &opts(Weights { b2b_state: 100.0, ..Weights::default() })));
+        assert_eq!(on, off);
+    }
+
+    #[test]
+    fn adopt_terms_do_not_apply_under_the_s2_profile() {
+        // The TS S2 path keeps its own bracket; the Rust S2 profile mirrors that.
+        let mut s = Searcher::new();
+        let mut i = input(Board::new(40), Kind::J, &[], true, &[]);
+        i.can_hold = false;
+        let s2 = |w: Weights| SearchOptions { profile: SearchProfile::S2, ..opts(w) };
+        let off = fingerprint(&s.search(&i, &s2(Weights::default())));
+        let on = fingerprint(&s.search(&i, &s2(adopt_on())));
+        assert_eq!(on, off);
+    }
+
+    /// Every adopt term switched on (extended as candidates land).
+    fn adopt_on() -> Weights {
+        Weights { b2b_state: 100.0, ..Weights::default() }
+    }
 }

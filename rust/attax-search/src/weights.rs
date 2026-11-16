@@ -47,6 +47,8 @@ pub struct Weights {
     pub wasted_t: f64,
     /// Per-ply multiplier on later rewards.
     pub discount: f64,
+    /// Adopt C1: terminal state value of B2B being alive (`b2bState`; 0 = off, skipped).
+    pub b2b_state: f64,
 }
 
 impl Default for Weights {
@@ -60,16 +62,24 @@ impl Default for Weights {
             b2b_break: -90.0,
             wasted_t: -50.0,
             discount: 0.97,
+            b2b_state: 0.0,
         }
     }
 }
 
+/// Parameters of the original 24-element policy vector (indices are stable).
+pub const N_CORE_PARAMS: usize = N_FEATURES + 1 + N_CLEARS + 3;
+
+/// Adopt-candidate parameters appended after the core vector, in this order
+/// (all default to 0 = off).
+pub const ADOPT_PARAM_NAMES: [&str; 1] = ["b2bState"];
+
 /// Total number of tunable parameters in the flat vector.
-pub const N_PARAMS: usize = N_FEATURES + 1 + N_CLEARS + 3;
+pub const N_PARAMS: usize = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len();
 
 /// Flat parameter names: `board.<feature>`, `attack`, `clear.<kind>`, `b2bBreak`,
-/// `wastedT`, `discount` — the TS object paths, so tuner output maps 1:1 onto a
-/// `weights.json` the TS bot can load (`ATTAX_WEIGHTS`).
+/// `wastedT`, `discount`, then the adopt parameters — the TS object paths, so tuner
+/// output maps 1:1 onto a `weights.json` the TS bot can load (`ATTAX_WEIGHTS`).
 pub fn param_names() -> Vec<String> {
     let mut v = Vec::with_capacity(N_PARAMS);
     for f in crate::features::FEATURE_NAMES {
@@ -82,6 +92,9 @@ pub fn param_names() -> Vec<String> {
     v.push("b2bBreak".into());
     v.push("wastedT".into());
     v.push("discount".into());
+    for a in ADOPT_PARAM_NAMES {
+        v.push(a.into());
+    }
     v
 }
 
@@ -91,9 +104,10 @@ impl Weights {
         p[..N_FEATURES].copy_from_slice(&self.board);
         p[N_FEATURES] = self.attack;
         p[N_FEATURES + 1..N_FEATURES + 1 + N_CLEARS].copy_from_slice(&self.clear);
-        p[N_PARAMS - 3] = self.b2b_break;
-        p[N_PARAMS - 2] = self.wasted_t;
-        p[N_PARAMS - 1] = self.discount;
+        p[N_CORE_PARAMS - 3] = self.b2b_break;
+        p[N_CORE_PARAMS - 2] = self.wasted_t;
+        p[N_CORE_PARAMS - 1] = self.discount;
+        p[N_CORE_PARAMS] = self.b2b_state;
         p
     }
 
@@ -102,9 +116,10 @@ impl Weights {
         w.board.copy_from_slice(&p[..N_FEATURES]);
         w.attack = p[N_FEATURES];
         w.clear.copy_from_slice(&p[N_FEATURES + 1..N_FEATURES + 1 + N_CLEARS]);
-        w.b2b_break = p[N_PARAMS - 3];
-        w.wasted_t = p[N_PARAMS - 2];
-        w.discount = p[N_PARAMS - 1];
+        w.b2b_break = p[N_CORE_PARAMS - 3];
+        w.wasted_t = p[N_CORE_PARAMS - 2];
+        w.discount = p[N_CORE_PARAMS - 1];
+        w.b2b_state = p[N_CORE_PARAMS];
         w
     }
 
@@ -154,6 +169,7 @@ mod tests {
             ("b2bBreak", w.b2b_break),
             ("wastedT", w.wasted_t),
             ("discount", w.discount),
+            ("b2bState", w.b2b_state),
         ] {
             assert_eq!(read(name).to_bits(), value.to_bits(), "{name}");
         }
@@ -166,5 +182,7 @@ mod tests {
         assert_eq!(Weights::from_params(&p), w);
         assert_eq!(param_names().len(), N_PARAMS);
         assert_eq!(param_names()[N_FEATURES], "attack");
+        assert_eq!(param_names()[N_CORE_PARAMS - 1], "discount");
+        assert_eq!(param_names()[N_CORE_PARAMS], "b2bState");
     }
 }

@@ -113,6 +113,10 @@ fn num(v: &Value, path: &str) -> f64 {
     v.as_f64().unwrap_or_else(|| panic!("weights: {path} is not a number"))
 }
 
+fn opt_num(v: &Value, path: &str) -> f64 {
+    if v.is_null() { 0.0 } else { num(v, path) }
+}
+
 /// TS `Weights` object (weights.ts shape) -> Rust weights.
 fn weights_from_json(v: &Value) -> Weights {
     let mut w = Weights::default();
@@ -124,6 +128,9 @@ fn weights_from_json(v: &Value) -> Weights {
         w.clear[i] = num(&v["clear"][name], &format!("clear.{name}"));
     }
     w.b2b_break = num(&v["b2bBreak"], "b2bBreak");
+    // Adopt keys are optional (absent = 0 = off) so corpora dumped before they existed
+    // still load with their original meaning.
+    w.b2b_state = opt_num(&v["b2bState"], "b2bState");
     w.wasted_t = num(&v["wastedT"], "wastedT");
     w.discount = num(&v["discount"], "discount");
     w

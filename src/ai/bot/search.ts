@@ -381,7 +381,7 @@ function expand(
   if (features.maxHeight >= s.board.length) return null;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
-  const value = accumulated + scale * w.discount * dot(features, w);
+  const value = accumulated + scale * w.discount * stateValue(features, b2bBool, w);
 
   const childState: NodeState = {
     board: outcome.board,
@@ -603,6 +603,19 @@ function wellColumn(board: BitBoard): number {
 function dot(features: BoardFeatures, w: Weights): number {
   let total = 0;
   for (const name of BOARD_FEATURES) total += features[name] * w.board[name];
+  return total;
+}
+
+/**
+ * Terminal state value of a guideline node: the weighted board shape plus the adopt
+ * state terms. Every adopt term is skipped when its weight is 0 or absent, so with
+ * defaults this is exactly `dot(features, w)` (bit-identical). The S2 path (expandS2)
+ * keeps its own bracket (dot + Φ − risk) and does not read the adopt terms.
+ */
+function stateValue(features: BoardFeatures, b2b: boolean, w: Weights): number {
+  let total = dot(features, w);
+  const b2bState = w.b2bState ?? 0;
+  if (b2bState !== 0 && b2b) total += b2bState;
   return total;
 }
 

@@ -30,6 +30,12 @@ export interface Weights {
   readonly wastedT: number;
   /** Per-ply multiplier on later rewards (1 = undiscounted). */
   readonly discount: number;
+  /**
+   * Adopt C1: terminal state value of B2B being alive, added to the board evaluation of
+   * every node (so the leaf's terminal state carries it). 0 or absent = off, and the
+   * search skips the term entirely so off is bit-identical.
+   */
+  readonly b2bState?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {
@@ -62,4 +68,5 @@ export const DEFAULT_WEIGHTS: Weights = {
   b2bBreak: -90,
   wastedT: -50,
   discount: 0.97,
+  b2bState: 0,
 };
