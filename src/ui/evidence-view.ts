@@ -10,6 +10,7 @@ import { fixed, h, pct } from "./dom.js";
 export function createHero(): HTMLElement {
   const cc2 = RESULTS.rows.find((row) => row.id === "cc2") ?? RESULTS.headline;
   const fork = RESULTS.rows.find((row) => row.id === "cc2-fork");
+  const hoiko = RESULTS.rows.find((row) => row.id === "bot") ?? RESULTS.headline;
   const tile = (value: string, label: string, note: string): HTMLElement =>
     h("div", { class: "tile" }, [
       h("strong", { text: value }),
@@ -21,9 +22,9 @@ export function createHero(): HTMLElement {
   return h("section", { class: "hero", attrs: { id: "top" } }, [
     h("p", { class: "kicker", text: BRAND.tagline }),
     h("h1", {}, [
-      `${BRAND.botName} beats the official Cold Clear 2 in `,
-      h("span", { class: "bot-ink", text: `${cc2.wins} of ${cc2.games}` }),
-      " games.",
+      "The strongest versus AI in ",
+      h("span", { class: "bot-ink", text: "guideline rules" }),
+      ".",
     ]),
     h("p", { class: "lede", text: RESULTS.copy.hero }),
     h("div", { class: "tiles" }, [
@@ -33,6 +34,7 @@ export function createHero(): HTMLElement {
         "win rate, Cold Clear 2 fork",
         fork === undefined ? "" : record(fork),
       ),
+      tile(pct(hoiko.winRate), `win rate, ${hoiko.label}`, record(hoiko)),
       tile(
         `${fixed(cc2.attackPerPiece)} : ${fixed(cc2.rivalAttackPerPiece)}`,
         "attack generated per piece",
