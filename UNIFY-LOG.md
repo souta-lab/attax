@@ -181,3 +181,20 @@ S2 copy matches semantically); (v) S2-side evidence (ports/contracts tests
 + lab smoke) after the port; (vi) Hoiko regression 1001-1200 exact
 reproduction after every step. NO PUSH — the unified tree is reported to
 Souta before any push.
+
+### Chunk 3b step (i) — S2 semantics ported into the shared search (2026-11-16 13:56–14:27 JST)
+
+- Golden battery captured PRE-PORT and committed first: `9c357f5` (tools/unify/s2-battery.ts, capture-s2-golden.ts, s2-golden.json — 13 S2 + 4 guideline cases, full SearchResults from the then-current lab/src searches).
+- Lane A (Claude Opus 5.5 high, run-claude.sh) committed `36059c3`: SearchInput gains frame/garbageRows/b2bChain/dueThisLock/acceptRoot; src search under profile "s2" reproduces the lab search exactly (tetrio-s2 award + frame multiplier, classifyS2Spin, spinEvidence/rotate180, acceptRoot, garbage compaction + materialization, terminal death at row 21, Φ/solvency via the src builders, root veto, production lab dedupe/selectBeam keys). Guideline path unchanged (separate expand, legacy keys). Parity test tools/s2-lab/shared-parity.test.ts: all 17 cases exact (JSON-normalized for -0, which the golden cannot store). Chunk-2 S2 dedupe pins re-pinned to the production lab key (canHold merges; combo never folds; pending/garbageRows separate); guideline pins untouched.
+- Coordinator verification: tsc OK, bun test 204 pass, lint clean; **Hoiko regression 1001–1200: 390W–10L, 0 diffs** (tools/unify/regression-chunk3b-*.jsonl, thinkMs excluded from comparison).
+- Note: the VM rebooted once mid-verification (~14:04); the lane's commit was already on disk and the tree stayed clean.
+
+### Chunk 3b steps (ii)+(iii) — S2 lab rewired onto the shared search; lab search deleted (2026-11-16 14:29–15:15 JST)
+
+- Lane B (Claude Opus 5.5 high, run-claude.sh) committed `2442170`: attax-player now decides through src/ai/bot/search.ts under profile "s2". The lab input shape (numeric exact chain in `b2b`, required `dueThisLock`) lives in the new tools/s2-lab/s2-input.ts; `toSharedInput` is the single mapping onto the shared input (b2b flag + b2bChain), used by the player, the adapted tests and the capture tool. Player exported surface unchanged; run-match/league-night/eval-worker still bundle.
+- Tests adapted with assertions and expect() counts untouched: contracts (6), ports (24), staging (3), s2-variants (6). Imitation variants + teacher-oracle take types from the shim only; variant behaviour unchanged.
+- Player-level equivalence added to tools/s2-lab/shared-parity.test.ts (30/30): every battery case expressible as a public decision goes through projectAttax → toSharedInput → shared search and reproduces its pre-port golden exactly (best + full result); decideAttax checked the same way; mutation checks confirm the check exercises the mapping (dropping profile "s2" fails 11, collapsing the chain fails 2, combo off-by-one fails 11). capture-s2-golden re-capture from the shared core is byte-identical to s2-golden.json (sha256 d075f254…5c08 unchanged).
+- tools/s2-lab/search.ts DELETED; repo-wide grep finds no import of it (only historical mentions in comments/docs).
+- Coordinator verification: tsc OK, bun test 217 pass / 0 fail, lint clean, build OK (dist reverted), cargo test 6+1+60 pass; **Hoiko regression 1001–1200: 390W–10L, 0 diffs** (tools/unify/regression-chunk3b-final-*.jsonl).
+- Remaining-steps (iv) SPECULATE parity and (v) S2 evidence are covered in substance by this chunk's evidence: the battery's speculative case (all 7 kinds) reproduces the pre-port lab golden exactly through the shared core, and the ports/contracts/staging suites pass under the shared core with the player-level checks as the lab smoke. 
+- **CHUNK 3b COMPLETE.** Chunk 3 as a whole is complete except the item-99 adopt-branch stack (feat/adopt-c1-c5 + feat/adopt-s2-c1-c3-c5), which belongs to a later chunk. NO PUSH — the unified tree is reported to Souta first.
