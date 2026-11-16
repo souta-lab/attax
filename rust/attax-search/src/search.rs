@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use crate::features::{F_DANGER, F_MAX_HEIGHT, F_TSLOT, Features, board_features, tslot_donations};
-use crate::movegen::{Board, MoveGen, Placement, Pos, Tspin, lock_placement, locks_out, spawn_position};
+use crate::movegen::{Board, MAX_ROWS, MoveGen, Placement, Pos, Tspin, lock_placement, locks_out, spawn_position};
 use crate::pieces::Kind;
 use crate::weights::{ClearKind, Weights};
 
@@ -79,14 +79,34 @@ pub struct SearchResult {
     pub breakdown: [f64; crate::features::N_FEATURES],
 }
 
+/// Per-row garbage flags (`garbageRows` in `NodeState`), kept `Copy` like `Board`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct GarbageRows {
+    len: usize,
+    rows: [u8; MAX_ROWS],
+}
+
+#[cfg(test)]
+impl GarbageRows {
+    fn from_rows(rows: &[u8]) -> Self {
+        assert!(rows.len() <= MAX_ROWS, "garbage_rows taller than MAX_ROWS");
+        let mut out = [0; MAX_ROWS];
+        out[..rows.len()].copy_from_slice(rows);
+        Self { len: rows.len(), rows: out }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Node {
     board: Board,
+    garbage_rows: Option<GarbageRows>,
     hold: Option<Kind>,
     next: u32,
     can_hold: bool,
     b2b: bool,
+    b2b_chain: i32,
     combo: i32,
+    pending: i32,
     lift: i32,
     tslot: i32,
     reward: f64,
@@ -294,11 +314,14 @@ fn expand(
 
     Some(Node {
         board: outcome.board,
+        garbage_rows: None,
         hold: option.hold,
         next: option.next,
         can_hold: true,
         b2b,
+        b2b_chain: if b2b { 1 } else { 0 },
         combo,
+        pending: 0,
         lift,
         tslot: features[F_TSLOT],
         reward: accumulated,
@@ -364,11 +387,14 @@ impl Searcher {
         self.arena.clear();
         self.arena.push(Node {
             board: input.board,
+            garbage_rows: None,
             hold: input.hold,
             next: 0,
             can_hold: input.can_hold,
             b2b: input.b2b,
+            b2b_chain: if input.b2b { 1 } else { 0 },
             combo: input.combo,
+            pending: input.pending,
             lift: 0,
             tslot: root_features[F_TSLOT],
             reward: 0.0,
@@ -387,7 +413,7 @@ impl Searcher {
         let mut deepest: Vec<u32> = Vec::new();
         let mut opts = [PieceOption { kind: Kind::I, used_hold: false, next: 0, hold: None }; 2];
         let mut seen: HashSet<DedupeKey> = HashSet::new();
-        let mut seen_diverse: HashSet<(u32, Option<Kind>, bool, bool, i32, i32, Board)> = HashSet::new();
+        let mut seen_diverse: HashSet<SelectBeamKey> = HashSet::new();
 
         while !beam.is_empty() {
             self.children.clear();
@@ -462,7 +488,7 @@ impl Searcher {
                 children[b as usize].value.partial_cmp(&children[a as usize].value).unwrap_or(std::cmp::Ordering::Equal)
             });
             let selected: Vec<u32> = if options.diverse {
-                select_beam(children, &self.order, options.width, &mut seen_diverse)
+                select_beam(children, &self.order, options.width, options.profile, &mut seen_diverse)
             } else {
                 dedupe(children, &self.order, options.width, options.guideline, options.profile, &mut seen)
             };
@@ -558,24 +584,25 @@ impl Searcher {
 /// Dedupe key, one variant per profile (equality never crosses variants: a run uses one).
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum DedupeKey {
-    /// (next, hold, b2b, board): the legacy key.
+    /// (next, hold, b2b_active, board): the legacy key.
     Guideline(u32, Option<Kind>, bool, Board),
-    /// (next, hold, can_hold, b2b, combo, lift, board): every state the search reads later.
-    S2(u32, Option<Kind>, bool, bool, i32, i32, Board),
+    /// (next, hold, b2b_chain, combo, lift, pending, garbage_rows, board): production S2 lab key.
+    /// Has no `can_hold` segment and never folds `combo` under `guideline`.
+    S2(u32, Option<Kind>, i32, i32, i32, i32, Option<GarbageRows>, Board),
 }
 
 /// Keep the best `width` children, dropping later copies of an identical position
 /// (`dedupe` in search.ts).
 ///
 /// Under `Guideline` the legacy key (next, hold, b2b, board) is preserved so the frozen
-/// guideline/Hoiko record is unchanged. Under `S2` two nodes match only if board, queue
-/// index, hold, hold availability, B2B, combo and lift all match; combo is folded to -1
-/// under the guideline rig, where it never reaches attack.
+/// guideline/Hoiko record is unchanged. Under `S2` the key matches the production S2 lab
+/// key (`next|hold|b2bChain|combo|lift|pending|flagsKey(garbageRows)|board`): `can_hold` is
+/// omitted and `_guideline` is ignored (combo is never folded).
 fn dedupe(
     children: &[Node],
     order: &[u32],
     width: usize,
-    guideline: bool,
+    _guideline: bool,
     profile: SearchProfile,
     seen: &mut HashSet<DedupeKey>,
 ) -> Vec<u32> {
@@ -588,10 +615,16 @@ fn dedupe(
         let n = &children[i as usize];
         let key = match profile {
             SearchProfile::Guideline => DedupeKey::Guideline(n.next, n.hold, n.b2b, n.board),
-            SearchProfile::S2 => {
-                let combo = if guideline { -1 } else { n.combo };
-                DedupeKey::S2(n.next, n.hold, n.can_hold, n.b2b, combo, n.lift, n.board)
-            }
+            SearchProfile::S2 => DedupeKey::S2(
+                n.next,
+                n.hold,
+                n.b2b_chain,
+                n.combo,
+                n.lift,
+                n.pending,
+                n.garbage_rows,
+                n.board,
+            ),
         };
         if !seen.insert(key) {
             continue;
@@ -601,12 +634,22 @@ fn dedupe(
     kept
 }
 
+/// (next, hold, can_hold, b2b, combo, lift, pending, garbage_rows, board).
+/// `b2b` is `b2b_chain` under `S2` and `b2b as i32` (0/1) under `Guideline`.
+type SelectBeamKey = (u32, Option<Kind>, bool, i32, i32, i32, i32, Option<GarbageRows>, Board);
+
 /// Keep distinct attack economies and reserve a bounded set of first moves (`selectBeam`).
+///
+/// Matches TS `selectBeam` (`src/ai/bot/search.ts`): carries `can_hold`, `combo`, `lift`,
+/// `pending`, and `garbage_rows` under both profiles; `b2b` is `b2b_chain` under `S2` and
+/// `0/1` under `Guideline` (guideline children carry `pending: 0` and `garbage_rows: None`,
+/// preserving the guideline pool partition).
 fn select_beam(
     children: &[Node],
     order: &[u32],
     width: usize,
-    seen: &mut HashSet<(u32, Option<Kind>, bool, bool, i32, i32, Board)>,
+    profile: SearchProfile,
+    seen: &mut HashSet<SelectBeamKey>,
 ) -> Vec<u32> {
     if width == 0 {
         return Vec::new();
@@ -615,7 +658,21 @@ fn select_beam(
     let mut pool: Vec<u32> = Vec::new();
     for &i in order {
         let n = &children[i as usize];
-        if !seen.insert((n.next, n.hold, n.can_hold, n.b2b, n.combo, n.lift, n.board)) {
+        let b2b = match profile {
+            SearchProfile::S2 => n.b2b_chain,
+            SearchProfile::Guideline => n.b2b as i32,
+        };
+        if !seen.insert((
+            n.next,
+            n.hold,
+            n.can_hold,
+            b2b,
+            n.combo,
+            n.lift,
+            n.pending,
+            n.garbage_rows,
+            n.board,
+        )) {
             continue;
         }
         pool.push(i);
@@ -820,5 +877,168 @@ mod tests {
     /// Every adopt term switched on (extended as candidates land).
     fn adopt_on() -> Weights {
         Weights { b2b_state: 100.0, t_slot_chain: [0.0, 1.0, 2.0, 3.0], hold_t: 40.0, hold_i: 20.0, ..Weights::default() }
+    }
+
+    fn base_node() -> Node {
+        let mut rows = [0u16; 20];
+        rows[18] = 0x3f0;
+        rows[19] = 0x3fe;
+        Node {
+            board: Board::from_rows(&rows),
+            garbage_rows: None,
+            hold: Some(Kind::T),
+            next: 2,
+            can_hold: true,
+            b2b: false,
+            b2b_chain: 0,
+            combo: -1,
+            pending: 0,
+            lift: 0,
+            tslot: 0,
+            reward: 0.0,
+            value: 0.0,
+            depth: 1,
+            step: None,
+            parent: 0,
+            root: 0,
+        }
+    }
+
+    fn run_dedupe(nodes: &[Node], width: usize, guideline: bool, profile: SearchProfile) -> Vec<usize> {
+        let order: Vec<u32> = (0..nodes.len() as u32).collect();
+        let mut seen = HashSet::new();
+        dedupe(nodes, &order, width, guideline, profile, &mut seen).into_iter().map(|i| i as usize).collect()
+    }
+
+    fn run_select_beam(nodes: &[Node], width: usize, profile: SearchProfile) -> Vec<usize> {
+        let order: Vec<u32> = (0..nodes.len() as u32).collect();
+        let mut seen = HashSet::new();
+        select_beam(nodes, &order, width, profile, &mut seen).into_iter().map(|i| i as usize).collect()
+    }
+
+    #[test]
+    fn dedupe_merges_true_duplicates_under_both_profiles() {
+        let a = base_node();
+        let b = base_node();
+        for profile in [SearchProfile::Guideline, SearchProfile::S2] {
+            assert_eq!(run_dedupe(&[a, b], 10, false, profile), vec![0]);
+        }
+    }
+
+    #[test]
+    fn dedupe_s2_keeps_states_differing_only_in_combo() {
+        let chain = Node { combo: 3, ..base_node() };
+        let cold = Node { combo: -1, ..base_node() };
+        assert_eq!(run_dedupe(&[chain, cold], 10, false, SearchProfile::S2), vec![0, 1]);
+    }
+
+    #[test]
+    fn dedupe_s2_keeps_states_differing_only_in_lift() {
+        let clean = Node { lift: 0, ..base_node() };
+        let lifted = Node { lift: 4, ..base_node() };
+        for guideline in [false, true] {
+            assert_eq!(run_dedupe(&[clean, lifted], 10, guideline, SearchProfile::S2), vec![0, 1]);
+        }
+    }
+
+    #[test]
+    fn dedupe_s2_merges_states_differing_only_in_can_hold() {
+        let a = Node { can_hold: true, ..base_node() };
+        let b = Node { can_hold: false, ..base_node() };
+        assert_eq!(run_dedupe(&[a, b], 10, false, SearchProfile::S2), vec![0]);
+    }
+
+    #[test]
+    fn dedupe_s2_never_folds_combo_even_with_guideline_flag() {
+        let chain = Node { combo: 3, ..base_node() };
+        let cold = Node { combo: -1, ..base_node() };
+        assert_eq!(run_dedupe(&[chain, cold], 10, true, SearchProfile::S2), vec![0, 1]);
+    }
+
+    #[test]
+    fn dedupe_s2_separates_by_exact_b2b_chain() {
+        let c1 = Node { b2b: true, b2b_chain: 1, ..base_node() };
+        let c3 = Node { b2b: true, b2b_chain: 3, ..base_node() };
+        assert_eq!(run_dedupe(&[c1, c3], 10, false, SearchProfile::S2), vec![0, 1]);
+        assert_eq!(run_dedupe(&[c1, c3], 10, false, SearchProfile::Guideline), vec![0]);
+    }
+
+    #[test]
+    fn dedupe_s2_keeps_states_differing_only_in_pending() {
+        let clear = Node { pending: 0, ..base_node() };
+        let pressured = Node { pending: 5, ..base_node() };
+        assert_eq!(run_dedupe(&[clear, pressured], 10, false, SearchProfile::S2), vec![0, 1]);
+    }
+
+    #[test]
+    fn dedupe_s2_keeps_states_differing_only_in_garbage_rows() {
+        let clean = GarbageRows::from_rows(&[0u8; 20]);
+        let mut flagged_rows = [0u8; 20];
+        flagged_rows[19] = 1;
+        let flagged = GarbageRows::from_rows(&flagged_rows);
+
+        let a = Node { garbage_rows: Some(clean), ..base_node() };
+        let b = Node { garbage_rows: Some(flagged), ..base_node() };
+        let c = Node { garbage_rows: None, ..base_node() };
+        assert_eq!(run_dedupe(&[a, b], 10, false, SearchProfile::S2), vec![0, 1]);
+        assert_eq!(run_dedupe(&[c, a], 10, false, SearchProfile::S2), vec![0, 1]);
+    }
+
+    #[test]
+    fn dedupe_guideline_keeps_legacy_key_merging_non_legacy_fields() {
+        let mut flagged_rows = [0u8; 20];
+        flagged_rows[19] = 1;
+        let base = base_node();
+        let variants = [
+            Node { combo: 3, ..base },
+            Node { lift: 4, ..base },
+            Node { can_hold: false, ..base },
+            Node { pending: 5, ..base },
+            Node { garbage_rows: Some(GarbageRows::from_rows(&flagged_rows)), ..base },
+        ];
+        for diff in variants {
+            for guideline in [false, true] {
+                assert_eq!(run_dedupe(&[base, diff], 10, guideline, SearchProfile::Guideline), vec![0]);
+            }
+        }
+    }
+
+    #[test]
+    fn dedupe_guideline_still_separates_b2b_hold_and_next() {
+        let base = base_node();
+        let variants = [
+            Node { b2b: true, b2b_chain: 1, ..base },
+            Node { hold: Some(Kind::I), ..base },
+            Node { next: 3, ..base },
+        ];
+        for diff in variants {
+            assert_eq!(run_dedupe(&[base, diff], 10, false, SearchProfile::Guideline), vec![0, 1]);
+        }
+    }
+
+    #[test]
+    fn select_beam_respects_profile_for_b2b_chain_pending_and_garbage_rows() {
+        let mut flagged_rows = [0u8; 20];
+        flagged_rows[19] = 1;
+        let base = Node { value: 10.0, ..base_node() };
+
+        // Under S2, b2b_chain, pending, garbage_rows, and can_hold are all kept distinct.
+        let c1 = Node { b2b: true, b2b_chain: 1, value: 10.0, ..base };
+        let c3 = Node { b2b: true, b2b_chain: 3, value: 9.0, ..base };
+        assert_eq!(run_select_beam(&[c1, c3], 10, SearchProfile::S2), vec![0, 1]);
+        assert_eq!(run_select_beam(&[c1, c3], 10, SearchProfile::Guideline), vec![0]);
+
+        let p0 = Node { pending: 0, value: 10.0, ..base };
+        let p5 = Node { pending: 5, value: 9.0, ..base };
+        assert_eq!(run_select_beam(&[p0, p5], 10, SearchProfile::S2), vec![0, 1]);
+
+        let g_none = Node { garbage_rows: None, value: 10.0, ..base };
+        let g_flag = Node { garbage_rows: Some(GarbageRows::from_rows(&flagged_rows)), value: 9.0, ..base };
+        assert_eq!(run_select_beam(&[g_none, g_flag], 10, SearchProfile::S2), vec![0, 1]);
+
+        let h_true = Node { can_hold: true, value: 10.0, ..base };
+        let h_false = Node { can_hold: false, value: 9.0, ..base };
+        assert_eq!(run_select_beam(&[h_true, h_false], 10, SearchProfile::S2), vec![0, 1]);
+        assert_eq!(run_select_beam(&[h_true, h_false], 10, SearchProfile::Guideline), vec![0, 1]);
     }
 }
