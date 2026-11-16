@@ -11,5 +11,5 @@ pub mod weights;
 
 pub use movegen::{Board, MoveGen, Placement, Pos, Tspin};
 pub use pieces::Kind;
-pub use search::{Candidate, SearchInput, SearchOptions, SearchResult, Searcher, Step};
+pub use search::{Candidate, SearchInput, SearchOptions, SearchProfile, SearchResult, Searcher, Step};
 pub use weights::Weights;

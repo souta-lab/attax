@@ -129,6 +129,120 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
   };
 }
 
+/** Cell at column x and height y (0 is the floor); below-floor cells are filled. */
+function cellUp(board: BitBoard, x: number, y: number): boolean {
+  if (y < 0) return true;
+  if (y >= board.length) return false;
+  return ((board[board.length - 1 - y] as number) & (1 << x)) !== 0;
+}
+
+function columnBits(board: BitBoard, x: number, y: number, n: number): number {
+  let bits = 0;
+  for (let i = 0; i < n; i += 1) if (cellUp(board, x, y + i)) bits |= 1 << i;
+  return bits;
+}
+
+const DONATION_CELLS = {
+  down: [
+    [-1, 0],
+    [0, 0],
+    [1, 0],
+    [0, -1],
+  ],
+  left: [
+    [0, -1],
+    [0, 0],
+    [0, 1],
+    [-1, 0],
+  ],
+  right: [
+    [0, -1],
+    [0, 0],
+    [0, 1],
+    [1, 0],
+  ],
+} as const;
+type DonationSlot = { x: number; y: number; shape: keyof typeof DONATION_CELLS };
+
+function findDonationSlot(board: BitBoard, h: Int32Array): DonationSlot | null {
+  for (let x = 0; x < COLS - 2; x += 1) {
+    const h0 = h[x] as number,
+      h1 = h[x + 1] as number,
+      h2 = h[x + 2] as number;
+    if (h0 > h1 && h0 + 1 < h2) {
+      const y = h0 - 1;
+      if (
+        columnBits(board, x, y, 3) === 1 &&
+        columnBits(board, x + 1, y, 3) === 0 &&
+        columnBits(board, x + 2, y, 3) === 5
+      )
+        return { x: x + 1, y: h0, shape: "down" };
+    }
+    if (h2 > h1 && h2 + 1 < h0) {
+      const y = h2 - 1;
+      if (
+        columnBits(board, x, y, 3) === 5 &&
+        columnBits(board, x + 1, y, 3) === 0 &&
+        columnBits(board, x + 2, y, 3) === 1
+      )
+        return { x: x + 1, y: h2, shape: "down" };
+    }
+    if (h1 >= h0 && h1 + 1 < h2) {
+      const y = h1 - 3;
+      if (
+        (columnBits(board, x, y, 5) & 24) === 0 &&
+        (columnBits(board, x + 1, y, 5) & 30) === 4 &&
+        columnBits(board, x + 2, y, 5) === 16 &&
+        (cellUp(board, x + 1, y) || cellUp(board, x + 2, y - 1))
+      )
+        return { x: x + 2, y: h1 - 2, shape: "left" };
+    }
+    if (h1 >= h2 && h1 + 1 < h0) {
+      const y = h1 - 3;
+      if (
+        columnBits(board, x, y, 5) === 16 &&
+        (columnBits(board, x + 1, y, 5) & 30) === 4 &&
+        (columnBits(board, x + 2, y, 5) & 24) === 0 &&
+        (cellUp(board, x + 1, y) || cellUp(board, x, y - 1))
+      )
+        return { x, y: h1 - 2, shape: "right" };
+    }
+  }
+  return null;
+}
+
+/** C2 T-spin donation counts indexed by lines cleared; scans a private board copy. */
+export function tSlotDonations(board: BitBoard, depth: number): [number, number, number, number] {
+  const counts: [number, number, number, number] = [0, 0, 0, 0];
+  let current = board;
+  for (let i = 0; i < depth; i += 1) {
+    const slot = findDonationSlot(current, columnHeights(current, new Int32Array(COLS)));
+    if (slot === null) break;
+    const next = current.slice(),
+      len = next.length;
+    for (const [dx, dy] of DONATION_CELLS[slot.shape]) {
+      const y = slot.y + dy;
+      if (y >= 0 && y < len)
+        next[len - 1 - y] = (next[len - 1 - y] as number) | (1 << (slot.x + dx));
+    }
+    let write = len - 1,
+      cleared = 0;
+    for (let read = len - 1; read >= 0; read -= 1) {
+      const row = next[read] as number;
+      if (row === FULL_ROW) {
+        cleared += 1;
+        continue;
+      }
+      next[write--] = row;
+    }
+    for (; write >= 0; write -= 1) next[write] = 0;
+    counts[cleared] = (counts[cleared] as number) + 1;
+    if (cleared < 2) break;
+    current = next;
+  }
+  return counts;
+}
+
 function popcount(v: number): number {
   let n = v - ((v >> 1) & 0x55555555);
   n = (n & 0x33333333) + ((n >> 2) & 0x33333333);

@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
+import { search as sharedSearch } from "../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS } from "../src/ai/bot/weights.js";
-import { search } from "../tools/s2-lab/search.js";
+import {
+  type SearchInput as S2LabInput,
+  type SearchOptions as S2LabOptions,
+  toSharedInput,
+} from "../tools/s2-lab/s2-input.js";
+
+/**
+ * The former lab search is the shared core under rules profile "s2": map the
+ * lab-shaped input (numeric exact chain in `b2b`) onto the shared input
+ * exactly as the player does, then search with profile "s2".
+ */
+function search(input: S2LabInput, options: S2LabOptions) {
+  return sharedSearch(toSharedInput(input), { ...options, profile: "s2" });
+}
 
 test("S2 search prices root-frame margin and bottom-first garbage flags", () => {
   const board = new Uint16Array(40);
@@ -20,15 +34,15 @@ test("S2 search prices root-frame margin and bottom-first garbage flags", () => 
     frame: 14550, // M = 1.5
   };
   const options = { weights: DEFAULT_WEIGHTS, width: 32 };
-  // Garbage flags are index-aligned with the board rows — the convention
-  // projectAttax in attax-player.ts produces (board and flags are both
-  // flipped with 39 - y). The quad clears board rows 36-39.
-  const flags = (...rows: number[]) => {
-    const a = Array<number>(40).fill(0);
-    for (const r of rows) a[r] = 1;
-    return a;
-  };
   const clean = search(input, options);
+  // Flags are in board row-index order (as projectAttax produces): the quad
+  // clears board rows 36-39, so flag the bottom two cleared rows directly,
+  // and for the uncleared case a row the quad does not clear (35).
+  const flags = (...rows: number[]) => {
+    const out = Array<number>(40).fill(0);
+    for (const row of rows) out[row] = 1;
+    return out;
+  };
   const garbage = search({ ...input, garbageRows: flags(38, 39) }, options);
   const uncleared = search({ ...input, garbageRows: flags(35) }, options);
   expect(clean?.best.linesCleared).toBe(4);

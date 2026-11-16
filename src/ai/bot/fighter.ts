@@ -9,7 +9,7 @@ import type { AiMove, GameSnapshot } from "../../core/types.js";
 import { boardFingerprint, type VersusFighter } from "../../versus/controller.js";
 import { BagTracker } from "./bag.js";
 import type { BitBoard } from "./movegen.js";
-import { type SearchResult, search } from "./search.js";
+import { type SearchProfile, type SearchResult, search } from "./search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 
 export interface BotOptions {
@@ -23,6 +23,14 @@ export interface BotOptions {
   readonly exposure?: number;
   readonly speculate?: boolean;
   readonly guideline?: boolean;
+  /**
+   * Rules profile (src/core/profile.ts): selects the full ruleset (movegen,
+   * attack table, garbage semantics, death height, and dedupe key). Unset means
+   * "guideline". Note: `createBot` maps guideline `GameSnapshot` fields only
+   * and does not populate S2-only `SearchInput` fields (`b2bChain`,
+   * `garbageRows`, `dueThisLock`, `frame`).
+   */
+  readonly profile?: SearchProfile;
 }
 
 export const BOT_DEFAULTS = { preview: 5, width: 48 } as const;
@@ -88,6 +96,7 @@ export function createBot(options: BotOptions = {}): BotFighter {
           diverse: options.diverse ?? false,
           exposure: options.exposure ?? 0,
           guideline: options.guideline ?? false,
+          ...(options.profile === undefined ? {} : { profile: options.profile }),
         },
       );
       last = result;

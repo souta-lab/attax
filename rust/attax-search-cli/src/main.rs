@@ -12,7 +12,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::time::Instant;
 
 use attax_search::features::FEATURE_NAMES;
-use attax_search::search::{SearchInput, SearchOptions, SearchResult, Searcher, Step};
+use attax_search::search::{SearchInput, SearchOptions, SearchProfile, SearchResult, Searcher, Step};
 use attax_search::weights::{CLEAR_NAMES, Weights};
 use attax_search::{Board, Kind, Placement, Pos, Tspin};
 use serde::{Deserialize, Serialize};
@@ -113,6 +113,10 @@ fn num(v: &Value, path: &str) -> f64 {
     v.as_f64().unwrap_or_else(|| panic!("weights: {path} is not a number"))
 }
 
+fn opt_num(v: &Value, path: &str) -> f64 {
+    if v.is_null() { 0.0 } else { num(v, path) }
+}
+
 /// TS `Weights` object (weights.ts shape) -> Rust weights.
 fn weights_from_json(v: &Value) -> Weights {
     let mut w = Weights::default();
@@ -124,6 +128,15 @@ fn weights_from_json(v: &Value) -> Weights {
         w.clear[i] = num(&v["clear"][name], &format!("clear.{name}"));
     }
     w.b2b_break = num(&v["b2bBreak"], "b2bBreak");
+    // Adopt keys are optional (absent = 0 = off) so corpora dumped before they existed
+    // still load with their original meaning.
+    w.b2b_state = opt_num(&v["b2bState"], "b2bState");
+    for (i, slot) in w.t_slot_chain.iter_mut().enumerate() {
+        let key = format!("tSlotChain{i}");
+        *slot = opt_num(&v[key.as_str()], &key);
+    }
+    w.hold_t = opt_num(&v["holdT"], "holdT");
+    w.hold_i = opt_num(&v["holdI"], "holdI");
     w.wasted_t = num(&v["wastedT"], "wastedT");
     w.discount = num(&v["discount"], "discount");
     w
@@ -266,6 +279,7 @@ fn main() {
             diverse: case.options.diverse,
             exposure: case.options.exposure,
             guideline: case.options.guideline,
+            profile: SearchProfile::Guideline,
         };
         let mut result = None;
         let mut best_ms = f64::INFINITY;

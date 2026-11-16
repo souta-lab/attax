@@ -34,6 +34,7 @@ const { values } = parseArgs({
     "debug-log": { type: "string" },
     games: { type: "string", default: "1" },
     seed: { type: "string", default: "42" },
+    "seat-offset": { type: "string", default: "0" },
     out: { type: "string" },
     "max-locks": { type: "string", default: "1000" },
     "champion-vs-champion": { type: "boolean", default: false },
@@ -69,7 +70,14 @@ const wasmSha256 = createHash("sha256")
 async function play(gameIndex) {
   const started = performance.now();
   const gameSeed = seed + gameIndex;
-  const attaxSide = values["champion-vs-champion"] ? null : gameIndex % 2 === 0 ? "left" : "right";
+  // Seat offset 1 swaps the parity, so a seed block can be played in both
+  // seats (the registered pairing the campaign-2 probe lacked).
+  const seatOffset = values["seat-offset"] === "1" ? 1 : 0;
+  const attaxSide = values["champion-vs-champion"]
+    ? null
+    : (gameIndex + seatOffset) % 2 === 0
+      ? "left"
+      : "right";
   const scenario = createGame(gameSeed);
   const initial = guiStateToCanonical(toS2GuiState(scenario));
   const rules = resolvePlacementRules(initial.rulesetId);
@@ -139,7 +147,10 @@ async function play(gameIndex) {
           // Receipts stay on the controller side: they can include private hole data.
           const reachable = generateReachablePlacements(visible, {
             kickTable: rules.kickTable,
-            allow180: false,
+            // The ruleset's public rules allow 180 (allow180: true); the
+            // stage-2 harness ran with it off as a conservatism, which
+            // filtered legal roots the referee itself would witness.
+            allow180: true,
           });
           const witnesses = new Map();
           for (const p of reachable) {
@@ -291,6 +302,8 @@ async function play(gameIndex) {
       error,
     }),
   );
-  if (error) throw new Error(error);
+  // Per-game errors stay data (amendment 2026-11-15 03:27 JST): the record
+  // above carries them into the driver compat/exclusion accounting (C3);
+  // rethrowing here aborted the remaining games and bypassed that policy.
 }
 for (let index = 0; index < games; index++) await play(index);

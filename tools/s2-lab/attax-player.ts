@@ -2,14 +2,38 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BOT_DEFAULTS } from "../../src/ai/bot/fighter.js";
 import { type Placement, spawnPosition } from "../../src/ai/bot/movegen.js";
+import { search } from "../../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
 import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
-import { type SearchInput, search } from "./search.js";
+import { type SearchInput, toSharedInput } from "./s2-input.js";
+import { DEFAULT_SOLVENCY_PARAMS, type SolvencyParams } from "./solvency.js";
+import { DEFAULT_STOCK_PARAMS, type StockParams } from "./stock.js";
+
+/** Optional mechanism layers a profile may switch on (canonical §C1/§C2). */
+export interface MechanismSettings {
+  readonly stock?: StockParams;
+  readonly solvency?: SolvencyParams;
+  /**
+   * Solvency form: "soft" = the C2 per-layer penalty (needs the solvency
+   * parameter section, or the env force-on); "hard" = the root-stage veto
+   * (choose_rescue), which needs no parameters and disables the soft
+   * penalty — the two forms are mutually exclusive A/B settings.
+   * Absent = "soft" when a solvency section is present, off otherwise.
+   */
+  readonly solvencyMode?: "soft" | "hard";
+}
 
 const profiles = new Map<
   string | undefined,
-  { weights: Weights; profileId: string; source: string }
+  { weights: Weights; mechanisms: MechanismSettings; profileId: string; source: string }
 >();
+const S2_ONLY_ADOPT_KEYS = [
+  "holeRuns",
+  "holeShifts",
+  "miniSingleDelta",
+  "miniDoubleDelta",
+  "miniTripleDelta",
+] as const;
 let loaded: ReturnType<typeof loadProfile> | undefined;
 
 function mergeProfile(
@@ -22,7 +46,11 @@ function mergeProfile(
   }
   const merged = { ...base };
   for (const [key, value] of Object.entries(patch)) {
-    if (!Object.hasOwn(base, key)) throw new Error(`unknown weight: ${path}${key}`);
+    if (
+      !Object.hasOwn(base, key) &&
+      !(path === "" && (S2_ONLY_ADOPT_KEYS as readonly string[]).includes(key))
+    )
+      throw new Error(`unknown weight: ${path}${key}`);
     const original = base[key];
     if (typeof original === "object" && original !== null) {
       merged[key] = mergeProfile(original as Record<string, unknown>, value, `${path}${key}.`);
@@ -44,20 +72,86 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** Fill a mechanism parameter set from a profile patch, rejecting bad shapes. */
+function mechanismParams<T extends Record<string, number>>(
+  defaults: T,
+  patch: unknown,
+  path: string,
+): T {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new Error(`expected an object at ${path}`);
+  }
+  const out: Record<string, number> = { ...defaults };
+  for (const [key, value] of Object.entries(patch)) {
+    if (!Object.hasOwn(defaults, key)) {
+      throw new Error(`unknown mechanism parameter: ${path}.${key}`);
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new Error(`expected a finite number at ${path}.${key}`);
+    }
+    out[key] = value;
+  }
+  return out as T;
+}
+
+function parseMechanisms(raw: unknown): MechanismSettings {
+  if (raw === undefined) return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("expected an object at mechanisms");
+  }
+  const out: {
+    stock?: StockParams;
+    solvency?: SolvencyParams;
+    solvencyMode?: "soft" | "hard";
+  } = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === "stock") {
+      out.stock = mechanismParams(DEFAULT_STOCK_PARAMS, value, "mechanisms.stock");
+    } else if (key === "solvency") {
+      out.solvency = mechanismParams(DEFAULT_SOLVENCY_PARAMS, value, "mechanisms.solvency");
+    } else if (key === "solvencyMode") {
+      if (value !== "soft" && value !== "hard") {
+        throw new Error(`expected "soft" or "hard" at mechanisms.solvencyMode`);
+      }
+      out.solvencyMode = value;
+    } else {
+      throw new Error(`unknown mechanism: mechanisms.${key}`);
+    }
+  }
+  return out;
+}
+
 function loadProfile(profilePath: string | undefined) {
   const cached = profiles.get(profilePath);
   if (cached) return cached;
   const source = profilePath ?? "DEFAULT_WEIGHTS";
-  const weights =
-    profilePath === undefined
-      ? DEFAULT_WEIGHTS
-      : (mergeProfile(
-          DEFAULT_WEIGHTS as unknown as Record<string, unknown>,
-          JSON.parse(readFileSync(source, "utf8")),
-        ) as unknown as Weights);
+  let weights = DEFAULT_WEIGHTS;
+  let mechanisms: MechanismSettings = {};
+  if (profilePath !== undefined) {
+    const parsed = JSON.parse(readFileSync(source, "utf8")) as Record<string, unknown>;
+    const { mechanisms: rawMechanisms, ...patch } = parsed;
+    mechanisms = parseMechanisms(rawMechanisms);
+    weights = mergeProfile(
+      DEFAULT_WEIGHTS as unknown as Record<string, unknown>,
+      patch,
+    ) as unknown as Weights;
+  }
+  // Profiles without mechanisms keep the historical weights-only identity;
+  // mechanism-bearing profiles hash the full configuration.
+  const identityWeights = { ...weights } as Weights & Record<string, unknown>;
+  for (const key of S2_ONLY_ADOPT_KEYS) {
+    if (identityWeights[key] === 0) delete identityWeights[key];
+  }
+  const identity =
+    mechanisms.stock === undefined &&
+    mechanisms.solvency === undefined &&
+    mechanisms.solvencyMode === undefined
+      ? canonical(identityWeights)
+      : canonical({ weights: identityWeights, mechanisms });
   const loaded = {
     weights,
-    profileId: createHash("sha256").update(canonical(weights)).digest("hex").slice(0, 16),
+    mechanisms,
+    profileId: createHash("sha256").update(identity).digest("hex").slice(0, 16),
     source,
   };
   profiles.set(profilePath, loaded);
@@ -121,15 +215,66 @@ export function projectAttax(decision: PublicDecision): SearchInput {
   };
 }
 
+/**
+ * Env switch for mechanism A/B runs: "0" forces the layer off, "1" forces it
+ * on with the profile's parameters (or the defaults), unset defers to the
+ * profile. Applies per decider, exactly like ATTAX_S2_PROFILE selection.
+ */
+function envMechanism<T>(
+  env: string | undefined,
+  fromProfile: T | undefined,
+  defaults: T,
+): T | undefined {
+  if (env === "0") return undefined;
+  if (env === "1") return fromProfile ?? defaults;
+  return fromProfile;
+}
+
 export function createAttaxDecider(profilePath: string | undefined) {
-  const { weights, profileId } = loadProfile(profilePath);
+  const { weights, mechanisms, profileId } = loadProfile(profilePath);
+  const stock = envMechanism(
+    process.env.ATTAX_S2_STOCK_POTENTIAL,
+    mechanisms.stock,
+    DEFAULT_STOCK_PARAMS,
+  );
+  // Solvency mode resolution: ATTAX_S2_SOLVENCY "0" forces every form off;
+  // ATTAX_S2_SOLVENCY_MODE overrides the profile's form; the profile form
+  // defaults to "soft" when a solvency section (or the env force-on) is in
+  // play. "hard" swaps the per-layer penalty for the root-stage veto.
+  const solvencyEnv = process.env.ATTAX_S2_SOLVENCY;
+  const modeEnv = process.env.ATTAX_S2_SOLVENCY_MODE;
+  if (modeEnv !== undefined && modeEnv !== "soft" && modeEnv !== "hard") {
+    throw new Error(`expected "soft" or "hard" in ATTAX_S2_SOLVENCY_MODE`);
+  }
+  const solvencyMode: "soft" | "hard" | undefined =
+    solvencyEnv === "0"
+      ? undefined
+      : (modeEnv ??
+        mechanisms.solvencyMode ??
+        (mechanisms.solvency !== undefined || solvencyEnv === "1" ? "soft" : undefined));
+  const solvency =
+    solvencyMode === "soft"
+      ? envMechanism(solvencyEnv, mechanisms.solvency, DEFAULT_SOLVENCY_PARAMS)
+      : undefined;
+  const rootVeto = solvencyMode === "hard";
   return {
     weights,
+    mechanisms,
     profileId,
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
+      // The shared core under rules profile "s2" (the former lab search). The
+      // projected lab input carries the exact chain as a number; toSharedInput
+      // moves it into b2bChain (and the b2b flag) — every other field verbatim.
       return search(
-        { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
-        { weights, width: BOT_DEFAULTS.width },
+        toSharedInput({ ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) }),
+        {
+          weights,
+          width: BOT_DEFAULTS.width,
+          profile: "s2",
+          ...(stock ? { stock } : {}),
+          ...(solvency ? { solvency } : {}),
+          ...(rootVeto ? { rootVeto } : {}),
+        },
       );
     },
   };

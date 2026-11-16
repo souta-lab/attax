@@ -9,6 +9,12 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({
   options: Object.fromEntries(["games", "seed", "out"].map((key) => [key, { type: "string" }])),
 });
+// Transport-origin failures (morsh spawn/exit/timeout, payload framing or
+// fetch failures over the channel) are classified so callers can apply the
+// campaign's retry/exclude policy instead of treating them as fatal eval
+// errors: they exit 75. Worker failures and local errors keep exit 1.
+// (Amendment 2026-11-15 03:00 JST in S2-LEAGUE-DESIGN.md.)
+class TransportError extends Error {}
 const quote = (value) => `'${value.replace(/'/g, "'\\''")}'`;
 // Expand home paths on the remote shell while quoting the rest literally.
 function remotePath(value) {
@@ -25,15 +31,15 @@ async function pc(command, capture = false, timeoutMs = 90000) {
     if (capture) child.stdout.on("data", (chunk) => chunks.push(chunk));
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`pc command timed out after ${timeoutMs}ms`));
+      reject(new TransportError(`pc command timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     child.on("error", (error) => {
       clearTimeout(timer);
-      reject(error);
+      reject(new TransportError(error?.message ?? String(error)));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) reject(new Error(`pc command failed (exit ${code})`));
+      if (code !== 0) reject(new TransportError(`pc command failed (exit ${code})`));
       else accept(Buffer.concat(chunks).toString("utf8"));
     });
   });
@@ -49,7 +55,8 @@ async function pcPayload(producerCommand) {
   const beginIndex = marker >= 0 ? marker + 1 : output.startsWith(begin) ? 0 : -1;
   const payloadStart = beginIndex >= 0 ? output.indexOf("\n", beginIndex) : -1;
   const payloadEnd = payloadStart >= 0 ? output.indexOf(`\n${end}`, payloadStart) : -1;
-  if (payloadStart < 0 || payloadEnd < 0) throw new Error("missing remote payload markers");
+  if (payloadStart < 0 || payloadEnd < 0)
+    throw new TransportError("missing remote payload markers");
   return output.slice(payloadStart + 1, payloadEnd).replace(/\r/g, "");
 }
 try {
@@ -96,7 +103,8 @@ try {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const jobId = `pc-${seed}-${games}-${process.pid}-${attempt}`;
-      const job = { jobId, profile, seedStart: seed, games, opponent, expect };
+      const seatOffset = process.env.S2_SEAT_OFFSET === "1" ? 1 : 0;
+      const job = { jobId, profile, seedStart: seed, games, opponent, expect, seatOffset };
       const jobPath = `${jobs}/${jobId}.json`;
       const resultPath = `${jobs}/${jobId}.result.json`;
       const recordsPath = `${jobs}/${jobId}.records.jsonl`;
@@ -125,7 +133,7 @@ try {
       const lengthOutput = (await pcPayload(`base64 -w0 ${recordsPath} | wc -c`)).trim();
       const length = Number(lengthOutput);
       if (!/^\d+$/.test(lengthOutput) || !Number.isSafeInteger(length) || length < 1)
-        throw new Error("invalid remote records base64 length");
+        throw new TransportError("invalid remote records base64 length");
       let recordsText = "";
       for (let offset = 0; offset < length; offset += 3000) {
         recordsText += await pcPayload(
@@ -134,7 +142,7 @@ try {
       }
       recordsText = base64Text(recordsText.replace(/\s/g, ""));
       if (recordsText.length !== length)
-        throw new Error(
+        throw new TransportError(
           `remote records base64 length mismatch: expected ${length}, got ${recordsText.length}`,
         );
       const records = Buffer.from(recordsText, "base64");
@@ -155,5 +163,10 @@ try {
   }
 } catch (error) {
   console.error(error);
-  process.exitCode = 1;
+  if (error instanceof TransportError) {
+    console.error("EVAL_TRANSPORT_FAILURE");
+    process.exitCode = 75;
+  } else {
+    process.exitCode = 1;
+  }
 }
