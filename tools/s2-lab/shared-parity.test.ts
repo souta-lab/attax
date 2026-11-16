@@ -5,9 +5,14 @@
  *
  * The second block runs the PLAYER (attax-player's public-decision projection,
  * its input mapping onto the shared core, and its profile/mechanism wiring)
- * over every battery case a public decision can express, and requires the same
- * golden results — the mapping is the risk of the rewire, so the check goes
- * through it rather than around it.
+ * over every battery case a public decision can express — the mapping is the
+ * risk of the rewire, so the check goes through it rather than around it. The
+ * player always searches at the production default width (BOT_DEFAULTS.width,
+ * 96 since the 2026-11-16 width decision), while the battery and its goldens
+ * stay at the pre-port record's width 48, so the player block's baseline is
+ * the shared search itself run at the player's width on the reference
+ * conversion. The goldens remain the pre-port record, checked by the first
+ * block through the battery's explicit options.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -132,11 +137,18 @@ describe("the player reproduces the pre-port goldens through its own mapping", (
     }
   });
 
+  /** The shared-search result the player must reproduce for a battery case:
+   * the case's options at the player's own (production default) width. */
+  function expectedFor(c: S2Case): { best: unknown } {
+    return asJson(
+      search(srcInput(c), { ...c.options, width: BOT_DEFAULTS.width, profile: "s2" }),
+    ) as { best: unknown };
+  }
+
   /** The player profile whose options equal the battery case's search options. */
   function deciderFor(c: S2Case) {
     const o = c.options;
     expect(o.weights).toBe(DEFAULT_WEIGHTS);
-    expect(o.width).toBe(BOT_DEFAULTS.width);
     const mechanisms: { stock?: object; solvency?: object; solvencyMode?: "hard" } = {};
     if (o.stock !== undefined) {
       expect(o.stock).toEqual(DEFAULT_STOCK_PARAMS);
@@ -177,7 +189,7 @@ describe("the player reproduces the pre-port goldens through its own mapping", (
         ...spawnPosition(c.input.active.kind, 40),
       });
       const decided = deciderFor(c).decide(d, acceptRoot);
-      const want = golden.s2[c.name] as { best: unknown };
+      const want = expectedFor(c);
       // The chosen move first (clearest failure), then the whole result.
       expect(asJson(decided?.best)).toEqual(want.best);
       expect(asJson(decided)).toEqual(want);
@@ -188,7 +200,7 @@ describe("the player reproduces the pre-port goldens through its own mapping", (
     for (const name of ["plain", "accept-root", "pending-frame", "all-fatal"]) {
       const c = s2Battery().find((x) => x.name === name) as S2Case;
       const decided = decideAttax(publicDecision(c), c.input.acceptRoot);
-      expect(asJson(decided)).toEqual(golden.s2[name]);
+      expect(asJson(decided)).toEqual(expectedFor(c));
     }
   });
 });
