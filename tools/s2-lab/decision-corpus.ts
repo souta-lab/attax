@@ -20,7 +20,13 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import type { SearchResult } from "../../src/ai/bot/search.js";
-import { createAttaxDecider, type PublicDecision } from "./attax-player.js";
+import {
+  createAttaxDecider,
+  engineIdentity,
+  engineTimingSummary,
+  type PublicDecision,
+  tripwireWarningText,
+} from "./attax-player.js";
 
 const args = process.argv.slice(2);
 const out = args.shift();
@@ -61,16 +67,43 @@ const plain = (r: SearchResult | null) =>
       };
 
 const lines: string[] = [];
+// Decisions run through decideAsync (the Rust engine's server mode) and, with
+// ATTAX_CORPUS_WORKERS > 1, across that many engine servers in parallel. Lines
+// are reassembled in corpus order, so the digest is worker-count invariant.
+const workers = Math.max(1, Number(process.env.ATTAX_CORPUS_WORKERS ?? 4));
 for (const profile of profiles) {
-  const decider = createAttaxDecider(profile);
   const label = profile ?? "default";
-  for (const c of corpus) {
-    lines.push(`${c.id}\t${label}\t${JSON.stringify(plain(decider.decide(c.observation)))}`);
-  }
-  console.error(`${label}: ${corpus.length} decisions (profileId ${decider.profileId})`);
+  const deciders = Array.from({ length: workers }, () => createAttaxDecider(profile));
+  const results = new Array<string>(corpus.length);
+  let next = 0;
+  await Promise.all(
+    deciders.map(async (decider) => {
+      while (true) {
+        const i = next++;
+        if (i >= corpus.length) return;
+        const c = corpus[i] as (typeof corpus)[number];
+        results[i] =
+          `${c.id}\t${label}\t${JSON.stringify(plain(await decider.decideAsync(c.observation)))}`;
+      }
+    }),
+  );
+  for (const d of deciders) d.close();
+  lines.push(...results);
+  console.error(`${label}: ${corpus.length} decisions (profileId ${deciders[0]?.profileId})`);
 }
 const body = `${lines.join("\n")}\n`;
 writeFileSync(out, body);
+const sha256 = createHash("sha256").update(body).digest("hex");
+console.error(`wrote ${lines.length} lines to ${out}; sha256 ${sha256}`);
+// Engine identity is a required part of every corpus record. It lives in this
+// sidecar (and the stderr summary) rather than in the TSV rows so the digest
+// stays byte-comparable with historical corpus runs.
+const engine = engineIdentity();
+const timing = engineTimingSummary();
+const sidecar = { engine, rows: lines.length, sha256, timing };
+writeFileSync(`${out}.engine.json`, `${JSON.stringify(sidecar, null, 2)}\n`);
 console.error(
-  `wrote ${lines.length} lines to ${out}; sha256 ${createHash("sha256").update(body).digest("hex")}`,
+  `engine: ${engine.id} (build ${engine.build}); median ${timing.medianMs?.toFixed(1)} ms/decision over ${timing.decisions} decisions; record: ${out}.engine.json`,
 );
+const tripwire = tripwireWarningText();
+if (tripwire) console.error(tripwire);

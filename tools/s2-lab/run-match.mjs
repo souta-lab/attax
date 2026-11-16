@@ -4,9 +4,12 @@ import { parseArgs } from "node:util";
 import {
   cellKey,
   createAttaxDecider,
-  decideAttax,
+  createDefaultAttaxDecider,
+  engineIdentity,
+  engineTimingSummary,
   loadS2Weights,
   placementCells,
+  tripwireWarningText,
 } from "./attax-player.js";
 import { createChampionDriver } from "./champion-driver.mjs";
 import {
@@ -37,6 +40,7 @@ const { values } = parseArgs({
     "seat-offset": { type: "string", default: "0" },
     out: { type: "string" },
     "max-locks": { type: "string", default: "1000" },
+    concurrency: { type: "string", default: "1" },
     "champion-vs-champion": { type: "boolean", default: false },
   },
 });
@@ -58,6 +62,7 @@ if (!!values["opponent-profile"] !== !!values["opponent-id"])
 if (values["champion-vs-champion"] && values["opponent-profile"])
   throw new Error("opponent profile conflicts with champion-vs-champion");
 const opponent = values["opponent-profile"] ? createAttaxDecider(values["opponent-profile"]) : null;
+const attax = createDefaultAttaxDecider();
 const pps = ppsForCc2Parameters(parameters);
 const digest = createHash("sha256").update(canonicalize(profile)).digest("hex");
 const wasmPath =
@@ -162,7 +167,7 @@ async function play(gameIndex) {
           }
           const witnessKey = (p, usedHold) =>
             `${p.kind}:${usedHold}:${p.lastSrs > 0}:${cellKey(placementCells(p))}`;
-          const searched = (kinds[side] === "attax" ? decideAttax : opponent.decide)(
+          const searched = await (kinds[side] === "attax" ? attax : opponent).decideAsync(
             decision,
             (p, usedHold) => {
               const accepted = witnesses.has(witnessKey(p, usedHold));
@@ -284,6 +289,7 @@ async function play(gameIndex) {
       championProfileSha256: digest,
       wasmSha256,
       attaxWidth: 96,
+      attaxEngine: engineIdentity(),
       attaxWeights: loadS2Weights().profileId,
       attaxWeightsSource: loadS2Weights().source,
       labRoot,
@@ -306,4 +312,27 @@ async function play(gameIndex) {
   // above carries them into the driver compat/exclusion accounting (C3);
   // rethrowing here aborted the remaining games and bypassed that policy.
 }
-for (let index = 0; index < games; index++) await play(index);
+// Games may run concurrently (--concurrency N): each game is independent, the
+// shared deciders serialize engine requests per server, and records append in
+// completion order. Default 1 = the historical sequential behavior.
+const concurrency = Math.max(1, Math.min(games, Number(values.concurrency) || 1));
+let nextGame = 0;
+async function worker() {
+  while (true) {
+    const index = nextGame++;
+    if (index >= games) return;
+    await play(index);
+  }
+}
+await Promise.all(Array.from({ length: concurrency }, () => worker()));
+attax.close();
+opponent?.close();
+{
+  const engine = engineIdentity();
+  const timing = engineTimingSummary();
+  console.error(
+    `engine: ${engine.id} (build ${engine.build}); median ${timing.medianMs?.toFixed(1)} ms/decision over ${timing.decisions} attax decisions`,
+  );
+  const tripwire = tripwireWarningText();
+  if (tripwire) console.error(tripwire);
+}
