@@ -55,7 +55,8 @@ try {
     }).trim(),
   };
   const jobId = `vm-${seed}-${games}-${process.pid}-1`;
-  const job = { jobId, profile, seedStart: seed, games, opponent, expect };
+  const seatOffset = process.env.S2_SEAT_OFFSET === "1" ? 1 : 0;
+  const job = { jobId, profile, seedStart: seed, games, opponent, expect, seatOffset };
   const dir = await mkdtemp(join(tmpdir(), `s2-vm-eval-${jobId}-`));
   try {
     const jobPath = join(dir, "job.json");

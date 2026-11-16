@@ -98,7 +98,8 @@ async function runBoxJob(attempt) {
   const recordsPath = `${dir}/${jobId}.records.jsonl`;
   const logPath = `${dir}/${jobId}.log`;
   const donePath = `${dir}/${jobId}.done`;
-  const job = { jobId, profile, seedStart: seed, games, opponent, expect };
+  const seatOffset = process.env.S2_SEAT_OFFSET === "1" ? 1 : 0;
+  const job = { jobId, profile, seedStart: seed, games, opponent, expect, seatOffset };
   const b64 = Buffer.from(JSON.stringify(job), "utf8").toString("base64");
   const write = await boxShell(
     `mkdir -p ${dir} && printf %s '${b64}' | base64 -d > ${jobPath} && rm -f ${resultPath} ${recordsPath} ${donePath} ${logPath}`,
