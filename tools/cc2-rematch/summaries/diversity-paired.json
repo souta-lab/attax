@@ -1,0 +1,169 @@
+{
+  "a": "field40-aligned",
+  "b": "field40-no-diversity",
+  "matched_games": 20,
+  "matched_seed_pairs": 10,
+  "a_score": 18.0,
+  "b_score": 18.0,
+  "mean_game_diff": 0.0,
+  "mean_seed_pair_diff": 0.0,
+  "seed_pair_diff_sd": 0.6666666666666666,
+  "seed_pairs_a_better": 2,
+  "seed_pairs_b_better": 3,
+  "seed_pairs_tied": 5,
+  "sign_test_p_two_sided": 1.0,
+  "games": [
+    {
+      "seed": 2401,
+      "swapped": false,
+      "a": "L",
+      "b": "W",
+      "diff": -1.0
+    },
+    {
+      "seed": 2401,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2402,
+      "swapped": false,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2402,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2403,
+      "swapped": false,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2403,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2404,
+      "swapped": false,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2404,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2405,
+      "swapped": false,
+      "a": "D",
+      "b": "W",
+      "diff": -0.5
+    },
+    {
+      "seed": 2405,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2406,
+      "swapped": false,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2406,
+      "swapped": true,
+      "a": "D",
+      "b": "W",
+      "diff": -0.5
+    },
+    {
+      "seed": 2407,
+      "swapped": false,
+      "a": "W",
+      "b": "D",
+      "diff": 0.5
+    },
+    {
+      "seed": 2407,
+      "swapped": true,
+      "a": "W",
+      "b": "L",
+      "diff": 1.0
+    },
+    {
+      "seed": 2408,
+      "swapped": false,
+      "a": "W",
+      "b": "D",
+      "diff": 0.5
+    },
+    {
+      "seed": 2408,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2409,
+      "swapped": false,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2409,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2410,
+      "swapped": false,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    },
+    {
+      "seed": 2410,
+      "swapped": true,
+      "a": "W",
+      "b": "W",
+      "diff": 0.0
+    }
+  ],
+  "seed_pair_diffs": {
+    "2401": -1.0,
+    "2402": 0.0,
+    "2403": 0.0,
+    "2404": 0.0,
+    "2405": -0.5,
+    "2406": -0.5,
+    "2407": 1.5,
+    "2408": 0.5,
+    "2409": 0.0,
+    "2410": 0.0
+  }
+}

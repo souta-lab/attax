@@ -5,7 +5,7 @@
  * placement and its line clears. The bot's score is a weighted sum (see `weights.ts`);
  * nothing here knows about weights.
  */
-import { type BitBoard, COLS, FULL_ROW, ROWS } from "./movegen.js";
+import { type BitBoard, COLS, FULL_ROW } from "./movegen.js";
 
 export const BOARD_FEATURES = [
   /** Height of the tallest column (0..20) plus garbage rows that will land under it. */
@@ -43,10 +43,10 @@ const heights = new Int32Array(COLS);
 export function columnHeights(board: BitBoard, out: Int32Array = heights): Int32Array {
   out.fill(0);
   let seen = 0;
-  for (let row = 0; row < ROWS && seen !== FULL_ROW; row += 1) {
+  for (let row = 0; row < board.length && seen !== FULL_ROW; row += 1) {
     const fresh = (board[row] as number) & ~seen;
     if (fresh === 0) continue;
-    for (let x = 0; x < COLS; x += 1) if ((fresh & (1 << x)) !== 0) out[x] = ROWS - row;
+    for (let x = 0; x < COLS; x += 1) if ((fresh & (1 << x)) !== 0) out[x] = board.length - row;
     seen |= fresh;
   }
   return out;
@@ -71,7 +71,7 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
   let rowTransitions = 0;
   let covered = 0;
   const blocksAbove = new Int32Array(COLS);
-  for (let row = 0; row < ROWS; row += 1) {
+  for (let row = 0; row < board.length; row += 1) {
     const bits = board[row] as number;
     const holeBits = covered & ~bits;
     if (holeBits !== 0) {
@@ -101,15 +101,15 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
     bumpiness += d;
     bumpinessSq += d * d;
   }
-  const left = well > 0 ? (h[well - 1] as number) : ROWS;
-  const right = well < COLS - 1 ? (h[well + 1] as number) : ROWS;
+  const left = well > 0 ? (h[well - 1] as number) : board.length;
+  const right = well < COLS - 1 ? (h[well + 1] as number) : board.length;
   const wellDepth = Math.min(4, Math.min(left, right) - (h[well] as number));
 
   let extraWells = 0;
   for (let x = 0; x < COLS; x += 1) {
     if (x === well) continue;
-    const l = x > 0 ? (h[x - 1] as number) : ROWS;
-    const r = x < COLS - 1 ? (h[x + 1] as number) : ROWS;
+    const l = x > 0 ? (h[x - 1] as number) : board.length;
+    const r = x < COLS - 1 ? (h[x + 1] as number) : board.length;
     if (Math.min(l, r) - (h[x] as number) >= 3) extraWells += 1;
   }
 
@@ -136,7 +136,7 @@ function popcount(v: number): number {
 }
 
 function filled(board: BitBoard, x: number, row: number): boolean {
-  if (x < 0 || x >= COLS || row >= ROWS) return true;
+  if (x < 0 || x >= COLS || row >= board.length) return true;
   if (row < 0) return false;
   return ((board[row] as number) & (1 << x)) !== 0;
 }
@@ -152,8 +152,8 @@ function bestTSlot(board: BitBoard, h: Int32Array): number {
   let best = 0;
   for (let x = 1; x < COLS - 1; x += 1) {
     // The stem sits one row below the lowest of the slot's three surface columns.
-    const row = ROWS - (h[x] as number) - 1;
-    if (row < 2 || row >= ROWS) continue;
+    const row = board.length - (h[x] as number) - 1;
+    if (row < 2 || row >= board.length) continue;
     if (filled(board, x, row)) continue;
     if (!filled(board, x - 1, row) || !filled(board, x + 1, row)) continue;
     const flat = row - 1;
@@ -163,7 +163,7 @@ function bestTSlot(board: BitBoard, h: Int32Array): number {
     const rightRoof = filled(board, x + 1, flat - 1);
     if (leftRoof === rightRoof) continue; // need exactly one overhang: one side roofed, one open
     const openSide = leftRoof ? x + 1 : x - 1;
-    if ((h[openSide] as number) > ROWS - flat) continue;
+    if ((h[openSide] as number) > board.length - flat) continue;
     let lines = 0;
     if (((board[row] as number) | (1 << x)) === FULL_ROW) lines += 1;
     if (((board[flat] as number) | (7 << (x - 1))) === FULL_ROW) lines += 1;

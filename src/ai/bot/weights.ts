@@ -20,6 +20,8 @@ export interface Weights {
   readonly board: Readonly<Record<BoardFeature, number>>;
   /** Reward per garbage line produced (before cancellation — cancelling is defence). */
   readonly attack: number;
+  /** S2 root reward per attack line left after cancelling known incoming garbage. */
+  readonly conversion: number;
   /** Extra shaping per clear type, on top of the attack it produced. */
   readonly clear: Readonly<Record<ClearKind, number>>;
   /** Penalty for ending a back-to-back chain with a plain clear. */
@@ -45,6 +47,7 @@ export const DEFAULT_WEIGHTS: Weights = {
     tSlot: 60,
   },
   attack: 90,
+  conversion: 0,
   clear: {
     single: -60,
     double: -40,

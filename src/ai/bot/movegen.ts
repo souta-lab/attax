@@ -34,6 +34,68 @@ interface Shape {
 
 const KINDS: readonly PieceKind[] = ["I", "O", "T", "S", "Z", "J", "L"];
 
+/**
+ * SRS+ 180° kick tests, keyed by the FROM rotation (target = from + 2).
+ * Converted from the referee's kick table (@haelp/teto SRS+): dx as-is,
+ * dy negated, the implicit (0,0) test first, referee test order preserved.
+ * The conversion was verified against every quarter-turn table in srs.ts
+ * (16/16 transitions identical as sets under this transform). Only used
+ * when generatePlacements is asked for rotate180; the guideline engine
+ * has no 180 input and never requests these.
+ */
+const KICKS_180_JLSTZ: Readonly<Record<number, readonly Kick[]>> = {
+  0: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 1, dy: 1 },
+    { dx: -1, dy: 1 },
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+  ],
+  2: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: -1, dy: -1 },
+    { dx: 1, dy: -1 },
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
+  ],
+  1: [
+    { dx: 0, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: 1, dy: 2 },
+    { dx: 1, dy: 1 },
+    { dx: 0, dy: 2 },
+    { dx: 0, dy: 1 },
+  ],
+  3: [
+    { dx: 0, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: -1, dy: 2 },
+    { dx: -1, dy: 1 },
+    { dx: 0, dy: 2 },
+    { dx: 0, dy: 1 },
+  ],
+};
+const KICKS_180_I: Readonly<Record<number, readonly Kick[]>> = {
+  0: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: 1 },
+  ],
+  2: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: -1 },
+  ],
+  1: [
+    { dx: 0, dy: 0 },
+    { dx: 1, dy: 0 },
+  ],
+  3: [
+    { dx: 0, dy: 0 },
+    { dx: -1, dy: 0 },
+  ],
+};
+
 /** `KICKS[kind][from][0]` = CW kick list, `[1]` = CCW kick list (engine order). */
 const KICKS: Readonly<Record<PieceKind, readonly (readonly (readonly Kick[])[])[]>> =
   Object.fromEntries(
@@ -83,7 +145,7 @@ export function collides(
   const rows = shape.rows;
   for (let i = 0; i < rows.length; i += 1) {
     const row = y + shape.minY + i;
-    if (row >= ROWS) return true;
+    if (row >= board.length) return true;
     if (row >= 0 && ((board[row] as number) & ((rows[i] as number) << (x + shape.minX))) !== 0) {
       return true;
     }
@@ -92,8 +154,11 @@ export function collides(
 }
 
 /** Engine spawn position for a freshly drawn piece. */
-export function spawnPosition(kind: PieceKind): { rotation: number; x: number; y: number } {
-  return { rotation: 0, x: 3, y: -(SHAPES[kind][0] as Shape).minY };
+export function spawnPosition(
+  kind: PieceKind,
+  rows = ROWS,
+): { rotation: number; x: number; y: number } {
+  return { rotation: 0, x: 3, y: rows > ROWS ? rows - 21 : -(SHAPES[kind][0] as Shape).minY };
 }
 
 export interface Placement {
@@ -111,7 +176,7 @@ export interface Placement {
 const X_OFF = 3;
 const Y_OFF = 4;
 const X_SPAN = 16;
-const Y_SPAN = 32;
+const Y_SPAN = 64;
 const STATE_COUNT = 4 * Y_SPAN * X_SPAN;
 
 const visited = new Uint32Array(STATE_COUNT);
@@ -134,9 +199,33 @@ export function generatePlacements(
   kind: PieceKind,
   start: { readonly rotation: number; readonly x: number; readonly y: number } = spawnPosition(
     kind,
+    board.length,
   ),
+  options?: {
+    /**
+     * Keep rotation evidence (lastSrs) for non-T pieces, preferring the
+     * spin-proving arrival among cell-identical duplicates. Rulesets that
+     * award non-T spins (S2 all-spin) need this; the default keeps the
+     * historical output (lastSrs 0 for non-T) byte-identical.
+     */
+    readonly spinEvidence?: boolean;
+    /**
+     * Add 180° rotations as single BFS inputs with the SRS+ 180 kick
+     * tables above. Rulesets that allow 180 (S2) need this; two quarter
+     * turns are not equivalent (kick paths and rotation evidence differ).
+     * Default off: the historical reachable set is unchanged.
+     */
+    readonly rotate180?: boolean;
+  },
 ): Placement[] {
   const out: Placement[] = [];
+  if (
+    board.length > ROWS &&
+    start.y === board.length - 21 &&
+    collides(board, kind, start.rotation, start.x, start.y)
+  ) {
+    start = { ...start, y: start.y - 1 };
+  }
   if (collides(board, kind, start.rotation, start.x, start.y)) return out;
   stamp += 1;
   if (stamp === 0xffffffff) {
@@ -163,7 +252,7 @@ export function generatePlacements(
   // Seed the search with those positions just above the stack (three rows deep, enough for
   // any SRS kick to reach down) instead of walking every open-air state from the spawn.
   let top = 0;
-  while (top < ROWS && board[top] === 0) top += 1;
+  while (top < board.length && board[top] === 0) top += 1;
   const startShape = SHAPES[kind][start.rotation & 3] as Shape;
   const startBottom = start.y + startShape.minY + startShape.rows.length - 1;
   if (startBottom < top - 1) {
@@ -213,9 +302,31 @@ export function generatePlacements(
         break;
       }
     }
+    if (options?.rotate180) {
+      const to = (rotation + 2) & 3;
+      const kicks = (kind === "I" ? KICKS_180_I : KICKS_180_JLSTZ)[rotation] as readonly Kick[];
+      for (let i = 0; i < kicks.length; i += 1) {
+        const kick = kicks[i] as Kick;
+        const nx = x + kick.dx;
+        const ny = y - kick.dy;
+        if (collides(board, kind, to, nx, ny)) continue;
+        // Same evidence convention as quarter turns: kick 0 reports 1.
+        const lastSrs = i === 0 ? 1 : i + 1;
+        if (collides(board, kind, to, nx, ny + 1)) {
+          const target = encode(to, nx, ny);
+          if (spinStamp[target] !== stamp || lastSrs > (spinArrival[target] as number)) {
+            spinStamp[target] = stamp;
+            spinArrival[target] = lastSrs;
+          }
+        }
+        visit(to, nx, ny);
+        break;
+      }
+    }
   }
 
   const seen = new Set<number>();
+  const evidenceIndex = new Map<number, number>();
   for (const id of resting) {
     const x = (id % X_SPAN) - X_OFF;
     const y = (Math.floor(id / X_SPAN) % Y_SPAN) - Y_OFF;
@@ -226,10 +337,27 @@ export function generatePlacements(
     const tspin = kind === "T" && lastSrs > 0 ? tspinKind(board, rotation, x, y, lastSrs) : "none";
     if (kind !== "T") {
       const key = cellKey(shape, x, y);
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        // Spin-evidence mode only: a cell-identical duplicate that arrived by
+        // rotation replaces the kept representative, so its evidence survives.
+        if (options?.spinEvidence) {
+          const idx = evidenceIndex.get(key) as number;
+          if (lastSrs > (out[idx] as Placement).lastSrs)
+            out[idx] = { kind, rotation, x, y, lastSrs, tspin };
+        }
+        continue;
+      }
       seen.add(key);
+      if (options?.spinEvidence) evidenceIndex.set(key, out.length);
     }
-    out.push({ kind, rotation, x, y, lastSrs: kind === "T" ? lastSrs : 0, tspin });
+    out.push({
+      kind,
+      rotation,
+      x,
+      y,
+      lastSrs: kind === "T" || options?.spinEvidence ? lastSrs : 0,
+      tspin,
+    });
   }
   return out;
 }
@@ -255,12 +383,13 @@ function tspinKind(
     if (row >= 0)
       locked[row] = (locked[row] as number) | ((shape.rows[i] as number) << (x + shape.minX));
   }
-  const bottomUp = new Uint16Array(ROWS);
-  for (let row = 0; row < ROWS; row += 1) bottomUp[ROWS - 1 - row] = locked[row] as number;
+  const bottomUp = new Uint16Array(board.length);
+  for (let row = 0; row < board.length; row += 1)
+    bottomUp[board.length - 1 - row] = locked[row] as number;
   const cells = bottomCellsOf("T", rotation);
   let maxCellY = 0;
   for (const c of cells) maxCellY = Math.max(maxCellY, c.y);
-  return classifyTspin(bottomUp, cells, x, ROWS - 1 - y - maxCellY, rotation, lastSrs);
+  return classifyTspin(bottomUp, cells, x, board.length - 1 - y - maxCellY, rotation, lastSrs);
 }
 
 export interface LockOutcome {
@@ -275,13 +404,13 @@ export function lockPlacement(board: BitBoard, p: Placement): LockOutcome {
   const shape = SHAPES[p.kind][p.rotation] as Shape;
   for (let i = 0; i < shape.rows.length; i += 1) {
     const row = p.y + shape.minY + i;
-    if (row >= 0 && row < ROWS) {
+    if (row >= 0 && row < board.length) {
       next[row] = (next[row] as number) | ((shape.rows[i] as number) << (p.x + shape.minX));
     }
   }
-  let write = ROWS - 1;
+  let write = board.length - 1;
   let cleared = 0;
-  for (let read = ROWS - 1; read >= 0; read -= 1) {
+  for (let read = board.length - 1; read >= 0; read -= 1) {
     const row = next[read] as number;
     if (row === FULL_ROW) {
       cleared += 1;
@@ -292,6 +421,6 @@ export function lockPlacement(board: BitBoard, p: Placement): LockOutcome {
   }
   for (; write >= 0; write -= 1) next[write] = 0;
   let empty = true;
-  for (let row = 0; row < ROWS; row += 1) if (next[row] !== 0) empty = false;
+  for (let row = 0; row < board.length; row += 1) if (next[row] !== 0) empty = false;
   return { board: next, linesCleared: cleared, perfectClear: cleared > 0 && empty };
 }

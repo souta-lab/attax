@@ -1,0 +1,8 @@
+[package]
+name = "attax-search"
+version = "0.1.0"
+edition = "2024"
+description = "Native port of the Attax bot decision path (src/ai/bot): movegen, features, weights, beam search."
+
+[lib]
+crate-type = ["rlib"]

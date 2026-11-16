@@ -1,0 +1,31 @@
+{
+  "board": {
+    "maxHeight": -6,
+    "danger": -40,
+    "holes": -60,
+    "holeCover": -12,
+    "holeRows": -40,
+    "bumpiness": -8,
+    "bumpinessSq": -3,
+    "rowTransitions": -6,
+    "wellDepth": 18,
+    "extraWells": -40,
+    "tSlot": 60
+  },
+  "attack": 90,
+  "conversion": 0,
+  "clear": {
+    "single": -60,
+    "double": -40,
+    "triple": -30,
+    "quad": 60,
+    "tspinMini": -20,
+    "tspinSingle": 40,
+    "tspinDouble": 120,
+    "tspinTriple": 160,
+    "perfectClear": 400
+  },
+  "b2bBreak": -90,
+  "wastedT": -50,
+  "discount": 0.97
+}

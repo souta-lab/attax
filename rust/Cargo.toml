@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "hoiko-core",
     "hoiko-wasm",
+    "attax-search",
+    "attax-search-cli",
 ]
 
 [profile.release]

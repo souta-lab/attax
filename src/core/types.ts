@@ -76,6 +76,8 @@ export interface LockTransition {
   readonly action: LockAction;
   readonly nativeCombo: number;
   readonly nativeBtb: number;
+  /** S2 surge total; packet partition/delivery remains unpinned (S2-SPEC Unpinned #2/#3). */
+  readonly surgeReleased?: number;
   readonly rawAttack: number;
   readonly sentAttack: number;
   readonly lockId: number;
