@@ -8,20 +8,33 @@
  */
 import type { PieceKind } from "../../core/pieces.js";
 import type { BoardFeatures } from "./features.js";
-import type { BitBoard } from "./movegen.js";
+import type { BitBoard, Placement } from "./movegen.js";
 
 export interface SearchInput {
   readonly board: BitBoard;
+  /** S2: logical referee frame at the root decision (lockTime). Absent = 0. */
+  readonly frame?: number;
+  /** S2: garbage flags aligned with board row indices. Absent on the guideline path. */
+  readonly garbageRows?: readonly number[];
   readonly active: { kind: PieceKind; rotation: number; x: number; y: number };
   readonly hold: PieceKind | null;
   readonly canHold: boolean;
   /** Upcoming pieces after the active one (the visible preview). */
   readonly preview: readonly PieceKind[];
   readonly b2b: boolean;
+  /**
+   * S2: exact difficult-clear chain. When present it is used verbatim (and
+   * `b2b` is ignored for the root state); the guideline path never sets it.
+   */
+  readonly b2bChain?: number;
   /** Engine combo counter: -1 = no chain, 0 = first clear of a chain, ... */
   readonly combo: number;
   /** Incoming garbage rows not yet on the board. */
   readonly pending: number;
+  /** S2: referee-given rows due on the root lock. Absent = 0. */
+  readonly dueThisLock?: number;
+  /** S2: referee kickset witness required for root placements only. */
+  readonly acceptRoot?: (placement: Placement, usedHold: boolean) => boolean;
   /** Possible next pieces after the visible queue, uniformly distributed by 7-bag. */
   readonly speculativePieces?: readonly PieceKind[];
 }
@@ -83,18 +96,23 @@ export function rootState(
   rootFeatures: BoardFeatures,
   bagRemaining: readonly PieceKind[] | null,
 ): NodeState {
+  const b2bChain = input.b2bChain !== undefined ? input.b2bChain : input.b2b ? 1 : 0;
   return {
     board: input.board,
-    garbageRows: null,
+    // Same construction as the S2 lab root: one flag per board row.
+    garbageRows:
+      input.garbageRows !== undefined
+        ? Uint8Array.from(input.board, (_, row) => (input.garbageRows?.[row] ? 1 : 0))
+        : null,
     hold: input.hold,
     canHold: input.canHold,
     next: 0,
-    b2bChain: input.b2b ? 1 : 0,
-    b2bActive: input.b2b,
+    b2bChain,
+    b2bActive: input.b2bChain !== undefined ? b2bChain > 0 : input.b2b,
     combo: input.combo,
     pending: input.pending,
     lift: 0,
-    dueThisLock: 0,
+    dueThisLock: input.dueThisLock ?? 0,
     bagRemaining,
     tSlot: rootFeatures.tSlot,
   };

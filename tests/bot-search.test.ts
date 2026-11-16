@@ -170,7 +170,8 @@ describe("beam dedupe key", () => {
     }
   });
 
-  test("s2: keeps states that differ only in hold availability", () => {
+  test("s2: merges states that differ only in hold availability (production lab key has no canHold segment)", () => {
+    // Inert in production: every expanded child has canHold true.
     const kept = dedupe(
       [
         { ...base, canHold: true, id: "a" },
@@ -180,10 +181,10 @@ describe("beam dedupe key", () => {
       false,
       "s2",
     );
-    expect(kept).toHaveLength(2);
+    expect(kept.map((n) => n.id)).toEqual(["a"]);
   });
 
-  test("s2 + guideline rig folds combo: it never reaches attack there", () => {
+  test("s2: never folds combo, even with the guideline rig flag", () => {
     const kept = dedupe(
       [
         { ...base, combo: 3, id: "chain" },
@@ -193,7 +194,36 @@ describe("beam dedupe key", () => {
       true,
       "s2",
     );
-    expect(kept.map((n) => n.id)).toEqual(["chain"]);
+    expect(kept.map((n) => n.id)).toEqual(["chain", "cold"]);
+  });
+
+  test("s2: keeps states that differ only in residual pending", () => {
+    const kept = dedupe(
+      [
+        { ...base, pending: 0, id: "clear" },
+        { ...base, pending: 5, id: "pressured" },
+      ],
+      10,
+      false,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["clear", "pressured"]);
+  });
+
+  test("s2: keeps states that differ only in garbage flags", () => {
+    const clean = new Uint8Array(20);
+    const flagged = new Uint8Array(20);
+    flagged[19] = 1;
+    const kept = dedupe(
+      [
+        { ...base, garbageRows: clean, id: "clean" },
+        { ...base, garbageRows: flagged, id: "garbage" },
+      ],
+      10,
+      false,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["clean", "garbage"]);
   });
 
   test("guideline profile (and the default) keeps the legacy key: combo/lift/canHold merge", () => {

@@ -12,7 +12,10 @@ import { spawnPosition } from "../../src/ai/bot/movegen.js";
 import type { SearchInput as SrcSearchInput } from "../../src/ai/bot/state.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
 import type { PieceKind } from "../../src/core/pieces.js";
-import type { SearchInput as S2SearchInput, SearchOptions as S2SearchOptions } from "../s2-lab/search.js";
+import type {
+  SearchInput as S2SearchInput,
+  SearchOptions as S2SearchOptions,
+} from "../s2-lab/search.js";
 import { DEFAULT_SOLVENCY_PARAMS } from "../s2-lab/solvency.js";
 import { DEFAULT_STOCK_PARAMS } from "../s2-lab/stock.js";
 
@@ -94,7 +97,8 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
     {
       name: "pending-frame",
       input: s2Input({
-        board: mkBoard(["GGGGGGGGG.", "GGGGGGGGG.", "####.#####", "#########.", "###.######"]).board,
+        board: mkBoard(["GGGGGGGGG.", "GGGGGGGGG.", "####.#####", "#########.", "###.######"])
+          .board,
         garbageRows: mkBoard(["GGGGGGGGG.", "GGGGGGGGG.", "####.#####", "#########.", "###.######"])
           .garbageRows,
         active: { kind: "I", ...spawnPosition("I", 40) },

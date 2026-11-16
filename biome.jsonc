@@ -17,7 +17,8 @@
       "!evidence/native-app",
       "!dist",
       "!bench-results",
-      "!src/data/results.json"
+      "!src/data/results.json",
+      "!tools/unify/s2-golden.json"
     ]
   },
   "formatter": {
