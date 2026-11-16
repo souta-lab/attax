@@ -26,7 +26,8 @@
  * queue in ~20 quiet turns; that pattern killed this adapter before 2026-11-15.)
  *
  * Env: ATTAX_TBP_LOG (optional JSONL decision log path),
- *      ATTAX_TBP_ROWS (visible board rows in the snapshot: 20 default, or 40).
+ *      ATTAX_TBP_ROWS (visible board rows in the snapshot: 20 default, or 40),
+ *      ATTAX_TBP_PROFILE ("s2" selects the S2 rules profile; default guideline).
  */
 import { appendFileSync } from "node:fs";
 
@@ -38,9 +39,9 @@ const LOG = process.env.ATTAX_TBP_LOG;
 
 // Visible board rows in the bot's snapshot. 20 (default) is the published
 // guideline view: cells above TBP row 19 are not represented. 40 exposes the
-// full TBP board, for hosts whose referee spawns pieces above row 20; the
-// spawn origin then follows the bot's tall-board convention (the same
-// rows - 21 origin the field40 rig uses), not the 20-row top edge.
+// full TBP board, for S2 hosts whose referee spawns pieces above row 20; the
+// spawn origin then follows the S2 spawn (see snapshot()), not the 20-row
+// top edge.
 const FIELD_ROWS = process.env.ATTAX_TBP_ROWS === "40" ? 40 : 20;
 
 type Kind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
@@ -186,7 +187,11 @@ function applyPlay(mv: TbpMove) {
 }
 
 // ---- decision --------------------------------------------------------------------------
-const bot = createBot({ name: "attax" }); // default preview 5, beam width 48, default weights
+const S2_PROFILE = process.env.ATTAX_TBP_PROFILE === "s2";
+const bot = createBot({
+  name: "attax",
+  ...(S2_PROFILE ? { profile: "s2" as const } : {}),
+}); // default preview 5, beam width 48, default weights
 
 function snapshot(): GameSnapshot | null {
   // Attax grid: FIELD_ROWS rows, index 0 = top.  At 20 rows, cells above
@@ -198,7 +203,12 @@ function snapshot(): GameSnapshot | null {
   if (!kind) return null; // queue ran dry: caller answers with an empty suggestion
   const shape = cellsFor(kind, 0) as { x: number; y: number }[];
   const minY = Math.min(0, ...shape.map((c) => c.y));
-  const posY = FIELD_ROWS > 20 ? FIELD_ROWS - 21 : -minY;
+  const maxY = Math.max(...shape.map((c) => c.y));
+  // 40-row mode: the S2 spawn puts the piece's lowest cell at TBP row 21,
+  // which is grid row FIELD_ROWS - 22, so the origin sits maxY above it.
+  // (The previous FIELD_ROWS - 21 origin came from the field40 rig and put
+  // the piece 2-3 rows below the S2 spawn, depending on the piece.)
+  const posY = FIELD_ROWS > 20 ? FIELD_ROWS - 22 - maxY : -minY;
   return {
     board: { cols: 10, rows: FIELD_ROWS, grid },
     active: {
