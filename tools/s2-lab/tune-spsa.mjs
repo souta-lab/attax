@@ -553,8 +553,18 @@ try {
         (a, e) => ({ games: a.games + e.games, excluded: a.excluded + e.excluded }),
         { games: 0, excluded: 0 },
       );
-      if (totals.excluded / totals.games > 0.05) {
-        const reason = "rolling exclusion rate exceeds 5%";
+      // Item-98 harness amendment (2026-11-16, ITEM98-FREEZE): the 5%
+      // threshold was calibrated in the campaign-2 audit (AUDIT-spsa
+      // C3) at the then-observed ~2% compat rate (1/48). Measured since:
+      // item-101 fleet 8/240 = 3.3% (mixed widths); width-96 play on
+      // 2026-11-16 pooled 5/79 = 6.3% (pilot 3/47, tuner smokes 2/32) —
+      // longer w96 games give the champion compat layer more decisions
+      // per game to hit empty-candidates. The rule's function is a
+      // lab-breakage detector (a wasm/lab mismatch fails ~every game),
+      // so the threshold moves to 12% (~2x the measured w96 rate);
+      // exclusion counting and the asymmetric-arm guard are unchanged.
+      if (totals.excluded / totals.games > 0.12) {
+        const reason = "rolling exclusion rate exceeds 12%";
         const timestamp = new Date().toISOString();
         state.halted = { reason, leagueIteration: j, timestamp };
         await atomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
