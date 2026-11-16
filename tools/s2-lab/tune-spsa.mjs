@@ -26,6 +26,8 @@ const defaults = {
   "survival-weight": "0",
   "frozen-groups": "",
   "profile-namespace": "league",
+  "adopt-groups": "",
+  "adopt-scale": "1",
 };
 const { values } = parseArgs({
   options: {
@@ -73,6 +75,21 @@ const groups = [
   ["board.tSlot", "wastedT"],
   ["clear.perfectClear"],
 ];
+const adoptGroupTags = { c1: ["b2bState"] };
+const adoptScale = number("adopt-scale", 1, false);
+const adoptPaths = new Set();
+for (const tag of (values["adopt-groups"] || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)) {
+  const paths = adoptGroupTags[tag];
+  if (!paths) throw new Error(`unknown --adopt-groups tag ${tag}`);
+  for (const path of paths) {
+    if (adoptPaths.has(path)) continue;
+    adoptPaths.add(path);
+    groups.push([path]);
+  }
+}
 const frozenGroups = new Set(
   (values["frozen-groups"] || "")
     .split(",")
@@ -124,15 +141,17 @@ if (
   expected.some((p) => !Number.isFinite(seedFlat[p]))
 )
   throw new Error("start profile must contain all weights and no unknown keys");
+const seedScales = Object.fromEntries(
+  Object.entries(seedFlat).map(([p, v]) => [
+    p,
+    Math.max(adoptPaths.has(p) ? adoptScale : 1, Math.abs(v)),
+  ]),
+);
 let state = {
   iteration: 0,
-  thetaU: Object.fromEntries(
-    Object.entries(seedFlat).map(([p, v]) => [p, v / Math.max(1, Math.abs(v))]),
-  ),
+  thetaU: Object.fromEntries(Object.entries(seedFlat).map(([p, v]) => [p, v / seedScales[p]])),
   seedProfile,
-  scales: Object.fromEntries(
-    Object.entries(seedFlat).map(([p, v]) => [p, Math.max(1, Math.abs(v))]),
-  ),
+  scales: Object.fromEntries(seedScales),
   history: [],
 };
 if (values.league) {
@@ -166,6 +185,9 @@ try {
   if (error.code !== "ENOENT") throw error;
 }
 if (!!state.league !== values.league) throw new Error("state mode does not match --league");
+for (const p of groups.flat())
+  if (!Number.isFinite(state.thetaU[p]))
+    throw new Error(`state has no coordinate for ${p} (adopt groups must match the state)`);
 if (state.halted) {
   console.error(`SPSA HALTED: ${state.halted.reason}`);
   process.exit(3);

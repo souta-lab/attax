@@ -121,22 +121,22 @@ describe("C1 terminal B2B-alive state value (b2bState)", () => {
   });
 });
 
-/** Every adopt term switched on (extended as candidates land). */
-const ADOPT_ON: Weights = {
-  ...DEFAULT_WEIGHTS,
-  b2bState: 100,
-  tSlotChain2: 100,
-  tSlotChain3: -50,
-  holdT: 40,
-  holdI: 20,
-};
-
-describe("unified tree: adopt terms are guideline-only", () => {
-  // Item 97 chunk 4 ports the adopt terms onto the shared search's guideline path. The S2
-  // profile (expandS2) keeps its own terminal bracket (dot + Φ − risk) in this lane, so
-  // turning the adopt weights on must leave every S2 result bit-identical.
+describe("unified tree: adopt C2/C4 terms are guideline-only", () => {
+  // Item 97 chunk 4 ports the adopt terms onto the shared search. The C2 (tSlotChain)
+  // and C4 (holdT/holdI) terms live only in the guideline path, so turning them on must
+  // leave every S2 result bit-identical. The C1 term is the exception by design: its S2
+  // dimension (b2bState x [chain >= 1], ported in chunk 4 from 78a8eff) IS read by
+  // expandS2 — its S2 behaviour is pinned in tools/s2-lab/adopt.test.ts, so b2bState is
+  // deliberately excluded from the weights switched on here.
+  const S2_IGNORED: Weights = {
+    ...DEFAULT_WEIGHTS,
+    tSlotChain2: 100,
+    tSlotChain3: -50,
+    holdT: 40,
+    holdI: 20,
+  };
   for (const b2b of [false, true]) {
-    test(`s2 profile ignores the adopt weights (b2b=${b2b})`, () => {
+    test(`s2 profile ignores the C2/C4 adopt weights (b2b=${b2b})`, () => {
       const i = input(MIDGAME, "T", ["I", "L", "O"], {
         b2b,
         hold: "T",
@@ -144,7 +144,7 @@ describe("unified tree: adopt terms are guideline-only", () => {
       });
       const options = { width: 24, profile: "s2" as const };
       same(
-        search(i, { ...options, weights: ADOPT_ON }),
+        search(i, { ...options, weights: S2_IGNORED }),
         search(i, { ...options, weights: DEFAULT_WEIGHTS }),
       );
     });

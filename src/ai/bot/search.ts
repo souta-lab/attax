@@ -605,7 +605,9 @@ function expandS2(
     ctx.solvency !== undefined && ctx.solvency.coefficient !== 0
       ? assessSolvency(solvencyStateFrom(childState, features), ctx.solvency).penalty
       : 0;
-  const value = accumulated + scale * w.discount * (dot(features, w) + phi - risk);
+  const b2bState = w.b2bState ?? 0;
+  const stateValue = b2bState !== 0 && childState.b2bChain >= 1 ? b2bState : 0;
+  const value = accumulated + scale * w.discount * (dot(features, w) + stateValue + phi - risk);
 
   return {
     state: childState,
