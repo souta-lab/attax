@@ -357,6 +357,7 @@ function witnessKeyOf(p: Placement, usedHold: boolean): string {
 
 type RustCallOpts = {
   weights: Weights;
+  width: number;
   stock?: StockParams;
   solvency?: SolvencyParams;
   rootVeto: boolean;
@@ -437,7 +438,7 @@ function rustPayload(
       ...(acceptRootKeys ? { acceptRootKeys } : {}),
     },
     options: {
-      width: BOT_DEFAULTS.width,
+      width: opts.width,
       ...(opts.stock ? { stock: opts.stock } : {}),
       ...(opts.solvency ? { solvency: opts.solvency } : {}),
       ...(opts.rootVeto ? { rootVeto: true } : {}),
@@ -591,10 +592,17 @@ if (RUST_MODE !== "server" && RUST_MODE !== "oneshot") {
   throw new Error(`expected "server" or "oneshot" in ATTAX_RUST_MODE, got ${RUST_MODE}`);
 }
 
-export function createAttaxDecider(profilePath: string | undefined) {
+export function createAttaxDecider(
+  profilePath: string | undefined,
+  opts?: { width?: number },
+) {
   // Startup self-check: the engine handshake runs before the run begins, so a
   // missing/failing Rust binary aborts here rather than mid-match.
   engineIdentity();
+  // Beam width: the shipped default (BOT_DEFAULTS.width) unless the caller
+  // pins one explicitly — the corpus/agreement surfaces pin theirs so a
+  // future default change cannot silently move their digests.
+  const width = opts?.width ?? BOT_DEFAULTS.width;
   const { weights, mechanisms, profileId } = loadProfile(profilePath);
   const stock = envMechanism(
     process.env.ATTAX_S2_STOCK_POTENTIAL,
@@ -634,7 +642,7 @@ export function createAttaxDecider(profilePath: string | undefined) {
     const t0 = performance.now();
     const result = search(shared, {
       weights,
-      width: BOT_DEFAULTS.width,
+      width,
       profile: "s2",
       ...(stock ? { stock } : {}),
       ...(solvency ? { solvency } : {}),
@@ -650,7 +658,7 @@ export function createAttaxDecider(profilePath: string | undefined) {
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
       const shared = project(decision, acceptRoot);
       if (ENGINE === "rust") {
-        return searchViaRust(shared, { weights, stock, solvency, rootVeto }, acceptRoot);
+        return searchViaRust(shared, { weights, width, stock, solvency, rootVeto }, acceptRoot);
       }
       return runTs(shared);
     },
@@ -664,11 +672,11 @@ export function createAttaxDecider(profilePath: string | undefined) {
       if (ENGINE === "rust") {
         if (server) {
           const line = await server.request(
-            rustPayload(shared, { weights, stock, solvency, rootVeto }, acceptRoot),
+            rustPayload(shared, { weights, width, stock, solvency, rootVeto }, acceptRoot),
           );
           return normalizeRustResult(JSON.parse(line));
         }
-        return searchViaRust(shared, { weights, stock, solvency, rootVeto }, acceptRoot);
+        return searchViaRust(shared, { weights, width, stock, solvency, rootVeto }, acceptRoot);
       }
       return runTs(shared);
     },

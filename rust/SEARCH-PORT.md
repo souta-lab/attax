@@ -163,6 +163,14 @@ The port now covers the S2 rules profile in full, and the S2 lab runs on it:
   through the Rust driver path is byte-identical to the TS record:
   `d12375f7935ca9f94b0fedeee96877b2ef6c6118be6fac1bd5110cf12297f286`.
 
+  *Landing note (2026-11-16, rebase onto the width-96 main):* that digest was
+  the width-48 surface. The corpus/agreement surfaces now pin the shipped
+  standard width explicitly (96), and the CI digest pin moved to the width-96
+  identity, byte-identical through both engine paths:
+  `3c12446683c25d1af4366f8faa7526393b4ee175b802347b1a66f3830735b536`.
+  Width-96 agreement re-verified at landing: S2 720/720 full, guideline
+  596/596 full (the retained guideline cases record width 96 per case).
+
 Engine rule (repo AGENTS.md, "Search engine rule"): the lab driver
 (`tools/s2-lab/attax-player.ts`) defaults to this CLI (`--oneshot` per decision);
 the TS search is the reference implementation and requires the explicit opt-in

@@ -54,6 +54,16 @@ const corpus = gunzipSync(readFileSync(corpusPath))
   .slice(0, limit)
   .map((l) => JSON.parse(l) as { id: string; observation: PublicDecision });
 
+/**
+ * The corpus surface runs at the shipped standard width, pinned explicitly:
+ * the digest is the identity proof for this surface, so a future change of
+ * the shipped default must not silently recompute it. Re-pinning the digest
+ * for a new width is a deliberate act (CI holds the pin). Width 96 since the
+ * 2026-11-16 landing (the width-48 digest d12375f7… is the pre-landing
+ * artifact, kept in the hookup record).
+ */
+const CORPUS_WIDTH = 96;
+
 const plain = (r: SearchResult | null) =>
   r === null
     ? null
@@ -73,7 +83,9 @@ const lines: string[] = [];
 const workers = Math.max(1, Number(process.env.ATTAX_CORPUS_WORKERS ?? 4));
 for (const profile of profiles) {
   const label = profile ?? "default";
-  const deciders = Array.from({ length: workers }, () => createAttaxDecider(profile));
+  const deciders = Array.from({ length: workers }, () =>
+    createAttaxDecider(profile, { width: CORPUS_WIDTH }),
+  );
   const results = new Array<string>(corpus.length);
   let next = 0;
   await Promise.all(

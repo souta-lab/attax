@@ -16,7 +16,6 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { BOT_DEFAULTS } from "../../src/ai/bot/fighter.js";
 import type { SearchResult } from "../../src/ai/bot/search.js";
 import {
   createAttaxDecider,
@@ -30,6 +29,14 @@ if (engineIdentity().id !== "ts-reference")
   throw new Error(
     "dump-s2-cases records TS reference expectations: run with ATTAX_ENGINE=ts-reference",
   );
+
+/**
+ * Cases are dumped at the shipped standard width, pinned explicitly (the
+ * same surface as tools/s2-lab/decision-corpus.ts): a future change of the
+ * shipped default must not silently change what the agreement gate checks.
+ * Width 96 since the 2026-11-16 landing.
+ */
+const AGREEMENT_WIDTH = 96;
 
 const args = process.argv.slice(2);
 const out = args.shift();
@@ -74,7 +81,7 @@ const plain = (r: SearchResult | null) =>
 
 const lines: string[] = [];
 for (const profile of profiles) {
-  const decider = createAttaxDecider(profile);
+  const decider = createAttaxDecider(profile, { width: AGREEMENT_WIDTH });
   const label = profile ?? "default";
   // Mechanism resolution with ATTAX_S2_* unset (enforced above): the profile's own
   // sections, with the decider's mode rule (a solvency section implies "soft"
@@ -82,7 +89,7 @@ for (const profile of profiles) {
   const mechanisms = decider.mechanisms;
   const mode = mechanisms.solvencyMode ?? (mechanisms.solvency !== undefined ? "soft" : undefined);
   const options = {
-    width: BOT_DEFAULTS.width,
+    width: AGREEMENT_WIDTH,
     ...(mechanisms.stock ? { stock: mechanisms.stock } : {}),
     ...(mode === "soft" && mechanisms.solvency ? { solvency: mechanisms.solvency } : {}),
     ...(mode === "hard" ? { rootVeto: true } : {}),
