@@ -23,7 +23,13 @@ export interface BotOptions {
   readonly exposure?: number;
   readonly speculate?: boolean;
   readonly guideline?: boolean;
-  /** Dedupe rules profile; unset means "guideline" (the frozen legacy key). */
+  /**
+   * Rules profile (src/core/profile.ts): selects the full ruleset (movegen,
+   * attack table, garbage semantics, death height, and dedupe key). Unset means
+   * "guideline". Note: `createBot` maps guideline `GameSnapshot` fields only
+   * and does not populate S2-only `SearchInput` fields (`b2bChain`,
+   * `garbageRows`, `dueThisLock`, `frame`).
+   */
   readonly profile?: SearchProfile;
 }
 

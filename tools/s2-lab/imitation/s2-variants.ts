@@ -2,12 +2,28 @@
  * S2 imitation driver variants and feature decomposition.
  *
  * Isolates the three section-D candidate representations strictly inside tools/s2-lab:
- *   1. "existing"            — exact tools/s2-lab/search.ts semantics + instrumentation
+ *   1. "existing"            — frozen pre-F1-F5 baseline for §D ablation (must not change)
  *   2. "corrected"           — fixes §F/§J.1 defects (SRS+ non-T spins, 20-row topout,
  *                              bottom-up garbageRows, residual pending, full dedupe)
  *   3. "corrected_augmented" — "corrected" + §C1 stock potential & §C2 solvency features
  *
- * Guideline / src/ai/bot paths are never modified.
+ * Frozen instrumentation harness:
+ *   This module intentionally retains its own `runVariantSearch` / `expandSimNode` /
+ *   `dedupeBeam` / `generateS2Placements` loop rather than calling `src/ai/bot/search.ts`.
+ *   Replacing it with the shared core would change the §D instrument's semantics:
+ *   - "existing" pins the pre-F1-F5 ablation baseline;
+ *   - "corrected" / "corrected_augmented" use SRS+ I-kicks (180° off), a scalar `lift`
+ *     with `S2_GARBAGE_CAP = 8` rather than materializing rows into `board`, per-node
+ *     `TraceAcc` + root-floor completion (`completePrunedRoots`) for exact linear
+ *     decomposition (`phi24` / `phi34`), and a `canHold`/`lift`/sparse-`garbageRows`
+ *     dedupe key.
+ *   Shared primitives (`boardFeatures`, `awardLock`, `s2GarbageMultiplier`, `s2Surge`,
+ *   `classifyS2Spin`, `clearKind`, `generatePlacements`, `collides`, `spawnPosition`)
+ *   are imported from the shared core; the search/expand loop itself must be kept in
+ *   manual sync with `src/ai/bot/search.ts` — any drift breaks
+ *   `tools/s2-lab/imitation/s2-variants.test.ts`.
+ *
+ * Guideline / src/ai/bot paths are never modified by this file.
  */
 
 import { BOARD_FEATURES, boardFeatures } from "../../../src/ai/bot/features.js";
@@ -21,6 +37,7 @@ import {
   ROWS,
   spawnPosition,
 } from "../../../src/ai/bot/movegen.js";
+import { clearKind } from "../../../src/ai/bot/search.js";
 import type { ClearKind, Weights } from "../../../src/ai/bot/weights.js";
 import { cellsFor, type PieceKind } from "../../../src/core/pieces.js";
 import { awardLock, s2GarbageMultiplier, s2Surge } from "../../../src/core/rules.js";
@@ -598,15 +615,6 @@ function pieceOptions(node: SimNode, sequence: readonly PieceKind[]): PieceOptio
   return options;
 }
 
-function clearKindOf(lines: number, tspin: TspinKind, perfectClear: boolean): ClearKind | null {
-  if (lines === 0) return null;
-  if (perfectClear) return "perfectClear";
-  if (tspin === "mini") return "tspinMini";
-  if (tspin === "full")
-    return lines === 1 ? "tspinSingle" : lines === 2 ? "tspinDouble" : "tspinTriple";
-  return lines === 1 ? "single" : lines === 2 ? "double" : lines === 3 ? "triple" : "quad";
-}
-
 function clearKindIndex(kind: ClearKind | null): number {
   if (kind === null) return -1;
   return CLEAR_KINDS.indexOf(kind);
@@ -809,7 +817,7 @@ function expandSimNode(
         ? Math.max(0, attack - rootPending)
         : 0
       : Math.max(0, attack - pendingThisStep);
-  const cKind = clearKindOf(lines, spin, perfectClear);
+  const cKind = clearKind(lines, spin, perfectClear);
   const brokeB2b = node.b2b > 0 && lines > 0 && !difficult && !perfectClear;
   const isWastedT = placement.kind === "T" && spin === "none" && node.tSlot > 0;
 

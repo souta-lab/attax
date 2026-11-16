@@ -34,6 +34,7 @@ describe("rules profile table", () => {
     expect(profile.spinEvidence).toBe(false);
     expect(profile.spinClassifier).toBe("engine");
     expect(profile.dedupe).toBe("guideline");
+    expect(profile.allowRootVeto).toBe(false);
   });
 
   test("s2 profile has pinned values", () => {
@@ -50,6 +51,7 @@ describe("rules profile table", () => {
     expect(profile.spinEvidence).toBe(true);
     expect(profile.spinClassifier).toBe("s2");
     expect(profile.dedupe).toBe("s2");
+    expect(profile.allowRootVeto).toBe(true);
   });
 
   test("RULES_PROFILE_TABLE contains both profiles", () => {

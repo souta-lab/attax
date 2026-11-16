@@ -76,8 +76,10 @@ export interface NodeState {
   /** Referee-given rows due on the root lock (S2 only). */
   readonly dueThisLock: number;
   /**
-   * Authoritative bag remainder after the visible queue (null when unknown).
-   * The evaluator / speculation can read this to sample unseen pieces.
+   * Reserved for per-ply bag remainder after the visible queue.
+   * Currently inert (`null` in `search()`): unseen-piece speculation and C2
+   * `tAvailable` read `input.speculativePieces` at root (`adoptContext` and the
+   * leaf chance-average pass), so `search()` passes `null` at root and every ply.
    */
   readonly bagRemaining: readonly PieceKind[] | null;
   /** Lines a T-spin into the best open T-slot would clear (board feature). */

@@ -88,13 +88,17 @@ export interface SolvencyAssessment {
  * which is the same number once tanked rows are materialized into the
  * board (height then includes the tank, pending is the remainder).
  */
-export function solvencyMargin(state: SolvencyState): number {
-  return 20 - state.maxHeight - state.pending;
+export function solvencyMargin(state: SolvencyState, visibleRows = 20): number {
+  return visibleRows - state.maxHeight - state.pending;
 }
 
 /** Assess a post-lock state. Pure; exact height arithmetic, no board scan. */
-export function assessSolvency(state: SolvencyState, params: SolvencyParams): SolvencyAssessment {
-  const margin = solvencyMargin(state);
+export function assessSolvency(
+  state: SolvencyState,
+  params: SolvencyParams,
+  visibleRows = 20,
+): SolvencyAssessment {
+  const margin = solvencyMargin(state, visibleRows);
   const doomed = margin < 0;
   const shortfall = Math.max(0, params.marginBand - margin);
   const penalty = params.coefficient * shortfall * shortfall + (doomed ? params.doomedPenalty : 0);

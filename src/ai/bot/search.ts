@@ -9,7 +9,7 @@
  */
 import { attackForClear, isDifficultClear } from "../../core/garbage.js";
 import { cellsFor, type PieceKind } from "../../core/pieces.js";
-import { rulesProfile } from "../../core/profile.js";
+import { type RulesProfile, rulesProfile } from "../../core/profile.js";
 import { awardLock, s2GarbageMultiplier } from "../../core/rules.js";
 import { classifyS2Spin } from "../../core/s2-spin.js";
 import type { TspinKind } from "../../core/tspin.js";
@@ -154,10 +154,10 @@ export function tAvailable(adopt: AdoptContext, next: number, hold: PieceKind | 
 export function search(input: SearchInput, options: SearchOptions): SearchResult | null {
   const { weights: w, width } = options;
   const profile = rulesProfile(options.profile ?? "guideline");
-  const s2 = profile.id === "s2";
-  const movegen = s2
-    ? { spinEvidence: profile.spinEvidence, rotate180: profile.rotate180 }
-    : undefined;
+  const movegen =
+    profile.spinEvidence || profile.rotate180
+      ? { spinEvidence: profile.spinEvidence, rotate180: profile.rotate180 }
+      : undefined;
   const s2ctx: S2Context = {
     rootFrame: input.frame ?? 0,
     stock: options.stock,
@@ -172,13 +172,25 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     rootPending: number,
     rootIndex: number,
   ): Node | null =>
-    s2
-      ? expandS2(node, placement, option, w, rootIndex, exposure, s2ctx)
-      : expand(node, placement, option, rootPending, w, rootIndex, exposure, guideline, adopt);
+    profile.garbageSemantics === "materialized-carried"
+      ? expandS2(node, placement, option, w, rootIndex, exposure, s2ctx, profile)
+      : expand(
+          node,
+          placement,
+          option,
+          rootPending,
+          w,
+          rootIndex,
+          exposure,
+          guideline,
+          adopt,
+          profile,
+        );
   const sequence: PieceKind[] = [input.active.kind, ...input.preview];
   const adopt = adoptContext(w, sequence, input.speculativePieces ?? []);
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
+    // bagRemaining is inert (speculation/C2 read input.speculativePieces at root).
     state: rootState(input, rootFeatures, null),
     reward: 0,
     value: 0,
@@ -234,7 +246,10 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
               ? {
                   rotation: 0,
                   x: 3,
-                  y: node.state.board.length > 20 ? node.state.board.length - 21 : 0,
+                  y:
+                    node.state.board.length > profile.visibleRows
+                      ? node.state.board.length - profile.visibleRows - 1
+                      : 0,
                 }
               : spawnPosition(option.kind, node.state.board.length);
         for (const placement of generatePlacements(node.state.board, option.kind, start, movegen)) {
@@ -288,14 +303,17 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   // the champion does not re-rank). If no root is solvent, the value-best
   // line stands: it is the least-bad try, and search still returns a move.
   // Search values are untouched, so veto-off is bit-identical.
-  if (s2 && options.rootVeto) {
+  if (profile.allowRootVeto && options.rootVeto) {
     const marginOf = (rootIndex: number): number => {
       const first = firstMoves[rootIndex];
       if (first === undefined) return Number.NEGATIVE_INFINITY;
-      return solvencyMargin({
-        maxHeight: boardFeatures(first.state.board, first.state.lift).maxHeight,
-        pending: first.state.pending,
-      });
+      return solvencyMargin(
+        {
+          maxHeight: boardFeatures(first.state.board, first.state.lift).maxHeight,
+          pending: first.state.pending,
+        },
+        profile.visibleRows,
+      );
     };
     if (marginOf(bestLeaf.root) < 0) {
       const ranked = [...rootBest.entries()].sort((a, b) => b[1] - a[1]);
@@ -359,7 +377,11 @@ function pieceOptions(node: Node, sequence: readonly PieceKind[]): PieceOption[]
   return options;
 }
 
-function clearKind(lines: number, tspin: TspinKind, perfectClear: boolean): ClearKind | null {
+export function clearKind(
+  lines: number,
+  tspin: TspinKind,
+  perfectClear: boolean,
+): ClearKind | null {
   if (lines === 0) return null;
   if (perfectClear) return "perfectClear";
   if (tspin === "mini") return "tspinMini";
@@ -378,27 +400,42 @@ function expand(
   exposure: number,
   guideline: boolean,
   adopt: AdoptContext,
+  profile: RulesProfile,
 ): Node | null {
   const s = node.state;
   if (
     guideline &&
-    s.board.length > 20 &&
+    s.board.length > profile.visibleRows &&
     cellsFor(placement.kind, placement.rotation).every(
-      (cell) => placement.y + cell.y < s.board.length - 20,
+      (cell) => placement.y + cell.y < s.board.length - profile.visibleRows,
     )
   )
     return null;
+  if (profile.spinClassifier === "s2") {
+    const spin = classifyS2Spin(
+      placement,
+      (x, y) =>
+        x < 0 || x >= 10 || y >= s.board.length || (y >= 0 && ((s.board[y] ?? 0) & (1 << x)) !== 0),
+      (dx, dy) =>
+        !collides(s.board, placement.kind, placement.rotation, placement.x + dx, placement.y + dy),
+    );
+    placement = { ...placement, tspin: spin };
+  }
   const outcome = lockPlacement(s.board, placement);
   const lines = outcome.linesCleared;
   const combo = lines > 0 ? s.combo + 1 : -1;
-  const attack = attackForClear({
+  const clearInfo = {
     lines,
     tspinLines: placement.tspin === "full" ? lines : 0,
     combo: guideline ? -1 : combo,
     b2bActive: s.b2bActive,
     perfectClear: !guideline && outcome.perfectClear,
     tspinKind: placement.tspin,
-  });
+  };
+  const attack =
+    profile.attackRules === "guideline"
+      ? attackForClear(clearInfo)
+      : awardLock(profile.attackRules, clearInfo, s.b2bChain).attack;
   const difficult = isDifficultClear(lines, placement.tspin);
   // Compute the boolean b2b outcome as before, then store as 0 or 1 in b2bChain.
   const b2bBool = lines === 0 ? s.b2bActive : outcome.perfectClear ? lines >= 4 : difficult;
@@ -416,7 +453,11 @@ function expand(
   if (placement.kind === "T" && placement.tspin === "none" && s.tSlot > 0) reward += w.wastedT;
 
   const features = boardFeatures(outcome.board, lift);
-  if (features.maxHeight >= s.board.length) return null;
+  const deathLimit =
+    profile.deathHeight === "boardLength"
+      ? s.board.length
+      : Math.min(s.board.length, profile.deathHeight);
+  if (features.maxHeight >= deathLimit) return null;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
   const value =
@@ -467,17 +508,21 @@ function expandS2(
   rootIndex: number,
   exposure: number,
   ctx: S2Context,
+  profile: RulesProfile,
 ): Node {
   const s = node.state;
   // Staged S2 lock awards and All-Mini+; the exact chain is never reduced to a flag.
-  const spin = classifyS2Spin(
-    placement,
-    (x, y) =>
-      x < 0 || x >= 10 || y >= s.board.length || (y >= 0 && ((s.board[y] ?? 0) & (1 << x)) !== 0),
-    (dx, dy) =>
-      !collides(s.board, placement.kind, placement.rotation, placement.x + dx, placement.y + dy),
-  );
-  placement = { ...placement, tspin: spin };
+  if (profile.spinClassifier === "s2") {
+    const spin = classifyS2Spin(
+      placement,
+      (x, y) =>
+        x < 0 || x >= 10 || y >= s.board.length || (y >= 0 && ((s.board[y] ?? 0) & (1 << x)) !== 0),
+      (dx, dy) =>
+        !collides(s.board, placement.kind, placement.rotation, placement.x + dx, placement.y + dy),
+    );
+    placement = { ...placement, tspin: spin };
+  }
+  const spin = placement.tspin;
   // Match lockPlacement's cell coordinates and bottom-to-top survivor collapse.
   const filled = s.board.slice();
   for (const cell of cellsFor(placement.kind, placement.rotation)) {
@@ -501,21 +546,25 @@ function expandS2(
   const outcome = lockPlacement(s.board, placement);
   const lines = outcome.linesCleared;
   const combo = lines > 0 ? s.combo + 1 : -1;
-  const multiplier = s2GarbageMultiplier(ctx.rootFrame + 60 * node.depth);
+  const multiplier =
+    profile.attackRules === "tetrio-s2" ? s2GarbageMultiplier(ctx.rootFrame + 60 * node.depth) : 1;
   const award = awardLock(
-    "tetrio-s2",
+    profile.attackRules,
     {
       lines,
       tspinLines: spin === "full" ? lines : 0,
       tspinKind: spin,
-      combo,
+      combo: profile.comboInAttack ? combo : -1,
       b2bActive: s.b2bChain > 0,
       perfectClear: outcome.perfectClear,
     },
     s.b2bChain,
     { multiplier, garbageCleared },
   );
-  const attack = award.attack;
+  const attack =
+    !profile.surge && award.surgeReleased > 0
+      ? award.attack - Math.floor(award.surgeReleased * multiplier)
+      : award.attack;
   const difficult = lines > 0 && (lines === 4 || spin !== "none" || outcome.perfectClear);
   const b2bChain = award.difficultChain;
 
@@ -580,7 +629,11 @@ function expandS2(
   // 20-row field after the lock is a loss. Death is TERMINAL, not null: the
   // node is valued and kept as a leaf but never expanded, so search still
   // returns a move when every root lock is fatal.
-  const dead = features.maxHeight >= Math.min(s.board.length, 21);
+  const deathLimit =
+    profile.deathHeight === "boardLength"
+      ? s.board.length
+      : Math.min(s.board.length, profile.deathHeight);
+  const dead = features.maxHeight >= deathLimit;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
 
@@ -615,7 +668,8 @@ function expandS2(
   // at every beam layer. Skipped when absent or coefficient 0.
   const risk =
     ctx.solvency !== undefined && ctx.solvency.coefficient !== 0
-      ? assessSolvency(solvencyStateFrom(childState, features), ctx.solvency).penalty
+      ? assessSolvency(solvencyStateFrom(childState, features), ctx.solvency, profile.visibleRows)
+          .penalty
       : 0;
   const b2bState = w.b2bState ?? 0;
   const stateValue = b2bState !== 0 && childState.b2bChain >= 1 ? b2bState : 0;
