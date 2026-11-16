@@ -592,10 +592,7 @@ if (RUST_MODE !== "server" && RUST_MODE !== "oneshot") {
   throw new Error(`expected "server" or "oneshot" in ATTAX_RUST_MODE, got ${RUST_MODE}`);
 }
 
-export function createAttaxDecider(
-  profilePath: string | undefined,
-  opts?: { width?: number },
-) {
+export function createAttaxDecider(profilePath: string | undefined, opts?: { width?: number }) {
   // Startup self-check: the engine handshake runs before the run begins, so a
   // missing/failing Rust binary aborts here rather than mid-match.
   engineIdentity();
