@@ -18,23 +18,10 @@ import {
   type Placement,
   spawnPosition,
 } from "./movegen.js";
+import { type NodeState, rootState, type SearchInput } from "./state.js";
 import type { ClearKind, Weights } from "./weights.js";
 
-export interface SearchInput {
-  readonly board: BitBoard;
-  readonly active: { kind: PieceKind; rotation: number; x: number; y: number };
-  readonly hold: PieceKind | null;
-  readonly canHold: boolean;
-  /** Upcoming pieces after the active one (the visible preview). */
-  readonly preview: readonly PieceKind[];
-  readonly b2b: boolean;
-  /** Engine combo counter: -1 = no chain, 0 = first clear of a chain, ... */
-  readonly combo: number;
-  /** Incoming garbage rows not yet on the board. */
-  readonly pending: number;
-  /** Possible next pieces after the visible queue, uniformly distributed by 7-bag. */
-  readonly speculativePieces?: readonly PieceKind[];
-}
+export type { SearchInput } from "./state.js";
 
 export type SearchProfile = "guideline" | "s2";
 
@@ -80,16 +67,8 @@ export interface SearchResult {
 }
 
 interface Node {
-  readonly board: BitBoard;
-  readonly hold: PieceKind | null;
-  /** Index into the piece sequence of the piece to place next. */
-  readonly next: number;
-  readonly canHold: boolean;
-  readonly b2b: boolean;
-  readonly combo: number;
-  /** Garbage rows that have landed under the stack during the line. */
-  readonly lift: number;
-  readonly tSlot: number;
+  /** The single per-node state record (board, hold, queue index, b2b, combo, lift, etc.). */
+  readonly state: NodeState;
   readonly reward: number;
   readonly value: number;
   readonly depth: number;
@@ -103,14 +82,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   const sequence: PieceKind[] = [input.active.kind, ...input.preview];
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
-    board: input.board,
-    hold: input.hold,
-    next: 0,
-    canHold: input.canHold,
-    b2b: input.b2b,
-    combo: input.combo,
-    lift: 0,
-    tSlot: rootFeatures.tSlot,
+    state: rootState(input, rootFeatures, null),
     reward: 0,
     value: 0,
     depth: 0,
@@ -140,9 +112,9 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             const future = [...sequence, kind];
             for (const option of pieceOptions(node, future)) {
               for (const placement of generatePlacements(
-                node.board,
+                node.state.board,
                 option.kind,
-                spawnPosition(option.kind, node.board.length),
+                spawnPosition(option.kind, node.state.board.length),
               )) {
                 const child = expand(
                   node,
@@ -168,10 +140,14 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
         const start =
           node.depth === 0 && !option.usedHold
             ? input.active
-            : option.usedHold && node.hold !== null
-              ? { rotation: 0, x: 3, y: node.board.length > 20 ? node.board.length - 21 : 0 }
-              : spawnPosition(option.kind, node.board.length);
-        for (const placement of generatePlacements(node.board, option.kind, start)) {
+            : option.usedHold && node.state.hold !== null
+              ? {
+                  rotation: 0,
+                  x: 3,
+                  y: node.state.board.length > 20 ? node.state.board.length - 21 : 0,
+                }
+              : spawnPosition(option.kind, node.state.board.length);
+        for (const placement of generatePlacements(node.state.board, option.kind, start)) {
           const child = expand(
             node,
             placement,
@@ -228,7 +204,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     best: line[0] as Step,
     line,
     value: bestLeaf.value,
-    breakdown: weighBoard(boardFeatures(first.board, first.lift), w),
+    breakdown: weighBoard(boardFeatures(first.state.board, first.state.lift), w),
     candidates,
     nodes,
     depth: bestLeaf.depth,
@@ -243,19 +219,20 @@ interface PieceOption {
 }
 
 function pieceOptions(node: Node, sequence: readonly PieceKind[]): PieceOption[] {
-  const current = sequence[node.next];
+  const s = node.state;
+  const current = sequence[s.next];
   if (current === undefined) return [];
   const options: PieceOption[] = [
-    { kind: current, usedHold: false, next: node.next + 1, hold: node.hold },
+    { kind: current, usedHold: false, next: s.next + 1, hold: s.hold },
   ];
-  if (!node.canHold) return options;
-  if (node.hold === null) {
-    const after = sequence[node.next + 1];
+  if (!s.canHold) return options;
+  if (s.hold === null) {
+    const after = sequence[s.next + 1];
     if (after !== undefined && after !== current) {
-      options.push({ kind: after, usedHold: true, next: node.next + 2, hold: current });
+      options.push({ kind: after, usedHold: true, next: s.next + 2, hold: current });
     }
-  } else if (node.hold !== current) {
-    options.push({ kind: node.hold, usedHold: true, next: node.next + 1, hold: current });
+  } else if (s.hold !== current) {
+    options.push({ kind: s.hold, usedHold: true, next: s.next + 1, hold: current });
   }
   return options;
 }
@@ -279,54 +256,66 @@ function expand(
   exposure: number,
   guideline: boolean,
 ): Node | null {
+  const s = node.state;
   if (
     guideline &&
-    node.board.length > 20 &&
+    s.board.length > 20 &&
     cellsFor(placement.kind, placement.rotation).every(
-      (cell) => placement.y + cell.y < node.board.length - 20,
+      (cell) => placement.y + cell.y < s.board.length - 20,
     )
   )
     return null;
-  const outcome = lockPlacement(node.board, placement);
+  const outcome = lockPlacement(s.board, placement);
   const lines = outcome.linesCleared;
-  const combo = lines > 0 ? node.combo + 1 : -1;
+  const combo = lines > 0 ? s.combo + 1 : -1;
   const attack = attackForClear({
     lines,
     tspinLines: placement.tspin === "full" ? lines : 0,
     combo: guideline ? -1 : combo,
-    b2bActive: node.b2b,
+    b2bActive: s.b2bActive,
     perfectClear: !guideline && outcome.perfectClear,
     tspinKind: placement.tspin,
   });
   const difficult = isDifficultClear(lines, placement.tspin);
-  const b2b = lines === 0 ? node.b2b : outcome.perfectClear ? lines >= 4 : difficult;
+  // Compute the boolean b2b outcome as before, then store as 0 or 1 in b2bChain.
+  const b2bBool = lines === 0 ? s.b2bActive : outcome.perfectClear ? lines >= 4 : difficult;
+  const b2bChain = b2bBool ? 1 : 0;
 
   // Garbage: our attack cancels what is pending; the rest lands under the stack on this
   // lock (garbage delay 1). Only the root's pending garbage is known.
   const pending = node.depth === 0 ? rootPending : 0;
-  const lift = node.lift + Math.max(0, pending - attack);
+  const lift = s.lift + Math.max(0, pending - attack);
 
   let reward = attack * w.attack;
   const kind = clearKind(lines, placement.tspin, !guideline && outcome.perfectClear);
   if (kind !== null) reward += w.clear[kind];
-  if (node.b2b && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
-  if (placement.kind === "T" && placement.tspin === "none" && node.tSlot > 0) reward += w.wastedT;
+  if (s.b2bActive && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
+  if (placement.kind === "T" && placement.tspin === "none" && s.tSlot > 0) reward += w.wastedT;
 
   const features = boardFeatures(outcome.board, lift);
-  if (features.maxHeight >= node.board.length) return null;
+  if (features.maxHeight >= s.board.length) return null;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
   const value = accumulated + scale * w.discount * dot(features, w);
 
-  return {
+  const childState: NodeState = {
     board: outcome.board,
+    garbageRows: null,
     hold: option.hold,
-    next: option.next,
     canHold: true,
-    b2b,
+    next: option.next,
+    b2bChain,
+    b2bActive: b2bBool,
     combo,
+    pending: 0,
     lift,
+    dueThisLock: 0,
+    bagRemaining: null,
     tSlot: features.tSlot,
+  };
+
+  return {
+    state: childState,
     reward: accumulated,
     value,
     depth: node.depth + 1,
@@ -349,6 +338,35 @@ function weighBoard(features: BoardFeatures, w: Weights): Record<string, number>
 }
 
 /**
+ * Node shape that dedupe/selectBeam can read: either direct fields (for tests)
+ * or via a state property (for internal Nodes).
+ */
+type DedupeableFields = {
+  board: BitBoard;
+  next: number;
+  hold: PieceKind | null;
+  canHold: boolean;
+  b2b: boolean;
+  combo: number;
+  lift: number;
+};
+type DedupeableViaState = {
+  state: NodeState;
+};
+type Dedupeable = DedupeableFields | DedupeableViaState;
+
+function dedupeField<K extends keyof DedupeableFields>(
+  node: Dedupeable,
+  key: K,
+): DedupeableFields[K] {
+  if ("state" in node) {
+    if (key === "b2b") return node.state.b2bActive as DedupeableFields[K];
+    return node.state[key as keyof NodeState] as DedupeableFields[K];
+  }
+  return node[key];
+}
+
+/**
  * Keep the best `width` children, dropping later copies of an identical position.
  *
  * Under the guideline profile (`profile = "guideline"`, default), the legacy key
@@ -357,17 +375,7 @@ function weighBoard(features: BoardFeatures, w: Weights): Record<string, number>
  * the search reads later matches: board, queue index, hold, hold availability, B2B, combo
  * (folded to -1 under the guideline rig) and lift.
  */
-export function dedupe<
-  T extends {
-    board: BitBoard;
-    next: number;
-    hold: PieceKind | null;
-    canHold: boolean;
-    b2b: boolean;
-    combo: number;
-    lift: number;
-  },
->(
+export function dedupe<T extends Dedupeable>(
   sorted: readonly T[],
   width: number,
   guideline = false,
@@ -377,11 +385,17 @@ export function dedupe<
   const seen = new Set<string>();
   for (const node of sorted) {
     if (kept.length >= width) break;
-    const combo = guideline ? -1 : node.combo;
+    const board = dedupeField(node, "board");
+    const next = dedupeField(node, "next");
+    const hold = dedupeField(node, "hold");
+    const canHold = dedupeField(node, "canHold");
+    const b2b = dedupeField(node, "b2b");
+    const combo = guideline ? -1 : dedupeField(node, "combo");
+    const lift = dedupeField(node, "lift");
     const key =
       profile === "s2"
-        ? `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${combo}|${node.lift}|${node.board.join(",")}`
-        : `${node.next}|${node.hold}|${node.b2b ? 1 : 0}|${node.board.join(",")}`;
+        ? `${next}|${hold}|${Number(canHold)}|${Number(b2b)}|${combo}|${lift}|${board.join(",")}`
+        : `${next}|${hold}|${b2b ? 1 : 0}|${board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     kept.push(node);
@@ -390,24 +404,22 @@ export function dedupe<
 }
 
 /** Keep distinct attack economies and reserve a bounded set of first moves. */
-export function selectBeam<
-  T extends {
-    board: BitBoard;
-    next: number;
-    hold: PieceKind | null;
-    canHold: boolean;
-    b2b: boolean;
-    combo: number;
-    lift: number;
-    root: number;
-    value: number;
-  },
->(sorted: readonly T[], width: number): T[] {
+export function selectBeam<T extends Dedupeable & { root: number; value: number }>(
+  sorted: readonly T[],
+  width: number,
+): T[] {
   if (width <= 0) return [];
   const pool: T[] = [];
   const seen = new Set<string>();
   for (const node of sorted) {
-    const key = `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${node.combo}|${node.lift}|${node.board.join(",")}`;
+    const board = dedupeField(node, "board");
+    const next = dedupeField(node, "next");
+    const hold = dedupeField(node, "hold");
+    const canHold = dedupeField(node, "canHold");
+    const b2b = dedupeField(node, "b2b");
+    const combo = dedupeField(node, "combo");
+    const lift = dedupeField(node, "lift");
+    const key = `${next}|${hold}|${Number(canHold)}|${Number(b2b)}|${combo}|${lift}|${board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     pool.push(node);

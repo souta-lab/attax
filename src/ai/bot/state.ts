@@ -1,0 +1,131 @@
+/**
+ * Unified per-node state record for the search core.
+ *
+ * The unified core consumes ONE NodeState record per node; search, evaluation,
+ * rollouts (SPECULATE) and telemetry all read it. This file also defines the
+ * SearchInput interface (moved here to avoid circular imports between state.ts
+ * and search.ts; search.ts re-exports it for backward compatibility).
+ */
+import type { PieceKind } from "../../core/pieces.js";
+import type { BoardFeatures } from "./features.js";
+import type { BitBoard } from "./movegen.js";
+
+export interface SearchInput {
+  readonly board: BitBoard;
+  readonly active: { kind: PieceKind; rotation: number; x: number; y: number };
+  readonly hold: PieceKind | null;
+  readonly canHold: boolean;
+  /** Upcoming pieces after the active one (the visible preview). */
+  readonly preview: readonly PieceKind[];
+  readonly b2b: boolean;
+  /** Engine combo counter: -1 = no chain, 0 = first clear of a chain, ... */
+  readonly combo: number;
+  /** Incoming garbage rows not yet on the board. */
+  readonly pending: number;
+  /** Possible next pieces after the visible queue, uniformly distributed by 7-bag. */
+  readonly speculativePieces?: readonly PieceKind[];
+}
+
+/**
+ * The single per-node state record the unified search core consumes.
+ * Search, evaluation (including stock Φ / solvency), rollouts and telemetry
+ * all read through this record.
+ */
+export interface NodeState {
+  readonly board: BitBoard;
+  /**
+   * Garbage flags aligned with board row indices (same index space as board).
+   * Null on the guideline path (no per-row tracking; only lift scalar).
+   */
+  readonly garbageRows: Uint8Array | null;
+  readonly hold: PieceKind | null;
+  readonly canHold: boolean;
+  /** Index into the piece sequence of the piece to place next. */
+  readonly next: number;
+  /**
+   * Exact difficult-clear chain count. The guideline path stores 0 or 1
+   * (boolean semantics, converted at the boundary); the S2 path stores the
+   * true chain length.
+   */
+  readonly b2bChain: number;
+  /** Derived: whether a difficult-clear chain is active (chain > 0). */
+  readonly b2bActive: boolean;
+  /** Engine combo counter: -1 = no chain, 0 = first clear of a chain, ... */
+  readonly combo: number;
+  /**
+   * Residual incoming garbage not yet on the board. Guideline: root-only
+   * (later nodes carry 0, the root's is held as lift). S2: carried through
+   * the search.
+   */
+  readonly pending: number;
+  /** Garbage rows that will land under the stack during the line. */
+  readonly lift: number;
+  /** Referee-given rows due on the root lock (S2 only). */
+  readonly dueThisLock: number;
+  /**
+   * Authoritative bag remainder after the visible queue (null when unknown).
+   * The evaluator / speculation can read this to sample unseen pieces.
+   */
+  readonly bagRemaining: readonly PieceKind[] | null;
+  /** Lines a T-spin into the best open T-slot would clear (board feature). */
+  readonly tSlot: number;
+}
+
+/**
+ * Build the root NodeState from a SearchInput.
+ *
+ * @param input The search input (board, active, hold, queue, b2b, combo, pending).
+ * @param rootFeatures Board features computed for the root (used for tSlot).
+ * @param bagRemaining Authoritative bag remainder (null if unknown).
+ */
+export function rootState(
+  input: SearchInput,
+  rootFeatures: BoardFeatures,
+  bagRemaining: readonly PieceKind[] | null,
+): NodeState {
+  return {
+    board: input.board,
+    garbageRows: null,
+    hold: input.hold,
+    canHold: input.canHold,
+    next: 0,
+    b2bChain: input.b2b ? 1 : 0,
+    b2bActive: input.b2b,
+    combo: input.combo,
+    pending: input.pending,
+    lift: 0,
+    dueThisLock: 0,
+    bagRemaining,
+    tSlot: rootFeatures.tSlot,
+  };
+}
+
+/**
+ * The evaluator's window into the node state. This is exactly the set of fields
+ * the evaluator and mechanism layers (stock Φ, solvency) need to see through
+ * the state record.
+ */
+export interface EvaluatorView {
+  readonly b2bActive: boolean;
+  readonly b2bChain: number;
+  readonly hold: PieceKind | null;
+  readonly canHold: boolean;
+  readonly bagRemaining: readonly PieceKind[] | null;
+  readonly combo: number;
+  readonly pending: number;
+}
+
+/**
+ * Extract the evaluator's view from a NodeState.
+ */
+export function evaluatorView(state: NodeState): EvaluatorView {
+  return {
+    b2bActive: state.b2bActive,
+    b2bChain: state.b2bChain,
+    hold: state.hold,
+    canHold: state.canHold,
+    bagRemaining: state.bagRemaining,
+    combo: state.combo,
+    pending: state.pending,
+  };
+}
