@@ -31,6 +31,15 @@ pub struct SearchInput {
     pub speculative: Vec<Kind>,
 }
 
+/// Dedupe rules profile (`SearchProfile` in search.ts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchProfile {
+    /// Legacy key (next, hold, b2b, board): preserves the frozen guideline/Hoiko record.
+    Guideline,
+    /// Full provenance key: every state the search reads later.
+    S2,
+}
+
 #[derive(Clone, Debug)]
 pub struct SearchOptions {
     pub weights: Weights,
@@ -38,6 +47,8 @@ pub struct SearchOptions {
     pub diverse: bool,
     pub exposure: f64,
     pub guideline: bool,
+    /// Dedupe rules profile; `Guideline` reproduces the legacy key.
+    pub profile: SearchProfile,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -417,7 +428,7 @@ impl Searcher {
             let selected: Vec<u32> = if options.diverse {
                 select_beam(children, &self.order, options.width, &mut seen_diverse)
             } else {
-                dedupe(children, &self.order, options.width, options.guideline, &mut seen)
+                dedupe(children, &self.order, options.width, options.guideline, options.profile, &mut seen)
             };
             beam.clear();
             for ci in selected {
@@ -508,17 +519,28 @@ impl Searcher {
     }
 }
 
-/// (next, hold, can_hold, b2b, combo, lift, board): every state the search reads later.
-type DedupeKey = (u32, Option<Kind>, bool, bool, i32, i32, Board);
+/// Dedupe key, one variant per profile (equality never crosses variants: a run uses one).
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum DedupeKey {
+    /// (next, hold, b2b, board): the legacy key.
+    Guideline(u32, Option<Kind>, bool, Board),
+    /// (next, hold, can_hold, b2b, combo, lift, board): every state the search reads later.
+    S2(u32, Option<Kind>, bool, bool, i32, i32, Board),
+}
 
 /// Keep the best `width` children, dropping later copies of an identical position
-/// (`dedupe` in search.ts). Combo is folded to -1 under the guideline rig, where it never
-/// reaches attack.
+/// (`dedupe` in search.ts).
+///
+/// Under `Guideline` the legacy key (next, hold, b2b, board) is preserved so the frozen
+/// guideline/Hoiko record is unchanged. Under `S2` two nodes match only if board, queue
+/// index, hold, hold availability, B2B, combo and lift all match; combo is folded to -1
+/// under the guideline rig, where it never reaches attack.
 fn dedupe(
     children: &[Node],
     order: &[u32],
     width: usize,
     guideline: bool,
+    profile: SearchProfile,
     seen: &mut HashSet<DedupeKey>,
 ) -> Vec<u32> {
     seen.clear();
@@ -528,8 +550,14 @@ fn dedupe(
             break;
         }
         let n = &children[i as usize];
-        let combo = if guideline { -1 } else { n.combo };
-        if !seen.insert((n.next, n.hold, n.can_hold, n.b2b, combo, n.lift, n.board)) {
+        let key = match profile {
+            SearchProfile::Guideline => DedupeKey::Guideline(n.next, n.hold, n.b2b, n.board),
+            SearchProfile::S2 => {
+                let combo = if guideline { -1 } else { n.combo };
+                DedupeKey::S2(n.next, n.hold, n.can_hold, n.b2b, combo, n.lift, n.board)
+            }
+        };
+        if !seen.insert(key) {
             continue;
         }
         kept.push(i);

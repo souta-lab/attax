@@ -119,29 +119,43 @@ describe("beam dedupe key", () => {
     lift: 0,
   };
 
-  test("merges true duplicates", () => {
-    const kept = dedupe(
+  test("merges true duplicates under both profiles", () => {
+    for (const profile of ["guideline", "s2"] as const) {
+      const kept = dedupe(
+        [
+          { ...base, id: "a" },
+          { ...base, id: "b" },
+        ],
+        10,
+        false,
+        profile,
+      );
+      expect(kept.map((n) => n.id)).toEqual(["a"]);
+    }
+    const dflt = dedupe(
       [
         { ...base, id: "a" },
         { ...base, id: "b" },
       ],
       10,
     );
-    expect(kept.map((n) => n.id)).toEqual(["a"]);
+    expect(dflt.map((n) => n.id)).toEqual(["a"]);
   });
 
-  test("keeps states that differ only in combo (combo feeds attack)", () => {
+  test("s2: keeps states that differ only in combo (combo feeds attack)", () => {
     const kept = dedupe(
       [
         { ...base, combo: 3, id: "chain" },
         { ...base, combo: -1, id: "cold" },
       ],
       10,
+      false,
+      "s2",
     );
     expect(kept.map((n) => n.id)).toEqual(["chain", "cold"]);
   });
 
-  test("keeps states that differ only in lift (garbage still to land)", () => {
+  test("s2: keeps states that differ only in lift (garbage still to land)", () => {
     for (const guideline of [false, true]) {
       const kept = dedupe(
         [
@@ -150,23 +164,26 @@ describe("beam dedupe key", () => {
         ],
         10,
         guideline,
+        "s2",
       );
       expect(kept.map((n) => n.id)).toEqual(["clean", "lifted"]);
     }
   });
 
-  test("keeps states that differ only in hold availability", () => {
+  test("s2: keeps states that differ only in hold availability", () => {
     const kept = dedupe(
       [
         { ...base, canHold: true, id: "a" },
         { ...base, canHold: false, id: "b" },
       ],
       10,
+      false,
+      "s2",
     );
     expect(kept).toHaveLength(2);
   });
 
-  test("guideline rig folds combo: it never reaches attack there", () => {
+  test("s2 + guideline rig folds combo: it never reaches attack there", () => {
     const kept = dedupe(
       [
         { ...base, combo: 3, id: "chain" },
@@ -174,8 +191,35 @@ describe("beam dedupe key", () => {
       ],
       10,
       true,
+      "s2",
     );
     expect(kept.map((n) => n.id)).toEqual(["chain"]);
+  });
+
+  test("guideline profile (and the default) keeps the legacy key: combo/lift/canHold merge", () => {
+    const variants = [{ combo: 3 }, { lift: 4 }, { canHold: false }];
+    for (const diff of variants) {
+      const nodes = [
+        { ...base, id: "a" },
+        { ...base, ...diff, id: "b" },
+      ];
+      expect(dedupe(nodes, 10, false, "guideline")).toHaveLength(1);
+      expect(dedupe(nodes, 10, true, "guideline")).toHaveLength(1);
+      expect(dedupe(nodes, 10)).toHaveLength(1);
+    }
+  });
+
+  test("guideline profile still separates b2b, hold and queue index", () => {
+    for (const diff of [{ b2b: true }, { hold: "I" as PieceKind }, { next: 3 }]) {
+      const kept = dedupe(
+        [
+          { ...base, id: "a" },
+          { ...base, ...diff, id: "b" },
+        ],
+        10,
+      );
+      expect(kept).toHaveLength(2);
+    }
   });
 });
 

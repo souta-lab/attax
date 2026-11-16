@@ -12,7 +12,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::time::Instant;
 
 use attax_search::features::FEATURE_NAMES;
-use attax_search::search::{SearchInput, SearchOptions, SearchResult, Searcher, Step};
+use attax_search::search::{SearchInput, SearchOptions, SearchProfile, SearchResult, Searcher, Step};
 use attax_search::weights::{CLEAR_NAMES, Weights};
 use attax_search::{Board, Kind, Placement, Pos, Tspin};
 use serde::{Deserialize, Serialize};
@@ -266,6 +266,7 @@ fn main() {
             diverse: case.options.diverse,
             exposure: case.options.exposure,
             guideline: case.options.guideline,
+            profile: SearchProfile::Guideline,
         };
         let mut result = None;
         let mut best_ms = f64::INFINITY;
