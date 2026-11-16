@@ -198,3 +198,73 @@ Souta before any push.
 - Coordinator verification: tsc OK, bun test 217 pass / 0 fail, lint clean, build OK (dist reverted), cargo test 6+1+60 pass; **Hoiko regression 1001–1200: 390W–10L, 0 diffs** (tools/unify/regression-chunk3b-final-*.jsonl).
 - Remaining-steps (iv) SPECULATE parity and (v) S2 evidence are covered in substance by this chunk's evidence: the battery's speculative case (all 7 kinds) reproduces the pre-port lab golden exactly through the shared core, and the ports/contracts/staging suites pass under the shared core with the player-level checks as the lab smoke. 
 - **CHUNK 3b COMPLETE.** Chunk 3 as a whole is complete except the item-99 adopt-branch stack (feat/adopt-c1-c5 + feat/adopt-s2-c1-c3-c5), which belongs to a later chunk. NO PUSH — the unified tree is reported to Souta first.
+
+## Chunk 4 — item-99 adopt-branch stack (2026-11-16 15:44–18:01 JST)
+
+Scope: stack the item-99 adopt candidates onto the unified tree — guideline
+branch `feat/adopt-c1-c5-2026-11-15` (C1 `e5d91e6` → C2 `2ae7337` → C4
+`73d05dd`), then S2 branch `feat/adopt-s2-c1-c3-c5-2026-11-15` (C1 `78a8eff`
+→ C3 `23af586` → C5 `8409c8a`). Every candidate is default-off; the Hoiko
+regression and the S2 decision-corpus digest are the non-interference gates.
+
+- Guideline C1 `fc69a44` (Claude lane attax97-chunk4a; the lane then hit the
+  Claude weekly limit, and per the standing rule the remaining ports were
+  routed to Codex lanes with coordinator commits): terminal B2B-alive term
+  in the guideline stateValue + Rust mirror. Gates: tsc OK, bun test 227
+  pass, lint clean, build OK, cargo 9+1+60.
+- Guideline C2 `7e7aa45` (Codex lane attax97-chunk4b): T-slot donation
+  chain, T-gated and TST-aware; byte-faithful to `2ae7337` with one
+  structural adaptation (bag credit resolved once per search from the input
+  sequence + speculativePieces; observably identical on the adopt
+  fixtures). Gates: bun test 230 pass, cargo 11+1+60.
+- Guideline C4 `c4f1fac` (Codex lane attax97-chunk4c): hold-piece terminal
+  value holdT / holdI. Guideline adopt stack complete: bun test 239 pass,
+  cargo 13+1+60; golden battery exact throughout.
+- S2 baseline: the first S2 lane (attax97-chunk4d) was killed mid-run by a
+  service restart; its ported decision-corpus tool survived untracked and
+  the coordinator captured the off-identity baseline on the clean tree at
+  `c4f1fac`: 720 corpus lines, sha256
+  `e5adc326c70f1360228f93f8b917c34588b35134ca7fcb2afb2b9b8078121054`;
+  profileIds default `8cb9ead8c4451fc0`, s2-tuned `e5a77cdb216618e4`,
+  s2-ports `6974418b778e6d1f`, snap-L60 `e696fb0f63ac8261`
+  (`~/workspace/attax97-s2-corpus-baseline.txt`).
+- S2 C1 `5bd6cfb` (Codex lane attax97-chunk4e): b2bState S2 dimension inside
+  expandS2's discounted bracket + `--adopt-groups c1`. Corpus digest
+  identical; bun test 242 pass.
+- S2 C3 `36a22f7` (Codex lane attax97-chunk4f finished with codex_exit=0 but
+  the coordinator stream stalled at 16:47; the 17:14 heartbeat patrol
+  restarted the stream and the new coordinator reviewed + committed):
+  holeRuns / holeShifts garbage-aligned hole accounting — shared
+  `holeGeometry` in `src/ai/bot/holes.ts` (lab re-export shim), expandS2
+  bracket term with the scan skipped when off, `S2_ONLY_ADOPT_KEYS`,
+  `--adopt-groups c3`. Faithful to `23af586`. Gates (coordinator re-run):
+  tsc OK, bun test 246 pass, lint clean, build OK, cargo 13+1+60; corpus
+  digest identical, profileIds unchanged.
+- S2 C5 `4d26e7b` (Codex lane attax97-chunk4g, codex_exit=0): mini spins
+  priced by line count (miniSingleDelta / miniDoubleDelta /
+  miniTripleDelta on top of `clear.tspinMini` in expandS2; perfect clears
+  keep precedence; the optional T/non-T split not taken, as in the
+  original). Tests exercise the original's exact corpus decisions
+  p448 / p119 / p126. Gates (coordinator re-run): tsc OK, bun test 249
+  pass, lint clean, build OK, cargo 13+1+60; corpus digest identical,
+  profileIds unchanged.
+
+### Chunk-4 gate: Hoiko regression 1001–1200 on the unified tree (@ `4d26e7b`)
+
+- Ran 4 x 50-seed chunks (systemd units `attax97-regression-chunk4-<range>`,
+  `--sides both`, HOIKO_ADAPT=0) into
+  `tools/unify/regression-chunk4-<range>.jsonl`, compared per-game against
+  `bench-results/bot-vs-hoiko.jsonl` (thinkMs excluded):
+  - `1001-1050`: `98-2`, `0` winner diffs, `0` stat diffs
+  - `1051-1100`: `94-6`, `0` winner diffs, `0` stat diffs
+  - `1101-1150`: `100-0`, `0` winner diffs, `0` stat diffs
+  - `1151-1200`: `98-2`, `0` winner diffs, `0` stat diffs
+- **Aggregate verdict: PASS — `390-10` games (`195-5` seed pairs, `0`
+  draws), exact per-game reproduction of the published record across all
+  `400` games.** The full adopt stack is behaviour-identical on the frozen
+  guideline side, and the S2 corpus digest is unchanged with all adopt
+  weights off.
+
+- **CHUNK 4 COMPLETE. Item 97's remaining step is only the report of the
+  unified tree to Souta — NO PUSH until that report is delivered and he
+  decides.** The report draft is `UNIFY-REPORT-DRAFT.md` in this worktree.
