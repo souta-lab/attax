@@ -48,6 +48,10 @@ export interface Weights {
   readonly holeRuns?: number;
   /** S2 C3: terminal value per change between consecutive hole-row masks. */
   readonly holeShifts?: number;
+  /** S2 C5: additive mini-spin clear reward by cleared line count; absent/zero = off. */
+  readonly miniSingleDelta?: number;
+  readonly miniDoubleDelta?: number;
+  readonly miniTripleDelta?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {

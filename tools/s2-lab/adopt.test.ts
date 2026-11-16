@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { boardFeatures } from "../../src/ai/bot/features.js";
 import { holeGeometry } from "../../src/ai/bot/holes.js";
 import { lockPlacement } from "../../src/ai/bot/movegen.js";
@@ -159,5 +160,106 @@ describe("S2 C3 hole geometry", () => {
       "unknown weight",
     );
     expect(() => createAttaxDecider(write("nan.json", { holeShifts: "x" }))).toThrow("finite");
+  });
+});
+
+const MINI_DECISIONS = [
+  { id: "attax_vs_champion:s100006:attax_vs_champion-s100006:p448", hold: true },
+  { id: "champion_selfplay:s200003:champion_selfplay-s200003:p119", hold: false },
+  { id: "attax_vs_champion:s100001:attax_vs_champion-s100001:p126", hold: true },
+];
+
+function corpusDecision(id: string, hold: boolean): PublicDecision {
+  const corpus = gunzipSync(
+    readFileSync(new URL("./evidence/adopt-s2-corpus.jsonl.gz", import.meta.url)),
+  )
+    .toString("utf8")
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as { id: string; observation: PublicDecision });
+  const found = corpus.find((row) => row.id === id);
+  if (found === undefined) throw new Error(`corpus has no ${id}`);
+  const observation = structuredClone(found.observation);
+  observation.pieces.known = [];
+  observation.pieces.holdAvailable = hold && observation.pieces.hold !== null;
+  observation.incoming = { pendingRows: 0, dueThisLockRows: 0 };
+  return observation;
+}
+
+function miniRootKey(
+  placement: { kind: string; rotation: number; x: number; y: number },
+  usedHold: boolean,
+) {
+  return `${placement.kind}|${placement.rotation}|${placement.x}|${placement.y}|${usedHold}`;
+}
+
+describe("S2 C5 mini spins priced by line count", () => {
+  const deltas = { miniSingleDelta: 11, miniDoubleDelta: 23, miniTripleDelta: 37 };
+  const run = (input: ReturnType<typeof toSharedInput>, weights: Weights, width = 48) =>
+    search(input, { profile: "s2", width, weights });
+
+  test("absent and zero deltas are bit-identical, including mini-capable corpus boards", () => {
+    const inputs = MINI_DECISIONS.map((item) =>
+      toSharedInput(projectAttax(corpusDecision(item.id, item.hold))),
+    );
+    for (const input of inputs) {
+      expect(
+        fingerprint(
+          run(input, {
+            ...DEFAULT_WEIGHTS,
+            miniSingleDelta: 0,
+            miniDoubleDelta: 0,
+            miniTripleDelta: 0,
+          }),
+        ),
+      ).toBe(fingerprint(run(input, DEFAULT_WEIGHTS)));
+    }
+  });
+
+  test("mini roots gain their exact line-count delta and all other roots remain identical", () => {
+    const seen = new Set<number>();
+    for (const item of MINI_DECISIONS) {
+      const decisionInput = corpusDecision(item.id, item.hold);
+      const input = toSharedInput(projectAttax(decisionInput));
+      const off = run(input, DEFAULT_WEIGHTS, 400);
+      const on = run(input, { ...DEFAULT_WEIGHTS, ...deltas }, 400);
+      if (off === null || on === null) throw new Error("no move");
+      expect(on.candidates.length).toBe(off.candidates.length);
+      for (const candidate of on.candidates) {
+        const before = off.candidates.find(
+          (prior) =>
+            miniRootKey(prior.placement, prior.usedHold) ===
+            miniRootKey(candidate.placement, candidate.usedHold),
+        );
+        if (before === undefined) throw new Error("candidate sets differ");
+        const lines = lockPlacement(input.board, candidate.placement).linesCleared;
+        const expected =
+          candidate.placement.tspin === "mini" && lines > 0
+            ? [0, deltas.miniSingleDelta, deltas.miniDoubleDelta, deltas.miniTripleDelta][lines]
+            : 0;
+        if (expected !== 0) seen.add(lines);
+        if (expected === 0) expect(candidate.value).toBe(before.value);
+        else expect(candidate.value - before.value).toBeCloseTo(expected as number, 9);
+      }
+    }
+    expect([...seen].sort()).toEqual([1, 2]);
+  });
+
+  test("profiles load mini deltas and omit zero keys from the identity", () => {
+    const dir = mkdtempSync(join(tmpdir(), "s2-c5-test-"));
+    const write = (name: string, body: object) => {
+      const path = join(dir, name);
+      writeFileSync(path, JSON.stringify(body));
+      return path;
+    };
+    const baseId = createAttaxDecider(undefined).profileId;
+    expect(
+      createAttaxDecider(
+        write("zero.json", { miniSingleDelta: 0, miniDoubleDelta: 0, miniTripleDelta: 0 }),
+      ).profileId,
+    ).toBe(baseId);
+    const on = createAttaxDecider(write("on.json", { miniSingleDelta: -19.9 }));
+    expect(on.profileId).not.toBe(baseId);
+    expect(on.weights.miniSingleDelta).toBe(-19.9);
   });
 });

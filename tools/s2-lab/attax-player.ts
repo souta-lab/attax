@@ -27,7 +27,13 @@ const profiles = new Map<
   string | undefined,
   { weights: Weights; mechanisms: MechanismSettings; profileId: string; source: string }
 >();
-const S2_ONLY_ADOPT_KEYS = ["holeRuns", "holeShifts"] as const;
+const S2_ONLY_ADOPT_KEYS = [
+  "holeRuns",
+  "holeShifts",
+  "miniSingleDelta",
+  "miniDoubleDelta",
+  "miniTripleDelta",
+] as const;
 let loaded: ReturnType<typeof loadProfile> | undefined;
 
 function mergeProfile(

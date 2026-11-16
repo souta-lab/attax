@@ -541,6 +541,17 @@ function expandS2(
   if (node.depth === 0) reward += w.conversion * Math.max(0, attack - pendingIn);
   const kind = clearKind(lines, placement.tspin, outcome.perfectClear);
   if (kind !== null) reward += w.clear[kind];
+  if (kind === "tspinMini") {
+    const delta =
+      lines === 1
+        ? (w.miniSingleDelta ?? 0)
+        : lines === 2
+          ? (w.miniDoubleDelta ?? 0)
+          : lines === 3
+            ? (w.miniTripleDelta ?? 0)
+            : 0;
+    if (delta !== 0) reward += delta;
+  }
   if (s.b2bChain !== 0 && lines > 0 && !difficult && !outcome.perfectClear) reward += w.b2bBreak;
   if (placement.kind === "T" && placement.tspin === "none" && s.tSlot > 0) reward += w.wastedT;
 
