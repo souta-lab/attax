@@ -179,9 +179,9 @@ a single search; the profiles differ in what the bot is allowed to see and which
 rules profile scores its locks.
 
 The **published profile** is the default build: a 20-row view of the board, the
-current piece plus a 5-piece preview, beam width 48, guideline rules. This is the
-build the live page runs and the one the Hoiko and clys results above were measured
-with.
+current piece plus a 5-piece preview, beam width 96, guideline rules. This is the
+build the live page runs. (The Hoiko and clys results above were measured with the
+previous width-48 default.)
 
 The **competition profile** widens the view to the full 40-row board, widens the
 beam to 96, and enables exact 7-bag speculation (SPECULATE): after the known queue,
@@ -285,7 +285,7 @@ a fresh full benchmark supports a new headline.
   squared), row transitions, well depth, extra wells, T-slot readiness.
 - `weights.ts` — the whole policy in one table: board weights, attack reward, per-clear
   shaping, back-to-back break penalty, wasted-T penalty.
-- `search.ts` — beam search (width 48) over the current piece plus the 5-piece preview,
+- `search.ts` — beam search (width 96 by default) over the current piece plus the 5-piece preview,
   with hold. A line's value is its discounted rewards plus the board score at its end;
   the first move of the best line is played. Incoming garbage cancels against attack and
   the remainder lands under the stack, as in the engine.

@@ -30,7 +30,7 @@ const method = h("section", { class: "method", attrs: { id: "method" } }, [
     ]),
     h("li", {}, [
       h("strong", { text: "Plain, explainable AI. " }),
-      `${BRAND.botName} searches the 5-piece preview (plus hold) with a beam of 48 positions and scores boards with a dozen named terms — holes, height, bumpiness, wells, T-slots — plus rewards for the garbage each clear sends. No neural network, no opening book.`,
+      `${BRAND.botName} searches the 5-piece preview (plus hold) with a beam of 96 positions and scores boards with a dozen named terms — holes, height, bumpiness, wells, T-slots — plus rewards for the garbage each clear sends. No neural network, no opening book.`,
     ]),
   ]),
   ...(RESULTS.copy.fairness.length > 0

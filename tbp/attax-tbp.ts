@@ -191,7 +191,7 @@ const S2_PROFILE = process.env.ATTAX_TBP_PROFILE === "s2";
 const bot = createBot({
   name: "attax",
   ...(S2_PROFILE ? { profile: "s2" as const } : {}),
-}); // default preview 5, beam width 48, default weights
+}); // default preview 5, beam width 96, default weights
 
 function snapshot(): GameSnapshot | null {
   // Attax grid: FIELD_ROWS rows, index 0 = top.  At 20 rows, cells above

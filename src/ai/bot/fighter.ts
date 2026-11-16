@@ -33,7 +33,7 @@ export interface BotOptions {
   readonly profile?: SearchProfile;
 }
 
-export const BOT_DEFAULTS = { preview: 5, width: 48 } as const;
+export const BOT_DEFAULTS = { preview: 5, width: 96 } as const;
 
 export interface BotFighter extends VersusFighter {
   /** The last completed search, for the "watch it think" view. */
