@@ -92,3 +92,92 @@ Branch: `unify/consolidation-2026-11-16` (base: `main` @ `7eed7c8`)
   - `1151-1200`: `98-2`, `0` winner diffs, `0` stat diffs
 - **Aggregate verdict: PASS — `390-10` games (`195-5` seed pairs, `0` draws), exact per-game reproduction of the published record across all `400` games.** The guideline side is restored bit-for-bit under the legacy key; the S2 profile keeps the full combo/lift/canHold provenance in both TS and Rust.
 - **Chunk 2 status: COMPLETE.** Final tree: `06b9e46` on `unify/consolidation-2026-11-16`. Next is chunk 3 (single-core restructure). NO PUSH — the unified tree is reported to Souta before any push.
+
+# Attax Unification Log (Item 97 Chunk 3a — first increment of the single-core restructure)
+
+Chunk 3 in full (one search core in `src/`, `tools/s2-lab/search.ts` deleted, S2 as
+data-only profile) is NOT complete. This run landed its scoped first increment —
+the foundation the remaining steps build on — with the guideline side proven
+bit-identical. The full step plan lives in `docs/UNIFIED-CORE.md`.
+
+## Step 1: Restart + lane
+
+- Restarted by heartbeat lane 0 at 13:04 JST (stall confirmed: stream-log last
+  12:33, no agent/unit for chunk 3). Coding delegated to Claude Code via
+  `lane-runners/run-claude.sh` (unit `attax97-chunk3a`, `claude_exit=0`; prompt
+  `~/workspace/attax-unify-prompt4.txt`). agy NOT used (quota 429 until ~14:59).
+- Coordinator reviewed the full diff before accepting it (b2b boundary
+  conversion, dedupe/selectBeam key construction, state threading).
+
+## Step 2: What landed (commit `705b11f`)
+
+- **`src/core/profile.ts`** (new): `RULES_PROFILE_TABLE` — guideline vs S2 as
+  pure data (`attackRules`, `surge`, `comboInAttack`, `garbageSemantics`
+  `"root-lift"`/`"materialized-carried"`, `deathHeight` `"boardLength"`/`21`,
+  `rotate180`, `spinEvidence`, `spinClassifier`, `dedupe`, board/visible rows)
+  + `rulesProfile()`. All values verified against both searches' code; no
+  corrections were needed.
+- **`src/ai/bot/state.ts`** (new): ONE per-node state record `NodeState`
+  (board, garbageRows, hold, canHold, next, b2bChain, b2bActive, combo,
+  pending, lift, dueThisLock, bagRemaining, tSlot), `rootState()`, and
+  `evaluatorView()` (the evaluator sees b2b/hold/bag through the record, per
+  the 2026-11-15 23:50 amendment). `SearchInput` moved here and is re-exported
+  from `search.ts` (avoids a state↔search circular import).
+- **`src/ai/bot/search.ts`**: the internal `Node` now carries
+  `state: NodeState` as its ONLY copy of those fields; search / expand /
+  pieceOptions / dedupe / selectBeam all read through `node.state`. Guideline
+  b2b is stored as a 0/1 chain with the identical boolean outcomes
+  (`b2bActive = chain > 0`); dedupe keys are constructed identically.
+- **`src/ai/bot/stock.ts` / `src/ai/bot/solvency.ts`** (new): Φ and solvency
+  moved from `tools/s2-lab` into `src/` as shared mechanisms, with
+  `stockStateFrom(state, features, multiplier)` / `solvencyStateFrom(state,
+  features)` building their inputs FROM a `NodeState`. The tools files are now
+  thin re-export shims; `tools/s2-lab/search.ts` is completely untouched, so
+  S2 behaviour is unchanged.
+- **`docs/UNIFIED-CORE.md`** (new): target architecture, the itemised
+  src-vs-s2-lab search diff inventory, and the remaining steps with gates.
+- **`tests/bot-state-profile.test.ts`** (new): 9 tests pinning every profile
+  field for both profiles, rootState/evaluatorView (b2b/hold/bag through the
+  record), and the stock/solvency state builders.
+
+## Step 3: Gates (coordinator re-run on `705b11f`)
+
+- `tsc --noEmit`: PASS (via `./node_modules/.bin/tsc`)
+- `bun test`: PASS (`185 pass`, `0 fail`, `13310 expect()` calls across `23` files)
+- `bun run lint`: PASS (`161` files checked, `0` fixes needed)
+- `bun run build`: PASS (built in `993ms`; `dist/` churn restored, not committed)
+- `cargo test --manifest-path rust/Cargo.toml`: PASS (`attax_search`: `6` passed; `attax_agree`: `1` passed; `hoiko_core`: `60` passed; `0` failed)
+
+## Step 4: Hoiko regression — non-interference gate (`1001-1200`, `--sides both`, `HOIKO_ADAPT=0`)
+
+- Ran 4 x 50-seed chunks (systemd unit `attax97-regression-chunk3a`) into
+  `tools/unify/regression-chunk3a-<range>.jsonl`, compared per-game against
+  `bench-results/bot-vs-hoiko.jsonl`:
+  - `1001-1050`: `98-2`, `0` winner diffs, `0` stat diffs (ticks/lines/sent)
+  - `1051-1100`: `94-6`, `0` winner diffs, `0` stat diffs
+  - `1101-1150`: `100-0`, `0` winner diffs, `0` stat diffs
+  - `1151-1200`: `98-2`, `0` winner diffs, `0` stat diffs
+- **Aggregate verdict: PASS — `390-10` games (`195-5` seed pairs, `0` draws),
+  exact per-game reproduction of the published record across all `400` games.**
+  The state-record refactor is behaviour-identical on the guideline side.
+- Run note: the first unit launch was stopped at ~3 min over a cosmetic
+  `cd ~` failure (transient units have no HOME); it had in fact been running
+  from the systemd working-directory and had recorded no games. The relaunch
+  (absolute paths + HOME set) ran the full set fresh — no seeds changed, the
+  first completed run is the record.
+
+## Chunk 3 status: INCREMENT 3a COMPLETE — chunk 3 NOT complete
+
+Remaining (in `docs/UNIFIED-CORE.md`, in order): (i) port the S2
+award/garbage/death semantics into the shared `src/` search behind the
+profile table (exact b2b chain, `awardLock("tetrio-s2")` staging + frame
+multiplier, `classifyS2Spin`, materialized garbageRows + carried
+pending/dueThisLock, terminal-dead death at 21, Φ/solvency/root-veto wiring
+through `NodeState`); (ii) rewire `tools/s2-lab/attax-player.ts` and the
+imitation variants to the shared search; (iii) delete
+`tools/s2-lab/search.ts`; (iv) SPECULATE parity check (the shared core
+already implements the speculativePieces chance-node logic — verify the
+S2 copy matches semantically); (v) S2-side evidence (ports/contracts tests
++ lab smoke) after the port; (vi) Hoiko regression 1001-1200 exact
+reproduction after every step. NO PUSH — the unified tree is reported to
+Souta before any push.
