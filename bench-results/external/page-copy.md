@@ -40,7 +40,8 @@ Line under the stat tiles:
 | Opponent | Games | W–L | Win rate (95% Wilson CI) | Attack / piece (Attax vs opponent) |
 |---|---|---|---|---|
 | Cold Clear 2 (official upstream, by MinusKelvin) | 100 | 79–21 | 79.0% (70.0–85.8%) | 0.8951 vs 0.9279 |
-| Cold Clear 2 fork (by chouhy) | 40 | 27–13 | 67.5% (52.0–79.9%) | 0.9218 vs 0.8298 |
+| Cold Clear 2 fork (by chouhy), beam width 96 | 100 | 79–16–5 | 79.0% (70.0–85.8%) | 0.9218 vs 0.8101 |
+| Cold Clear 2 fork (by chouhy), earlier build at beam width 48 | 40 | 27–13 | 67.5% (52.0–79.9%) | 0.9218 vs 0.8298 |
 | Hoiko (Rust/WASM replica of Hoiko.exe) | 200 | 195–5 | 97.5% (94.3–98.9%) | 0.70 vs 0.46 |
 | Hoiko, Attax limited to Hoiko's 2-piece preview | 100 | 89–11 | 89.0% (81.4–93.7%) | 0.58 vs 0.46 |
 | clys (by citrus610) | 100 | 88–12 | 88.0% (80.2%–93.0%) | 0.7346 vs 0.7791 |
@@ -54,7 +55,13 @@ with no draws. Cold Clear 2 generated more attack per piece (0.9279 to 0.8951); 
 won on survival, clearing 7,600 lines to Cold Clear 2's 6,528. All recorded games were
 replay-verified.
 
-**Cold Clear 2 fork.** chouhy's fork of Cold Clear 2, measured the same way on seeds
+**Cold Clear 2 fork, current build.** chouhy's fork of Cold Clear 2, measured the same way on
+seeds 33001–33050, played from both seats, with Attax's beam at width 96; Attax won
+38/41 by seat, with 5 draws, all at the 1000-turn cap. Attax generated more attack per
+piece (0.9218 to 0.8101). The fork cleared more lines (26,080 to 23,961); Attax won
+more games. All recorded games were replay-verified.
+
+**Cold Clear 2 fork, earlier build at beam width 48.** chouhy's fork of Cold Clear 2, measured the same way on seeds
 2701–2720, played from both seats; Attax won 12/15 by seat, with no draws. Attax
 generated more attack per piece (0.9218 to 0.8298). The fork cleared more lines
 (11,512 to 10,639); Attax won more games. All recorded games were replay-verified.

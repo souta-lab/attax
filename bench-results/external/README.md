@@ -29,6 +29,14 @@ result from checked-in records. No engine, search, arena, audit or replay code c
   `field40-spec-2701` run against chouhy's Cold Clear 2 fork (built from the same
   upstream base), imported the same way (all 20 seeds replay-verified).
   `cc2-fork/summary.json` likewise generated and asserted.
+- `cc2-fork-w96/cc2fork-33001.json` through `cc2-fork-w96/cc2fork-33050.json`: the
+  same rig's `v3-w96-fork-33001` run, pitting Attax v3 at `c83d339` (field-40 profile
+  with exact bag speculation and beam width explicitly 96) against chouhy's Cold Clear 2
+  fork at `b20a92b` (built from the same upstream base), imported the same way (all 50
+  seeds replay-verified). `cc2-fork-w96/summary.json` is generated and asserted by
+  `scripts/import-cc2-fork-w96.ts`. The executing engine was the TS reference search
+  (`ts-reference`), whose decisions are bit-identical to the Rust engine on the verified
+  corpora.
 
 ## Conversion and numerical provenance
 

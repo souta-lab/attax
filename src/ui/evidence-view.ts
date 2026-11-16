@@ -9,7 +9,7 @@ import { fixed, h, pct } from "./dom.js";
 
 export function createHero(): HTMLElement {
   const cc2 = RESULTS.rows.find((row) => row.id === "cc2") ?? RESULTS.headline;
-  const fork = RESULTS.rows.find((row) => row.id === "cc2-fork");
+  const fork = RESULTS.rows.find((row) => row.id === "cc2-fork-w96");
   const hoiko = RESULTS.rows.find((row) => row.id === "bot") ?? RESULTS.headline;
   const tile = (value: string, label: string, note: string): HTMLElement =>
     h("div", { class: "tile" }, [
@@ -75,7 +75,7 @@ function resultTable(): HTMLElement {
     h(
       "tbody",
       {},
-      ["cc2", "cc2-fork", "bot", "preview2", "clys"]
+      ["cc2", "cc2-fork-w96", "cc2-fork", "bot", "preview2", "clys"]
         .flatMap((id) => RESULTS.rows.filter((row) => row.id === id))
         .map((row) =>
           h("tr", {}, [
@@ -94,7 +94,7 @@ function resultTable(): HTMLElement {
               }),
             ]),
             h("td", {
-              text: `${fixed(row.attackPerPiece, ["clys", "cc2", "cc2-fork"].includes(row.id) ? 4 : 2)} vs ${fixed(row.rivalAttackPerPiece, ["clys", "cc2", "cc2-fork"].includes(row.id) ? 4 : 2)}`,
+              text: `${fixed(row.attackPerPiece, ["clys", "cc2", "cc2-fork", "cc2-fork-w96"].includes(row.id) ? 4 : 2)} vs ${fixed(row.rivalAttackPerPiece, ["clys", "cc2", "cc2-fork", "cc2-fork-w96"].includes(row.id) ? 4 : 2)}`,
             }),
           ]),
         ),

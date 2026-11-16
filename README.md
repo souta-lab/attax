@@ -26,8 +26,9 @@ are in [`scripts/`](scripts/).
 
 > **The world's strongest in guideline versus.** Across every matchup measured so far,
 > Attax has won each matchup it has played: the official Cold Clear 2 **79–21**,
-> chouhy's fork **27–13**, Hoiko **195–5** and clys **88–12** (conditions and details
-> below). **Attax v3** (current `main`) unifies the bot into a single search core for
+> chouhy's fork **27–13** (and measured again on the current build, attax v3, at beam
+> width 96: **79–16–5** over 100 games, details below), Hoiko **195–5** and clys
+> **88–12** (conditions and details below). **Attax v3** (current `main`) unifies the bot into a single search core for
 > the guideline and TETR.IO S2 rulesets, with the rules differences carried as
 > profile data; guideline play is unchanged from v2, so the record above stands. In
 > S2, the first measured result is a foothold, not a win: against **Sold Slear**, the
@@ -62,15 +63,18 @@ are in [`scripts/`](scripts/).
 | **Hoiko** (Rust/WASM replica of Hoiko.exe) | 200 | **195–5** | **97.5%** (94.3–98.9%) | **0.70** vs 0.46 |
 | **clys** (by citrus610) | 100 | **88–12** | **88.0%** (80.2%–93.0%) | **0.7346** vs 0.7791 |
 | **Cold Clear 2** (official upstream, `ed8b193`) | 100 | **79–21** | **79.0%** (70.0–85.8%) | 0.8951 vs **0.9279** |
-| **Cold Clear 2 fork** (chouhy) | 40 | **27–13** | **67.5%** (52.0–79.9%) | **0.9218** vs 0.8298 |
+| **Cold Clear 2 fork** (chouhy, beam width 96) | 100 | **79–16–5** | **79.0%** (70.0–85.8%) | **0.9218** vs 0.8101 |
+| **Cold Clear 2 fork** (chouhy, earlier build at beam width 48) | 40 | **27–13** | **67.5%** (52.0–79.9%) | **0.9218** vs 0.8298 |
 | **Sold Slear** (S2 champion, s2-bot-lab) | 400 | 64–318 (18 draws) | 16.75% of decided games | — |
 
 All guideline matchups use held-out seeds (never used for tuning), and every seed was
-played from both seats. The Cold Clear 2 matches were played by the competition profile,
-**attax v2** (see [Profiles](#-profiles)), under an external TBP rig; against the official
-build Attax won on survival despite the lower attack rate. The Sold Slear row is the S2
-profile's first measurement, played by **attax v3** under the lab protocol detailed below.
-The details, conditions and limits follow.
+played from both seats. The official Cold Clear 2 match and the earlier width-48 fork
+match were played by the competition profile, **attax v2** (see [Profiles](#-profiles)),
+under an external TBP rig; against the official build Attax won on survival despite the
+lower attack rate. The fork rematch at beam width 96 was played by **attax v3** (current
+`main`) under the same external TBP rig. The Sold Slear row is the S2 profile's first
+measurement, played by **attax v3** under the lab protocol detailed below. The details,
+conditions and limits follow.
 
 ## 🥊 Result: Hoiko
 
@@ -146,11 +150,22 @@ official build actually produced more attack per piece, 0.9279 to Attax's 0.8951
 Attax won on survival, the same pattern as the clys match. Against chouhy's fork of
 the same upstream base, seeds 2701–2720 from both seats, Attax won **27–13** with no
 draws (67.5%, CI 52.0–79.9%), this time also ahead on attack per piece, 0.9218 to
-0.8298. Per-seed records and generated summaries live in
-`bench-results/external/cc2/` and `bench-results/external/cc2-fork/`; as with the
-external clys records, external attack per piece is pooled generated attack before
-cancellation, and the game-level Wilson intervals are descriptive (the independent
-units are the seat-swapped seed pairs).
+0.8298.
+
+Against the same fork build at `b20a92b` (allspin defaults), **attax v3** at `c83d339`
+with beam width explicitly 96 played seeds 33001–33050 from both seats (replay-verified
+in full) and won **79–16–5** (79.0%, Wilson 95% CI 70.0–85.8%), ahead on attack per
+piece 0.9218 to 0.8101 (unlike the official match); all 5 draws reached the 1000-turn
+cap. On this TBP path the TS reference search (`ts-reference`) executed the decisions,
+which are bit-identical to the Rust engine on the verified corpora. This is a new
+measurement on a different build, width, and seed block — not a re-roll of the closed
+19–13–8 gate and not a same-conditions A/B against the 27–13 record.
+
+Per-seed records and generated summaries live in `bench-results/external/cc2/`,
+`bench-results/external/cc2-fork/`, and `bench-results/external/cc2-fork-w96/`; as
+with the external clys records, external attack per piece is pooled generated attack
+before cancellation, and the game-level Wilson intervals are descriptive (the
+independent units are the seat-swapped seed pairs).
 
 ## Result: Sold Slear (S2)
 
