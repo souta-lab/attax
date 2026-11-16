@@ -419,7 +419,13 @@ async function evaluate(
     }
     if (records.length !== games)
       throw new Error(`expected ${games} records, got ${records.length}`);
-    if (compat.length && attempt === 0) continue;
+    // Item-98 harness fix (2026-11-16): compat-error records are accepted
+    // as exclusions on the first attempt. The previous rule replayed the
+    // whole job once whenever any compat error appeared; the lab's compat
+    // errors are deterministic (same seed + profile -> same error), proven
+    // by a smoke replay producing a byte-identical recordsSha256, so the
+    // replay only ever re-accepted the same exclusions at double cost.
+    // The transport retry above (exit 75) is unchanged.
     excluded = compat.length;
     records = records.filter((r) => r.status !== "error");
     if (!records.length) throw new Error(`${label} evaluation has no finished records`);
