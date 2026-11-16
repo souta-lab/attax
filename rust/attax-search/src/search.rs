@@ -311,7 +311,7 @@ fn expand(
 }
 
 /// Terminal state value (`stateValue` in search.ts): the weighted board plus the adopt
-/// state terms, each skipped when its weight is 0 so the default is exactly `dot`.
+/// state terms (C1, C2, C4), each skipped when its weight is 0 so the default is exactly `dot`.
 #[inline(always)]
 fn state_value(ctx: &Ctx, features: &Features, board: &Board, b2b: bool, child: &PieceOption) -> f64 {
     let w = ctx.w;
@@ -329,6 +329,8 @@ fn state_value(ctx: &Ctx, features: &Features, board: &Board, b2b: bool, child: 
         let donations = tslot_donations(board, depth);
         for lines in 0..4 { total += donations[lines] as f64 * chain[lines]; }
     }
+    if w.hold_t != 0.0 && child.hold == Some(Kind::T) { total += w.hold_t; }
+    if w.hold_i != 0.0 && child.hold == Some(Kind::I) { total += w.hold_i; }
     total
 }
 
@@ -784,8 +786,39 @@ mod tests {
         assert_eq!(on, off);
     }
 
+    #[test]
+    fn c4_hold_value_adds_discounted_value_by_held_piece() {
+        let mut s = Searcher::new();
+        let on = Weights { hold_t: 40.0, hold_i: 25.0, ..Weights::default() };
+        for (held, gain) in [(Kind::T, 40.0), (Kind::I, 25.0), (Kind::O, 0.0)] {
+            let mut i = input(Board::new(40), Kind::J, &[], false, &[]);
+            i.hold = Some(held);
+            i.can_hold = false;
+            let off = s.search(&i, &opts(Weights::default())).unwrap();
+            let r = s.search(&i, &opts(on.clone())).unwrap();
+            assert_eq!(r.best, off.best);
+            for (a, b) in r.candidates.iter().zip(&off.candidates) {
+                assert!((a.value - b.value - 0.97 * gain).abs() < 1e-9);
+            }
+        }
+    }
+
+    #[test]
+    fn c2_c4_off_is_bit_identical_on_midgame() {
+        let mut s = Searcher::new();
+        for hold in [None, Some(Kind::T), Some(Kind::I)] {
+            for spec in [&[][..], &[Kind::T, Kind::S][..]] {
+                let mut i = input(midgame(), Kind::T, &[Kind::I, Kind::L, Kind::O], true, spec);
+                i.hold = hold;
+                let base = fingerprint(&s.search(&i, &opts(Weights::default())));
+                let zero = Weights { t_slot_chain: [0.0; 4], hold_t: 0.0, hold_i: 0.0, ..Weights::default() };
+                assert_eq!(fingerprint(&s.search(&i, &opts(zero))), base);
+            }
+        }
+    }
+
     /// Every adopt term switched on (extended as candidates land).
     fn adopt_on() -> Weights {
-        Weights { b2b_state: 100.0, t_slot_chain: [0.0, 1.0, 2.0, 3.0], ..Weights::default() }
+        Weights { b2b_state: 100.0, t_slot_chain: [0.0, 1.0, 2.0, 3.0], hold_t: 40.0, hold_i: 20.0, ..Weights::default() }
     }
 }

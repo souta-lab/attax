@@ -41,6 +41,9 @@ export interface Weights {
   readonly tSlotChain1?: number;
   readonly tSlotChain2?: number;
   readonly tSlotChain3?: number;
+  /** C4: terminal value of holding a T / an I; 0 or absent = off. */
+  readonly holdT?: number;
+  readonly holdI?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {
@@ -78,4 +81,6 @@ export const DEFAULT_WEIGHTS: Weights = {
   tSlotChain1: 0,
   tSlotChain2: 0,
   tSlotChain3: 0,
+  holdT: 0,
+  holdI: 0,
 };

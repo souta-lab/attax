@@ -667,6 +667,10 @@ function stateValue(
     for (let lines = 0; lines < 4; lines += 1)
       total += (donations[lines] as number) * (adopt.tSlotChain[lines] as number);
   }
+  const holdT = w.holdT ?? 0;
+  if (holdT !== 0 && child.hold === "T") total += holdT;
+  const holdI = w.holdI ?? 0;
+  if (holdI !== 0 && child.hold === "I") total += holdI;
   return total;
 }
 

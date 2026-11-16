@@ -51,6 +51,9 @@ pub struct Weights {
     pub b2b_state: f64,
     /// Adopt C2: value per T-slot donation clearing 0..3 lines.
     pub t_slot_chain: [f64; 4],
+    /// Adopt C4: terminal value of holding a T / an I (`holdT` / `holdI`; 0 = off).
+    pub hold_t: f64,
+    pub hold_i: f64,
 }
 
 impl Default for Weights {
@@ -66,6 +69,8 @@ impl Default for Weights {
             discount: 0.97,
             b2b_state: 0.0,
             t_slot_chain: [0.0; 4],
+            hold_t: 0.0,
+            hold_i: 0.0,
         }
     }
 }
@@ -75,7 +80,7 @@ pub const N_CORE_PARAMS: usize = N_FEATURES + 1 + N_CLEARS + 3;
 
 /// Adopt-candidate parameters appended after the core vector, in this order
 /// (all default to 0 = off).
-pub const ADOPT_PARAM_NAMES: [&str; 5] = ["b2bState", "tSlotChain0", "tSlotChain1", "tSlotChain2", "tSlotChain3"];
+pub const ADOPT_PARAM_NAMES: [&str; 7] = ["b2bState", "tSlotChain0", "tSlotChain1", "tSlotChain2", "tSlotChain3", "holdT", "holdI"];
 
 /// Total number of tunable parameters in the flat vector.
 pub const N_PARAMS: usize = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len();
@@ -112,6 +117,8 @@ impl Weights {
         p[N_CORE_PARAMS - 1] = self.discount;
         p[N_CORE_PARAMS] = self.b2b_state;
         p[N_CORE_PARAMS + 1..N_CORE_PARAMS + 5].copy_from_slice(&self.t_slot_chain);
+        p[N_CORE_PARAMS + 5] = self.hold_t;
+        p[N_CORE_PARAMS + 6] = self.hold_i;
         p
     }
 
@@ -125,6 +132,8 @@ impl Weights {
         w.discount = p[N_CORE_PARAMS - 1];
         w.b2b_state = p[N_CORE_PARAMS];
         w.t_slot_chain.copy_from_slice(&p[N_CORE_PARAMS + 1..N_CORE_PARAMS + 5]);
+        w.hold_t = p[N_CORE_PARAMS + 5];
+        w.hold_i = p[N_CORE_PARAMS + 6];
         w
     }
 
@@ -175,6 +184,8 @@ mod tests {
             ("wastedT", w.wasted_t),
             ("discount", w.discount),
             ("b2bState", w.b2b_state),
+            ("holdT", w.hold_t),
+            ("holdI", w.hold_i),
         ] {
             assert_eq!(read(name).to_bits(), value.to_bits(), "{name}");
         }
@@ -189,5 +200,6 @@ mod tests {
         assert_eq!(param_names()[N_FEATURES], "attack");
         assert_eq!(param_names()[N_CORE_PARAMS - 1], "discount");
         assert_eq!(param_names()[N_CORE_PARAMS], "b2bState");
+        assert_eq!(param_names()[N_PARAMS - 1], "holdI");
     }
 }

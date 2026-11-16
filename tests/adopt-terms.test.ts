@@ -122,7 +122,14 @@ describe("C1 terminal B2B-alive state value (b2bState)", () => {
 });
 
 /** Every adopt term switched on (extended as candidates land). */
-const ADOPT_ON: Weights = { ...DEFAULT_WEIGHTS, b2bState: 100, tSlotChain2: 100, tSlotChain3: -50 };
+const ADOPT_ON: Weights = {
+  ...DEFAULT_WEIGHTS,
+  b2bState: 100,
+  tSlotChain2: 100,
+  tSlotChain3: -50,
+  holdT: 40,
+  holdI: 20,
+};
 
 describe("unified tree: adopt terms are guideline-only", () => {
   // Item 97 chunk 4 ports the adopt terms onto the shared search's guideline path. The S2
@@ -244,5 +251,57 @@ describe("C2 T-slot donations", () => {
       search(noT, { weights: { ...DEFAULT_WEIGHTS, tSlotChain2: 100 }, width: 64 }),
       search(noT, { weights: DEFAULT_WEIGHTS, width: 64 }),
     );
+  });
+});
+
+describe("C4 hold-piece terminal value (holdT / holdI)", () => {
+  test("defaults are 0", () => {
+    expect(DEFAULT_WEIGHTS.holdT).toBe(0);
+    expect(DEFAULT_WEIGHTS.holdI).toBe(0);
+  });
+
+  for (const hold of [null, "T", "I"] as const) {
+    for (const speculate of [false, true]) {
+      test(`absent, explicit 0 and DEFAULT are bit-identical (hold=${hold}, chance=${speculate})`, () => {
+        const i = input(MIDGAME, "T", ["I", "L", "O"], {
+          hold,
+          speculativePieces: speculate ? ["S", "Z", "T"] : [],
+        });
+        const options = { width: 24, guideline: true };
+        const base = search(i, { ...options, weights: DEFAULT_WEIGHTS });
+        const copy: Record<string, unknown> = { ...DEFAULT_WEIGHTS };
+        delete copy.holdT;
+        delete copy.holdI;
+        same(search(i, { ...options, weights: copy as unknown as Weights }), base);
+        same(search(i, { ...options, weights: { ...DEFAULT_WEIGHTS, holdT: 0, holdI: 0 } }), base);
+      });
+    }
+  }
+
+  test("adds gamma * holdT / holdI by the piece left in hold", () => {
+    const on = { ...DEFAULT_WEIGHTS, holdT: 40, holdI: 25 };
+    for (const [held, gain] of [
+      ["T", 40],
+      ["I", 25],
+      ["O", 0],
+    ] as const) {
+      const i = input(new Uint16Array(40), "J", [], { hold: held, canHold: false });
+      const off = search(i, { weights: DEFAULT_WEIGHTS, width: 64 });
+      const r = search(i, { weights: on, width: 64 });
+      if (!off || !r) throw new Error("no move");
+      expect(r.best).toEqual(off.best);
+      for (const [k, c] of r.candidates.entries())
+        expect(c.value - (off.candidates[k]?.value as number)).toBeCloseTo(0.97 * gain, 9);
+    }
+  });
+
+  test("a large holdT keeps the T in hold instead of placing it", () => {
+    const i = input(new Uint16Array(40), "T", ["O"], {});
+    const r = (w: Weights) => {
+      const out = search(i, { weights: w, width: 64 });
+      if (!out) throw new Error("no move");
+      return out.line.map((s) => s.placement.kind).join("");
+    };
+    expect(r({ ...DEFAULT_WEIGHTS, holdT: 5000 })).toBe("O");
   });
 });

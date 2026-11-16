@@ -135,6 +135,8 @@ fn weights_from_json(v: &Value) -> Weights {
         let key = format!("tSlotChain{i}");
         *slot = opt_num(&v[key.as_str()], &key);
     }
+    w.hold_t = opt_num(&v["holdT"], "holdT");
+    w.hold_i = opt_num(&v["holdI"], "holdI");
     w.wasted_t = num(&v["wastedT"], "wastedT");
     w.discount = num(&v["discount"], "discount");
     w
