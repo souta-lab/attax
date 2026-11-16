@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const count = positiveInt(option(argv, "count", "200"), "count");
   const jobs = positiveInt(option(argv, "jobs", "4"), "jobs");
-  const width = positiveInt(option(argv, "width", "48"), "width");
+  const width = positiveInt(option(argv, "width", "96"), "width");
   const preview = positiveInt(option(argv, "preview", "5"), "preview");
   if (count > 5000) throw new Error("--count must be at most 5000");
   const adapt = option(argv, "adapt", "0");

@@ -3,7 +3,7 @@ import { createBot } from "../src/ai/bot/fighter.js";
 import { createEngine } from "../src/core/engine.js";
 import { seededRandom } from "../src/versus/controller.js";
 
-const bot = createBot({ width: Number(process.env.WIDTH ?? 48) });
+const bot = createBot({ width: Number(process.env.WIDTH ?? 96) });
 const engine = createEngine({ random: seededRandom(7) });
 let ms = 0;
 let n = 0;
