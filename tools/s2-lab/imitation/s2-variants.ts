@@ -522,11 +522,11 @@ export interface RootCandidateReport {
   readonly minSolvencyMargin: number;
   readonly fatalAtRoot: boolean;
   readonly fatalOnBestPath: boolean;
-  /** Max ply depth 1..maxDepth reached inside production width-48 beam (0 if pruned at root filter). */
+  /** Max ply depth 1..maxDepth reached inside production width-96 beam (0 if pruned at root filter). */
   readonly pruningDepth: number;
-  /** True iff at least one descendant reached `leaves` in production width-48 beam. */
+  /** True iff at least one descendant reached `leaves` in production width-96 beam. */
   readonly survivedBeam: boolean;
-  /** Best leaf value inside production width-48 beam (null if pruned before leaves). */
+  /** Best leaf value inside production width-96 beam (null if pruned before leaves). */
   readonly beamValue: number | null;
   /** Value from matched-horizon (or deepest fatal fallback) continuation `phi`. */
   readonly completeValue: number;

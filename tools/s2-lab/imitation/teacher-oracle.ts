@@ -948,7 +948,7 @@ export function annotateRecordVariant(args: {
   readonly augmentedWeights?: readonly number[];
 }): VariantAnnotation {
   const input = searchInputFromObservation(args.observation);
-  const width = args.width ?? 48;
+  const width = args.width ?? 96;
   const report = runVariantSearch(input, args.variant, {
     weights: args.weights,
     width,

@@ -155,7 +155,7 @@ function parseArgs(argv: readonly string[]): {
   let output = "";
   let variants: AnnotatableVariant[] = ["existing", "corrected"];
   let weightsPath: string | undefined;
-  let width = 48;
+  let width = 96;
   let shardIndex = 0;
   let shardCount = 1;
   let skipExisting = false;
@@ -195,7 +195,7 @@ function parseArgs(argv: readonly string[]): {
   }
   if (!input || !output) {
     throw new Error(
-      "Usage: bun tools/s2-lab/imitation/annotate-dataset.ts --input <in.jsonl> --output <out.jsonl> [--variants existing,corrected] [--weights <path>] [--width 48] [--shard-index 0 --shard-count 1]",
+      "Usage: bun tools/s2-lab/imitation/annotate-dataset.ts --input <in.jsonl> --output <out.jsonl> [--variants existing,corrected] [--weights <path>] [--width 96] [--shard-index 0 --shard-count 1]",
     );
   }
   return { input, output, variants, weightsPath, width, shardIndex, shardCount, skipExisting };

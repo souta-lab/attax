@@ -606,7 +606,7 @@ export async function generateImitationDataset(config: GeneratorConfig): Promise
   const shardIndex = config.shardIndex ?? 0;
   const shardCount = config.shardCount ?? 1;
   const seedStride = config.seedStride ?? shardCount;
-  const width = config.width ?? 48;
+  const width = config.width ?? 96;
   const weightSpec = loadWeightSpec(config.weightsPath);
 
   const championOracleLeft = new TeacherOracle({ botType: "cc2-s2-champion" });
@@ -779,7 +779,7 @@ function parseCliArgs(argv: readonly string[]): GeneratorConfig {
   let shardIndex = 0;
   let shardCount = 1;
   let weightsPath: string | undefined;
-  let width = 48;
+  let width = 96;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? "";
