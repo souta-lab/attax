@@ -288,7 +288,7 @@ async function play(gameIndex) {
       championProfile: profile,
       championProfileSha256: digest,
       wasmSha256,
-      attaxWidth: 96,
+      attaxWidth: attax.width,
       attaxEngine: engineIdentity(),
       attaxWeights: loadS2Weights().profileId,
       attaxWeightsSource: loadS2Weights().source,

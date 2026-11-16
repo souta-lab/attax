@@ -28,7 +28,13 @@ export interface MechanismSettings {
 
 const profiles = new Map<
   string | undefined,
-  { weights: Weights; mechanisms: MechanismSettings; profileId: string; source: string }
+  {
+    weights: Weights;
+    mechanisms: MechanismSettings;
+    profileId: string;
+    source: string;
+    width: number | undefined;
+  }
 >();
 const S2_ONLY_ADOPT_KEYS = [
   "holeRuns",
@@ -130,10 +136,20 @@ function loadProfile(profilePath: string | undefined) {
   const source = profilePath ?? "DEFAULT_WEIGHTS";
   let weights = DEFAULT_WEIGHTS;
   let mechanisms: MechanismSettings = {};
+  let width: number | undefined;
   if (profilePath !== undefined) {
     const parsed = JSON.parse(readFileSync(source, "utf8")) as Record<string, unknown>;
-    const { mechanisms: rawMechanisms, ...patch } = parsed;
+    const { mechanisms: rawMechanisms, width: rawWidth, ...patch } = parsed;
     mechanisms = parseMechanisms(rawMechanisms);
+    if (rawWidth !== undefined) {
+      if (
+        !Number.isSafeInteger(rawWidth) ||
+        (rawWidth as number) < 1 ||
+        (rawWidth as number) > 8192
+      )
+        throw new Error(`expected an integer beam width in [1, 8192] at width`);
+      width = rawWidth as number;
+    }
     weights = mergeProfile(
       DEFAULT_WEIGHTS as unknown as Record<string, unknown>,
       patch,
@@ -148,14 +164,16 @@ function loadProfile(profilePath: string | undefined) {
   const identity =
     mechanisms.stock === undefined &&
     mechanisms.solvency === undefined &&
-    mechanisms.solvencyMode === undefined
+    mechanisms.solvencyMode === undefined &&
+    width === undefined
       ? canonical(identityWeights)
-      : canonical({ weights: identityWeights, mechanisms });
+      : canonical({ weights: identityWeights, mechanisms, ...(width ? { width } : {}) });
   const loaded = {
     weights,
     mechanisms,
     profileId: createHash("sha256").update(identity).digest("hex").slice(0, 16),
     source,
+    width,
   };
   profiles.set(profilePath, loaded);
   return loaded;
@@ -596,11 +614,12 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
   // Startup self-check: the engine handshake runs before the run begins, so a
   // missing/failing Rust binary aborts here rather than mid-match.
   engineIdentity();
-  // Beam width: the shipped default (BOT_DEFAULTS.width) unless the caller
-  // pins one explicitly — the corpus/agreement surfaces pin theirs so a
-  // future default change cannot silently move their digests.
-  const width = opts?.width ?? BOT_DEFAULTS.width;
-  const { weights, mechanisms, profileId } = loadProfile(profilePath);
+  // Beam width: the caller's explicit pin wins, then the profile's own
+  // `width` key, then the shipped default (BOT_DEFAULTS.width) — the
+  // corpus/agreement surfaces pin theirs via opts so a future default
+  // change cannot silently move their digests.
+  const { weights, mechanisms, profileId, width: profileWidth } = loadProfile(profilePath);
+  const width = opts?.width ?? profileWidth ?? BOT_DEFAULTS.width;
   const stock = envMechanism(
     process.env.ATTAX_S2_STOCK_POTENTIAL,
     mechanisms.stock,
@@ -652,6 +671,7 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
     weights,
     mechanisms,
     profileId,
+    width,
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
       const shared = project(decision, acceptRoot);
       if (ENGINE === "rust") {
