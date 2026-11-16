@@ -14,6 +14,7 @@ import { awardLock, s2GarbageMultiplier } from "../../core/rules.js";
 import { classifyS2Spin } from "../../core/s2-spin.js";
 import type { TspinKind } from "../../core/tspin.js";
 import { BOARD_FEATURES, type BoardFeatures, boardFeatures, tSlotDonations } from "./features.js";
+import { holeGeometry } from "./holes.js";
 import {
   type BitBoard,
   collides,
@@ -607,7 +608,20 @@ function expandS2(
       : 0;
   const b2bState = w.b2bState ?? 0;
   const stateValue = b2bState !== 0 && childState.b2bChain >= 1 ? b2bState : 0;
-  const value = accumulated + scale * w.discount * (dot(features, w) + stateValue + phi - risk);
+  const holeRuns = w.holeRuns ?? 0;
+  const holeShifts = w.holeShifts ?? 0;
+  const holes =
+    holeRuns !== 0 || holeShifts !== 0 ? holeGeometry(childState.board) : { runs: 0, shifts: 0 };
+  const value =
+    accumulated +
+    scale *
+      w.discount *
+      (dot(features, w) +
+        stateValue +
+        (holeRuns !== 0 ? holeRuns * holes.runs : 0) +
+        (holeShifts !== 0 ? holeShifts * holes.shifts : 0) +
+        phi -
+        risk);
 
   return {
     state: childState,

@@ -27,6 +27,7 @@ const profiles = new Map<
   string | undefined,
   { weights: Weights; mechanisms: MechanismSettings; profileId: string; source: string }
 >();
+const S2_ONLY_ADOPT_KEYS = ["holeRuns", "holeShifts"] as const;
 let loaded: ReturnType<typeof loadProfile> | undefined;
 
 function mergeProfile(
@@ -39,7 +40,11 @@ function mergeProfile(
   }
   const merged = { ...base };
   for (const [key, value] of Object.entries(patch)) {
-    if (!Object.hasOwn(base, key)) throw new Error(`unknown weight: ${path}${key}`);
+    if (
+      !Object.hasOwn(base, key) &&
+      !(path === "" && (S2_ONLY_ADOPT_KEYS as readonly string[]).includes(key))
+    )
+      throw new Error(`unknown weight: ${path}${key}`);
     const original = base[key];
     if (typeof original === "object" && original !== null) {
       merged[key] = mergeProfile(original as Record<string, unknown>, value, `${path}${key}.`);
@@ -127,12 +132,16 @@ function loadProfile(profilePath: string | undefined) {
   }
   // Profiles without mechanisms keep the historical weights-only identity;
   // mechanism-bearing profiles hash the full configuration.
+  const identityWeights = { ...weights } as Weights & Record<string, unknown>;
+  for (const key of S2_ONLY_ADOPT_KEYS) {
+    if (identityWeights[key] === 0) delete identityWeights[key];
+  }
   const identity =
     mechanisms.stock === undefined &&
     mechanisms.solvency === undefined &&
     mechanisms.solvencyMode === undefined
-      ? canonical(weights)
-      : canonical({ weights, mechanisms });
+      ? canonical(identityWeights)
+      : canonical({ weights: identityWeights, mechanisms });
   const loaded = {
     weights,
     mechanisms,

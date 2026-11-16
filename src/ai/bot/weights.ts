@@ -44,6 +44,10 @@ export interface Weights {
   /** C4: terminal value of holding a T / an I; 0 or absent = off. */
   readonly holdT?: number;
   readonly holdI?: number;
+  /** S2 C3: terminal value per vertical run of holes; absent/zero skips the scan. */
+  readonly holeRuns?: number;
+  /** S2 C3: terminal value per change between consecutive hole-row masks. */
+  readonly holeShifts?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {

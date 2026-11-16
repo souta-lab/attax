@@ -75,7 +75,7 @@ const groups = [
   ["board.tSlot", "wastedT"],
   ["clear.perfectClear"],
 ];
-const adoptGroupTags = { c1: ["b2bState"] };
+const adoptGroupTags = { c1: ["b2bState"], c3: ["holeRuns", "holeShifts"] };
 const adoptScale = number("adopt-scale", 1, false);
 const adoptPaths = new Set();
 for (const tag of (values["adopt-groups"] || "")
