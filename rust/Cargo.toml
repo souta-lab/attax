@@ -9,6 +9,9 @@ members = [
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
+# Fleet machines build locally and may add RUSTFLAGS="-C target-cpu=native"
+# for the last few percent; it is deliberately not committed here so a build
+# from this tree runs on any x86_64 host.
