@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use crate::features::{F_DANGER, F_MAX_HEIGHT, F_TSLOT, Features, board_features};
+use crate::features::{F_DANGER, F_MAX_HEIGHT, F_TSLOT, Features, board_features, tslot_donations};
 use crate::movegen::{Board, MoveGen, Placement, Pos, Tspin, lock_placement, locks_out, spawn_position};
 use crate::pieces::Kind;
 use crate::weights::{ClearKind, Weights};
@@ -220,6 +220,9 @@ struct Ctx<'a> {
     /// The adopt state terms mirror the TS guideline evaluation (`stateValue`); the TS S2
     /// path does not read them, so the `S2` profile keeps the plain `dot`.
     adopt: bool,
+    t_slot_chain: Option<[f64; 4]>,
+    t_left: Vec<i32>,
+    bag_credit: i32,
     /// `discount ** depth`, precomputed with `powf` (platform rounding can differ from JS).
     scale: Vec<f64>,
 }
@@ -287,7 +290,7 @@ fn expand(
     }
     let scale = ctx.scale(node.depth);
     let accumulated = node.reward + scale * (reward - ctx.exposure * features[F_DANGER] as f64);
-    let value = accumulated + scale * w.discount * state_value(ctx, &features, b2b);
+    let value = accumulated + scale * w.discount * state_value(ctx, &features, &outcome.board, b2b, option);
 
     Some(Node {
         board: outcome.board,
@@ -310,7 +313,7 @@ fn expand(
 /// Terminal state value (`stateValue` in search.ts): the weighted board plus the adopt
 /// state terms, each skipped when its weight is 0 so the default is exactly `dot`.
 #[inline(always)]
-fn state_value(ctx: &Ctx, features: &Features, b2b: bool) -> f64 {
+fn state_value(ctx: &Ctx, features: &Features, board: &Board, b2b: bool, child: &PieceOption) -> f64 {
     let w = ctx.w;
     let mut total = w.dot(features);
     if !ctx.adopt {
@@ -318,6 +321,13 @@ fn state_value(ctx: &Ctx, features: &Features, b2b: bool) -> f64 {
     }
     if w.b2b_state != 0.0 && b2b {
         total += w.b2b_state;
+    }
+    if let Some(chain) = &ctx.t_slot_chain {
+        let known = ctx.t_left.len() - 1;
+        let ahead = if child.next as usize <= known { ctx.t_left[child.next as usize] + ctx.bag_credit } else { 0 };
+        let depth = 3.min((child.hold == Some(Kind::T)) as i32 + ahead);
+        let donations = tslot_donations(board, depth);
+        for lines in 0..4 { total += donations[lines] as f64 * chain[lines]; }
     }
     total
 }
@@ -329,16 +339,21 @@ impl Searcher {
 
     pub fn search(&mut self, input: &SearchInput, options: &SearchOptions) -> Option<SearchResult> {
         let w = &options.weights;
+        let mut sequence: Vec<Kind> = Vec::with_capacity(input.preview.len() + 1);
+        sequence.push(input.active.0);
+        sequence.extend_from_slice(&input.preview);
+        let mut t_left = vec![0i32; sequence.len() + 1];
+        for i in (0..sequence.len()).rev() { t_left[i] = t_left[i + 1] + (sequence[i] == Kind::T) as i32; }
         let ctx = Ctx {
             w,
             exposure: options.exposure,
             guideline: options.guideline,
             adopt: options.profile == SearchProfile::Guideline,
+            t_slot_chain: if options.profile == SearchProfile::Guideline && w.t_slot_chain.iter().any(|&v| v != 0.0) { Some(w.t_slot_chain) } else { None },
+            t_left,
+            bag_credit: (input.speculative.contains(&Kind::T) as i32) + (!input.speculative.is_empty() && input.speculative.len() <= 3) as i32,
             scale: (0..32).map(|d| w.discount.powf(d as f64)).collect(),
         };
-        let mut sequence: Vec<Kind> = Vec::with_capacity(input.preview.len() + 2);
-        sequence.push(input.active.0);
-        sequence.extend_from_slice(&input.preview);
         let mut future: Vec<Kind> = sequence.clone();
         future.push(Kind::I);
         let rows = input.board.len;
@@ -737,6 +752,27 @@ mod tests {
     }
 
     #[test]
+    fn c2_tslot_chain_zero_is_identical_and_held_t_unlocks_value() {
+        let mut s = Searcher::new();
+        let stacked = board(&[(1 << 2) | (1 << 8), 0x3ff ^ (0b111 << 6), 0x3ff ^ (1 << 7), 0x3ff ^ 0b111, 0x3ff ^ 0b10, 0x3ff ^ (1 << 9)]);
+        let mut i = input(stacked, Kind::T, &[Kind::I, Kind::L, Kind::O], false, &[Kind::S, Kind::Z, Kind::T]);
+        let base = fingerprint(&s.search(&i, &opts(Weights::default())));
+        assert_eq!(fingerprint(&s.search(&i, &opts(Weights { t_slot_chain: [0.0; 4], ..Weights::default() }))), base);
+
+        let tsd = board(&[0b100, 0x3ff ^ 0b111, 0x3ff ^ 0b10, 0x3ff ^ (1 << 9)]);
+        i = input(tsd, Kind::O, &[], false, &[]);
+        i.hold = Some(Kind::T);
+        i.can_hold = false;
+        let off = s.search(&i, &opts(Weights::default())).unwrap();
+        let on = s.search(&i, &opts(Weights { t_slot_chain: [0.0, 0.0, 100.0, 0.0], ..Weights::default() })).unwrap();
+        assert!(on.candidates.iter().any(|c| off.candidates.iter().any(|o| c.placement == o.placement && (c.value - o.value - 97.0).abs() < 1e-9)));
+        i.hold = Some(Kind::I);
+        let off = fingerprint(&s.search(&i, &opts(Weights::default())));
+        let on = fingerprint(&s.search(&i, &opts(Weights { t_slot_chain: [0.0, 0.0, 100.0, 0.0], ..Weights::default() })));
+        assert_eq!(on, off);
+    }
+
+    #[test]
     fn adopt_terms_do_not_apply_under_the_s2_profile() {
         // The TS S2 path keeps its own bracket; the Rust S2 profile mirrors that.
         let mut s = Searcher::new();
@@ -750,6 +786,6 @@ mod tests {
 
     /// Every adopt term switched on (extended as candidates land).
     fn adopt_on() -> Weights {
-        Weights { b2b_state: 100.0, ..Weights::default() }
+        Weights { b2b_state: 100.0, t_slot_chain: [0.0, 1.0, 2.0, 3.0], ..Weights::default() }
     }
 }

@@ -142,6 +142,84 @@ pub fn board_features(board: &Board, lift: i32) -> Features {
 }
 
 /// Best T-spin slot on the surface (see features.ts `bestTSlot`).
+#[inline(always)]
+fn cell_up(board: &Board, x: i32, y: i32) -> bool {
+    if y < 0 { return true; }
+    if y >= board.len as i32 { return false; }
+    board.rows[board.len - 1 - y as usize] & (1 << x) != 0
+}
+
+#[inline(always)]
+fn column_bits(board: &Board, x: i32, y: i32, n: i32) -> u32 {
+    let mut bits = 0;
+    for i in 0..n { if cell_up(board, x, y + i) { bits |= 1 << i; } }
+    bits
+}
+
+#[derive(Clone, Copy)]
+enum DonationShape { Down, Left, Right }
+
+fn donation_cells(shape: DonationShape) -> [(i32, i32); 4] {
+    match shape {
+        DonationShape::Down => [(-1, 0), (0, 0), (1, 0), (0, -1)],
+        DonationShape::Left => [(0, -1), (0, 0), (0, 1), (-1, 0)],
+        DonationShape::Right => [(0, -1), (0, 0), (0, 1), (1, 0)],
+    }
+}
+
+fn find_donation_slot(board: &Board, h: &[i32; COLS as usize]) -> Option<(i32, i32, DonationShape)> {
+    for x in 0..(COLS - 2) {
+        let (h0, h1, h2) = (h[x as usize], h[x as usize + 1], h[x as usize + 2]);
+        if h0 > h1 && h0 + 1 < h2 {
+            let y = h0 - 1;
+            if column_bits(board, x, y, 3) == 1 && column_bits(board, x + 1, y, 3) == 0 && column_bits(board, x + 2, y, 3) == 5 { return Some((x + 1, h0, DonationShape::Down)); }
+        }
+        if h2 > h1 && h2 + 1 < h0 {
+            let y = h2 - 1;
+            if column_bits(board, x, y, 3) == 5 && column_bits(board, x + 1, y, 3) == 0 && column_bits(board, x + 2, y, 3) == 1 { return Some((x + 1, h2, DonationShape::Down)); }
+        }
+        if h1 >= h0 && h1 + 1 < h2 {
+            let y = h1 - 3;
+            if column_bits(board, x, y, 5) & 24 == 0 && column_bits(board, x + 1, y, 5) & 30 == 4 && column_bits(board, x + 2, y, 5) == 16 && (cell_up(board, x + 1, y) || cell_up(board, x + 2, y - 1)) { return Some((x + 2, h1 - 2, DonationShape::Left)); }
+        }
+        if h1 >= h2 && h1 + 1 < h0 {
+            let y = h1 - 3;
+            if column_bits(board, x, y, 5) == 16 && column_bits(board, x + 1, y, 5) & 30 == 4 && column_bits(board, x + 2, y, 5) & 24 == 0 && (cell_up(board, x + 1, y) || cell_up(board, x, y - 1)) { return Some((x, h1 - 2, DonationShape::Right)); }
+        }
+    }
+    None
+}
+
+/// C2 T-slot donation counts indexed by lines cleared; input board is never mutated.
+pub fn tslot_donations(board: &Board, depth: i32) -> [i32; 4] {
+    let mut counts = [0i32; 4];
+    let mut current = *board;
+    let len = board.len;
+    for _ in 0..depth {
+        let h = column_heights(&current);
+        let Some((cx, cy, shape)) = find_donation_slot(&current, &h) else { break };
+        let mut next = current;
+        for (dx, dy) in donation_cells(shape) {
+            let y = cy + dy;
+            if y >= 0 && y < len as i32 { next.rows[len - 1 - y as usize] |= 1 << (cx + dx); }
+        }
+        let mut write = len as i32 - 1;
+        let mut cleared = 0usize;
+        for read in (0..len).rev() {
+            let row = next.rows[read];
+            if row == FULL_ROW { cleared += 1; continue; }
+            next.rows[write as usize] = row;
+            write -= 1;
+        }
+        while write >= 0 { next.rows[write as usize] = 0; write -= 1; }
+        counts[cleared] += 1;
+        if cleared < 2 { break; }
+        current = next;
+    }
+    counts
+}
+
+/// Best T-spin slot on the surface (see features.ts `bestTSlot`).
 fn best_tslot(board: &Board, h: &[i32; COLS as usize]) -> i32 {
     let len = board.len as i32;
     let mut best = 0;
@@ -215,6 +293,36 @@ mod tests {
         let b = board(&["#.........", "...#######", "#.########"], 20);
         let f = board_features(&b, 0);
         assert_eq!(f[F_TSLOT], 2);
+    }
+
+    fn rows_up(rows: &[u16]) -> Board {
+        let mut b = Board::new(40);
+        let off = 40 - rows.len();
+        b.rows[off..].copy_from_slice(rows);
+        b
+    }
+    fn mirror(rows: &[u16]) -> Vec<u16> {
+        rows.iter().map(|&r| (0..10).filter(|&x| r & (1 << x) != 0).fold(0u16, |m, x| m | (1 << (9 - x)))).collect()
+    }
+    const FULL: u16 = 0x3ff;
+    const TSD: [u16; 4] = [0b100, FULL ^ 0b111, FULL ^ 0b10, FULL ^ (1 << 9)];
+    const TST: [u16; 6] = [0b100, FULL ^ 0b111, FULL ^ 0b100, FULL ^ 0b110, FULL ^ 0b100, FULL ^ (1 << 9)];
+    const STACKED: [u16; 6] = [(1 << 2) | (1 << 8), FULL ^ (0b111 << 6), FULL ^ (1 << 7), FULL ^ 0b111, FULL ^ 0b10, FULL ^ (1 << 9)];
+
+    #[test]
+    fn c2_donations_match_ts_fixtures() {
+        assert_eq!(tslot_donations(&rows_up(&TSD), 1), [0, 0, 1, 0]);
+        assert_eq!(tslot_donations(&rows_up(&mirror(&TSD)), 1), [0, 0, 1, 0]);
+        assert_eq!(tslot_donations(&rows_up(&TST), 1), [0, 0, 0, 1]);
+        assert_eq!(tslot_donations(&rows_up(&mirror(&TST)), 1), [0, 0, 0, 1]);
+        assert_eq!(tslot_donations(&rows_up(&TSD), 0), [0, 0, 0, 0]);
+        let stacked = rows_up(&STACKED);
+        assert_eq!(tslot_donations(&stacked, 1), [0, 0, 1, 0]);
+        assert_eq!(tslot_donations(&stacked, 2), [0, 0, 2, 0]);
+        assert_eq!(tslot_donations(&stacked, 3), [0, 0, 2, 0]);
+        let mut short = TSD; short[2] = FULL ^ 0b10 ^ (1 << 9);
+        assert_eq!(tslot_donations(&rows_up(&short), 3), [0, 1, 0, 0]);
+        assert_eq!(tslot_donations(&stacked, 3), [0, 0, 2, 0]); // source remains intact
     }
 
     #[test]

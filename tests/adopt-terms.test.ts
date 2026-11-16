@@ -4,8 +4,9 @@
  * identity (absent vs explicit 0 vs DEFAULT_WEIGHTS) and the term's mechanics when on.
  */
 import { describe, expect, test } from "bun:test";
+import { tSlotDonations } from "../src/ai/bot/features.js";
 import { spawnPosition } from "../src/ai/bot/movegen.js";
-import { type SearchInput, search } from "../src/ai/bot/search.js";
+import { adoptContext, type SearchInput, search, tAvailable } from "../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../src/ai/bot/weights.js";
 import type { PieceKind } from "../src/core/pieces.js";
 
@@ -121,7 +122,7 @@ describe("C1 terminal B2B-alive state value (b2bState)", () => {
 });
 
 /** Every adopt term switched on (extended as candidates land). */
-const ADOPT_ON: Weights = { ...DEFAULT_WEIGHTS, b2bState: 100 };
+const ADOPT_ON: Weights = { ...DEFAULT_WEIGHTS, b2bState: 100, tSlotChain2: 100, tSlotChain3: -50 };
 
 describe("unified tree: adopt terms are guideline-only", () => {
   // Item 97 chunk 4 ports the adopt terms onto the shared search's guideline path. The S2
@@ -141,4 +142,107 @@ describe("unified tree: adopt terms are guideline-only", () => {
       );
     });
   }
+});
+
+const mirrorRow = (row: number): number => {
+  let out = 0;
+  for (let x = 0; x < 10; x += 1) if (row & (1 << x)) out |= 1 << (9 - x);
+  return out;
+};
+const TSD_ROWS = [0b100, FULL ^ 0b111, FULL ^ 0b10, FULL ^ (1 << 9)];
+const TST_ROWS = [0b100, FULL ^ 0b111, FULL ^ 0b100, FULL ^ 0b110, FULL ^ 0b100, FULL ^ (1 << 9)];
+const STACKED = [
+  (1 << 2) | (1 << 8),
+  FULL ^ (0b111 << 6),
+  FULL ^ (1 << 7),
+  FULL ^ 0b111,
+  FULL ^ 0b10,
+  FULL ^ (1 << 9),
+];
+
+describe("C2 T-slot donations", () => {
+  test("TSD/TST both chiralities, gate, chain, early stop, and immutability", () => {
+    expect(tSlotDonations(board(...TSD_ROWS), 1)).toEqual([0, 0, 1, 0]);
+    expect(tSlotDonations(board(...TSD_ROWS.map(mirrorRow)), 1)).toEqual([0, 0, 1, 0]);
+    expect(tSlotDonations(board(...TST_ROWS), 1)).toEqual([0, 0, 0, 1]);
+    expect(tSlotDonations(board(...TST_ROWS.map(mirrorRow)), 1)).toEqual([0, 0, 0, 1]);
+    expect(tSlotDonations(board(...TSD_ROWS), 0)).toEqual([0, 0, 0, 0]);
+    const b = board(...STACKED);
+    expect(tSlotDonations(b, 1)).toEqual([0, 0, 1, 0]);
+    expect(tSlotDonations(b, 2)).toEqual([0, 0, 2, 0]);
+    expect(tSlotDonations(b, 3)).toEqual([0, 0, 2, 0]);
+    const short = [...TSD_ROWS];
+    short[2] = FULL ^ 0b10 ^ (1 << 9);
+    expect(tSlotDonations(board(...short), 3)).toEqual([0, 1, 0, 0]);
+    const before = Array.from(b);
+    tSlotDonations(b, 3);
+    expect(Array.from(b)).toEqual(before);
+  });
+  test("availability follows queue, bag credit, hold, and chance boundary", () => {
+    const w = { ...DEFAULT_WEIGHTS, tSlotChain2: 1 };
+    const seq = ["O", "T", "I", "T"] as const;
+    const plain = adoptContext(w, seq, []);
+    expect([
+      tAvailable(plain, 0, null),
+      tAvailable(plain, 2, null),
+      tAvailable(plain, 4, null),
+      tAvailable(plain, 4, "T"),
+      tAvailable(plain, 0, "T"),
+    ]).toEqual([2, 1, 0, 1, 3]);
+    const bag = adoptContext(w, seq, ["T", "S"]);
+    expect([
+      tAvailable(bag, 4, null),
+      tAvailable(bag, 2, "T"),
+      tAvailable(bag, 5, null),
+      tAvailable(bag, 5, "T"),
+    ]).toEqual([2, 3, 0, 1]);
+    expect(tAvailable(adoptContext(w, seq, ["I", "O", "T", "S", "Z", "J", "L"]), 4, null)).toBe(1);
+    expect(adoptContext(DEFAULT_WEIGHTS, seq, []).tSlotChain).toBeNull();
+  });
+  test("default/absent/zero weights are identical, and enabled held T values an intact slot", () => {
+    const absent = withoutKey("tSlotChain0");
+    const allAbsent: Weights = Object.fromEntries(
+      Object.entries(absent).filter(([k]) => !k.startsWith("tSlotChain")),
+    ) as unknown as Weights;
+    const i = input(board(...STACKED), "T", ["I", "L", "O"], {
+      speculativePieces: ["S", "Z", "T"],
+    });
+    const base = search(i, { weights: DEFAULT_WEIGHTS, width: 24, guideline: true });
+    same(search(i, { weights: allAbsent, width: 24, guideline: true }), base);
+    same(
+      search(i, {
+        weights: {
+          ...DEFAULT_WEIGHTS,
+          tSlotChain0: 0,
+          tSlotChain1: 0,
+          tSlotChain2: 0,
+          tSlotChain3: 0,
+        },
+        width: 24,
+        guideline: true,
+      }),
+      base,
+    );
+    const held = input(board(...TSD_ROWS), "O", [], { hold: "T", canHold: false });
+    const off = search(held, { weights: DEFAULT_WEIGHTS, width: 64 });
+    const on = search(held, { weights: { ...DEFAULT_WEIGHTS, tSlotChain2: 100 }, width: 64 });
+    if (!off || !on) throw new Error("no move");
+    expect(
+      on.candidates.some(
+        (c) =>
+          Math.abs(
+            c.value -
+              (off.candidates.find(
+                (o) => JSON.stringify(o.placement) === JSON.stringify(c.placement),
+              )?.value ?? 0) -
+              97,
+          ) < 1e-9,
+      ),
+    ).toBe(true);
+    const noT = input(board(...TSD_ROWS), "O", ["I"], { hold: "I", canHold: false });
+    same(
+      search(noT, { weights: { ...DEFAULT_WEIGHTS, tSlotChain2: 100 }, width: 64 }),
+      search(noT, { weights: DEFAULT_WEIGHTS, width: 64 }),
+    );
+  });
 });

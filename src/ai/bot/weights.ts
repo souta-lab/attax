@@ -36,6 +36,11 @@ export interface Weights {
    * search skips the term entirely so off is bit-identical.
    */
   readonly b2bState?: number;
+  /** C2: value per donation clearing 0..3 lines; all zero/absent skips the scan. */
+  readonly tSlotChain0?: number;
+  readonly tSlotChain1?: number;
+  readonly tSlotChain2?: number;
+  readonly tSlotChain3?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {
@@ -69,4 +74,8 @@ export const DEFAULT_WEIGHTS: Weights = {
   wastedT: -50,
   discount: 0.97,
   b2bState: 0,
+  tSlotChain0: 0,
+  tSlotChain1: 0,
+  tSlotChain2: 0,
+  tSlotChain3: 0,
 };

@@ -49,6 +49,8 @@ pub struct Weights {
     pub discount: f64,
     /// Adopt C1: terminal state value of B2B being alive (`b2bState`; 0 = off, skipped).
     pub b2b_state: f64,
+    /// Adopt C2: value per T-slot donation clearing 0..3 lines.
+    pub t_slot_chain: [f64; 4],
 }
 
 impl Default for Weights {
@@ -63,6 +65,7 @@ impl Default for Weights {
             wasted_t: -50.0,
             discount: 0.97,
             b2b_state: 0.0,
+            t_slot_chain: [0.0; 4],
         }
     }
 }
@@ -72,7 +75,7 @@ pub const N_CORE_PARAMS: usize = N_FEATURES + 1 + N_CLEARS + 3;
 
 /// Adopt-candidate parameters appended after the core vector, in this order
 /// (all default to 0 = off).
-pub const ADOPT_PARAM_NAMES: [&str; 1] = ["b2bState"];
+pub const ADOPT_PARAM_NAMES: [&str; 5] = ["b2bState", "tSlotChain0", "tSlotChain1", "tSlotChain2", "tSlotChain3"];
 
 /// Total number of tunable parameters in the flat vector.
 pub const N_PARAMS: usize = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len();
@@ -108,6 +111,7 @@ impl Weights {
         p[N_CORE_PARAMS - 2] = self.wasted_t;
         p[N_CORE_PARAMS - 1] = self.discount;
         p[N_CORE_PARAMS] = self.b2b_state;
+        p[N_CORE_PARAMS + 1..N_CORE_PARAMS + 5].copy_from_slice(&self.t_slot_chain);
         p
     }
 
@@ -120,6 +124,7 @@ impl Weights {
         w.wasted_t = p[N_CORE_PARAMS - 2];
         w.discount = p[N_CORE_PARAMS - 1];
         w.b2b_state = p[N_CORE_PARAMS];
+        w.t_slot_chain.copy_from_slice(&p[N_CORE_PARAMS + 1..N_CORE_PARAMS + 5]);
         w
     }
 

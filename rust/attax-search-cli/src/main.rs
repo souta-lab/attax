@@ -131,6 +131,10 @@ fn weights_from_json(v: &Value) -> Weights {
     // Adopt keys are optional (absent = 0 = off) so corpora dumped before they existed
     // still load with their original meaning.
     w.b2b_state = opt_num(&v["b2bState"], "b2bState");
+    for (i, slot) in w.t_slot_chain.iter_mut().enumerate() {
+        let key = format!("tSlotChain{i}");
+        *slot = opt_num(&v[key.as_str()], &key);
+    }
     w.wasted_t = num(&v["wastedT"], "wastedT");
     w.discount = num(&v["discount"], "discount");
     w

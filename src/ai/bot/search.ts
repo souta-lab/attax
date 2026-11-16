@@ -13,7 +13,7 @@ import { rulesProfile } from "../../core/profile.js";
 import { awardLock, s2GarbageMultiplier } from "../../core/rules.js";
 import { classifyS2Spin } from "../../core/s2-spin.js";
 import type { TspinKind } from "../../core/tspin.js";
-import { BOARD_FEATURES, type BoardFeatures, boardFeatures } from "./features.js";
+import { BOARD_FEATURES, type BoardFeatures, boardFeatures, tSlotDonations } from "./features.js";
 import {
   type BitBoard,
   collides,
@@ -115,6 +115,41 @@ interface S2Context {
   readonly solvency: SolvencyParams | undefined;
 }
 
+export interface AdoptContext {
+  readonly tSlotChain: readonly [number, number, number, number] | null;
+  readonly tLeft: Int32Array;
+  readonly bagCredit: number;
+}
+
+export function adoptContext(
+  w: Weights,
+  sequence: readonly PieceKind[],
+  speculative: readonly PieceKind[],
+): AdoptContext {
+  const chain = [
+    w.tSlotChain0 ?? 0,
+    w.tSlotChain1 ?? 0,
+    w.tSlotChain2 ?? 0,
+    w.tSlotChain3 ?? 0,
+  ] as const;
+  const tLeft = new Int32Array(sequence.length + 1);
+  for (let i = sequence.length - 1; i >= 0; i -= 1)
+    tLeft[i] = (tLeft[i + 1] as number) + (sequence[i] === "T" ? 1 : 0);
+  return {
+    tSlotChain: chain.some((v) => v !== 0) ? chain : null,
+    tLeft,
+    bagCredit:
+      (speculative.includes("T") ? 1 : 0) +
+      (speculative.length > 0 && speculative.length <= 3 ? 1 : 0),
+  };
+}
+
+export function tAvailable(adopt: AdoptContext, next: number, hold: PieceKind | null): number {
+  const known = adopt.tLeft.length - 1;
+  const ahead = next <= known ? (adopt.tLeft[next] as number) + adopt.bagCredit : 0;
+  return Math.min(3, (hold === "T" ? 1 : 0) + ahead);
+}
+
 export function search(input: SearchInput, options: SearchOptions): SearchResult | null {
   const { weights: w, width } = options;
   const profile = rulesProfile(options.profile ?? "guideline");
@@ -138,8 +173,9 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   ): Node | null =>
     s2
       ? expandS2(node, placement, option, w, rootIndex, exposure, s2ctx)
-      : expand(node, placement, option, rootPending, w, rootIndex, exposure, guideline);
+      : expand(node, placement, option, rootPending, w, rootIndex, exposure, guideline, adopt);
   const sequence: PieceKind[] = [input.active.kind, ...input.preview];
+  const adopt = adoptContext(w, sequence, input.speculativePieces ?? []);
   const rootFeatures = boardFeatures(input.board, 0);
   const root: Node = {
     state: rootState(input, rootFeatures, null),
@@ -340,6 +376,7 @@ function expand(
   rootIndex: number,
   exposure: number,
   guideline: boolean,
+  adopt: AdoptContext,
 ): Node | null {
   const s = node.state;
   if (
@@ -381,7 +418,9 @@ function expand(
   if (features.maxHeight >= s.board.length) return null;
   const scale = w.discount ** node.depth;
   const accumulated = node.reward + scale * (reward - exposure * features.danger);
-  const value = accumulated + scale * w.discount * stateValue(features, b2bBool, w);
+  const value =
+    accumulated +
+    scale * w.discount * stateValue(features, outcome.board, b2bBool, option, w, adopt);
 
   const childState: NodeState = {
     board: outcome.board,
@@ -612,10 +651,22 @@ function dot(features: BoardFeatures, w: Weights): number {
  * defaults this is exactly `dot(features, w)` (bit-identical). The S2 path (expandS2)
  * keeps its own bracket (dot + Φ − risk) and does not read the adopt terms.
  */
-function stateValue(features: BoardFeatures, b2b: boolean, w: Weights): number {
+function stateValue(
+  features: BoardFeatures,
+  board: BitBoard,
+  b2b: boolean,
+  child: PieceOption,
+  w: Weights,
+  adopt: AdoptContext,
+): number {
   let total = dot(features, w);
   const b2bState = w.b2bState ?? 0;
   if (b2bState !== 0 && b2b) total += b2bState;
+  if (adopt.tSlotChain !== null) {
+    const donations = tSlotDonations(board, tAvailable(adopt, child.next, child.hold));
+    for (let lines = 0; lines < 4; lines += 1)
+      total += (donations[lines] as number) * (adopt.tSlotChain[lines] as number);
+  }
   return total;
 }
 
