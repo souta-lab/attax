@@ -36,3 +36,28 @@ Branch: `unify/consolidation-2026-11-16` (base: `main` @ `7eed7c8`)
 - **Chunk 3 (`1101-1150`)**: `tools/unify/regression-1101-1150.jsonl` — `100-0` games (`50-0` seed pairs), `0` draws. Matches `bench-results/bot-vs-hoiko.jsonl` exactly (`0` winner diffs, `0` stat diffs across 100 games).
 - **Chunk 4 (`1151-1200`)**: `tools/unify/regression-1151-1200.jsonl` — `98-2` games (`49-1` seed pairs, loss on `1170` both sides), `0` draws. Matches `bench-results/bot-vs-hoiko.jsonl` exactly (`0` winner diffs, `0` stat diffs across 100 games).
 - **Aggregate Verdict (`1001-1200`)**: PASS — `390-10` games (`195-5` seed pairs, `0` draws; losing seeds `[1024, 1076, 1081, 1095, 1170]`). Exact per-game match against `bench-results/bot-vs-hoiko.jsonl` across all `400` games (`0` winner diffs, `0` stat diffs on ticks/lines/sent). Non-interference for the frozen guideline side is verified on commit `a6ce2df`.
+
+# Attax Unification Log (Item 97 Chunk 2)
+
+## Step 1: Checkpoint
+
+- Committed Chunk 1's `UNIFY-LOG.md` as docs commit `f6df0a9` (`docs: record item 97 chunk 1 in UNIFY-LOG.md`). `tools/unify/regression-*.jsonl` remain untracked run artifacts.
+
+## Step 2: Cherry-pick dedupe adoption (`fd842ca`)
+
+- Skipped sibling `01a5817` (`WIP: audit dedupe key fidelity (combo/lift)` — empty WIP checkpoint).
+- Cherry-picked `fd842ca` (`search: dedupe key includes combo, lift and canHold (state fidelity fix)`) cleanly as `3038d09` (no conflicts):
+  - `src/ai/bot/search.ts`: `dedupe()` now includes `canHold`, `lift`, and `combo` (with `combo` folded to `-1` when `guideline` is `true`), and `search()` passes `options.guideline ?? false`.
+  - `rust/attax-search/src/search.rs`: `DedupeKey` and `dedupe()` mirrored identically with `options.guideline`.
+  - `tests/bot-search.test.ts`: added `"beam dedupe key"` (5 tests).
+  - `tools/search-port/dedupe-measure.ts`, `tools/search-port/lift-vs-rows.ts`: added.
+- **Gates (post-cherry-pick `3038d09`)**:
+  - `tsc --noEmit`: PASS
+  - `bun test`: PASS (`174 pass`, `0 fail`, `13229 expect()` calls across `22` files)
+  - `bun run lint` (`biome check .`): PASS (`156` files checked, `0` fixes needed)
+  - `bun run build` (`tsc --noEmit && vite build`): PASS (built in `912ms`)
+  - `cargo test --manifest-path rust/Cargo.toml`: PASS (`attax_search`: `6` passed; `attax_agree`: `1` passed; `hoiko_core`: `60` passed; `0` failed)
+
+## Step 3: Guideline A/B — Hoiko regression (`1001-1200`, `--sides both`, `HOIKO_ADAPT=0`)
+
+- Running 4 x 50-seed chunks into `tools/unify/regression-dedupe-<range>.jsonl` and comparing per-game against `bench-results/bot-vs-hoiko.jsonl`.

@@ -36,6 +36,8 @@ export interface SearchInput {
   readonly speculativePieces?: readonly PieceKind[];
 }
 
+export type SearchProfile = "guideline" | "s2";
+
 export interface SearchOptions {
   readonly weights: Weights;
   readonly width: number;
@@ -45,6 +47,8 @@ export interface SearchOptions {
   readonly exposure?: number;
   /** External guideline rig: no combo/PC attack; lock-out above row 20. */
   readonly guideline?: boolean;
+  /** Dedupe rules profile: "guideline" preserves the frozen Hoiko/TBP key; "s2" keeps full provenance. */
+  readonly profile?: SearchProfile;
 }
 
 export interface Step {
@@ -188,7 +192,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     children.sort((a, b) => b.value - a.value);
     beam = options.diverse
       ? selectBeam(children, width)
-      : dedupe(children, width, options.guideline ?? false);
+      : dedupe(children, width, options.guideline ?? false, options.profile ?? "guideline");
     if (beam.length > 0) deepest = beam;
   }
   // Normal case: lines that used every known piece. If every line tops out first, fall
@@ -347,10 +351,11 @@ function weighBoard(features: BoardFeatures, w: Weights): Record<string, number>
 /**
  * Keep the best `width` children, dropping later copies of an identical position.
  *
- * Two nodes are the same position only if every piece of state the search reads later
- * matches: board, queue index, hold, hold availability, B2B, combo (it feeds attack) and
- * lift (it feeds the height/danger features and the top-out test). Under the guideline rig
- * combo never reaches attack (see `expand`), so it is folded to -1 there.
+ * Under the guideline profile (`profile = "guideline"`, default), the legacy key
+ * (`next|hold|b2b|board`) is preserved so the frozen guideline/Hoiko record is unchanged.
+ * Under the S2 profile (`profile = "s2"`), two nodes match only if every piece of state
+ * the search reads later matches: board, queue index, hold, hold availability, B2B, combo
+ * (folded to -1 under the guideline rig) and lift.
  */
 export function dedupe<
   T extends {
@@ -362,13 +367,21 @@ export function dedupe<
     combo: number;
     lift: number;
   },
->(sorted: readonly T[], width: number, guideline = false): T[] {
+>(
+  sorted: readonly T[],
+  width: number,
+  guideline = false,
+  profile: SearchProfile = "guideline",
+): T[] {
   const kept: T[] = [];
   const seen = new Set<string>();
   for (const node of sorted) {
     if (kept.length >= width) break;
     const combo = guideline ? -1 : node.combo;
-    const key = `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${combo}|${node.lift}|${node.board.join(",")}`;
+    const key =
+      profile === "s2"
+        ? `${node.next}|${node.hold}|${Number(node.canHold)}|${Number(node.b2b)}|${combo}|${node.lift}|${node.board.join(",")}`
+        : `${node.next}|${node.hold}|${node.b2b ? 1 : 0}|${node.board.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
     kept.push(node);
