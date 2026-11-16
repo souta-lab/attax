@@ -23,6 +23,7 @@ pub const FEATURE_NAMES: [&str; N_FEATURES] = [
 
 pub const F_MAX_HEIGHT: usize = 0;
 pub const F_DANGER: usize = 1;
+pub const F_WELL_DEPTH: usize = 8;
 pub const F_TSLOT: usize = 10;
 
 /// Stack height at which garbage pressure starts to matter.
@@ -139,6 +140,34 @@ pub fn board_features(board: &Board, lift: i32) -> Features {
         extra_wells,
         best_tslot(board, &h),
     ]
+}
+
+/// C3 garbage-aligned hole geometry (`holeGeometry` in src/ai/bot/holes.ts): vertical
+/// runs of covered empty cells, and changes between successive nonempty hole masks.
+/// Rows are in engine order (top first); bits identify columns.
+pub fn hole_geometry(board: &Board) -> (i32, i32) {
+    let mut covered: u16 = 0;
+    let mut previous_holes: u16 = 0;
+    let mut previous_mask: i32 = -1;
+    let mut runs = 0i32;
+    let mut shifts = 0i32;
+    for row in 0..board.len {
+        let holes = covered & !board.rows[row];
+        let mut fresh = holes & !previous_holes;
+        while fresh != 0 {
+            runs += 1;
+            fresh &= fresh - 1;
+        }
+        if holes != 0 {
+            if previous_mask != -1 && holes as i32 != previous_mask {
+                shifts += 1;
+            }
+            previous_mask = holes as i32;
+        }
+        previous_holes = holes;
+        covered |= board.rows[row];
+    }
+    (runs, shifts)
 }
 
 /// Best T-spin slot on the surface (see features.ts `bestTSlot`).

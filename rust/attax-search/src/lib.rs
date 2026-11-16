@@ -6,10 +6,13 @@
 pub mod features;
 pub mod movegen;
 pub mod pieces;
+pub mod rules;
 pub mod search;
+pub mod solvency;
+pub mod stock;
 pub mod weights;
 
-pub use movegen::{Board, MoveGen, Placement, Pos, Tspin};
+pub use movegen::{Board, GarbageRows, MoveGen, Placement, Pos, Tspin};
 pub use pieces::Kind;
 pub use search::{Candidate, SearchInput, SearchOptions, SearchProfile, SearchResult, Searcher, Step};
 pub use weights::Weights;

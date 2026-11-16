@@ -54,6 +54,17 @@ pub struct Weights {
     /// Adopt C4: terminal value of holding a T / an I (`holdT` / `holdI`; 0 = off).
     pub hold_t: f64,
     pub hold_i: f64,
+    /// S2 root reward per attack line left after cancelling known incoming garbage
+    /// (`conversion`; 0 = off). Read only by the S2 expansion.
+    pub conversion: f64,
+    /// S2 C3: terminal value per vertical run of holes (`holeRuns`; 0 = off).
+    pub hole_runs: f64,
+    /// S2 C3: terminal value per change between consecutive hole-row masks.
+    pub hole_shifts: f64,
+    /// S2 C5: additive mini-spin clear rewards by cleared line count (0 = off).
+    pub mini_single_delta: f64,
+    pub mini_double_delta: f64,
+    pub mini_triple_delta: f64,
 }
 
 impl Default for Weights {
@@ -71,6 +82,12 @@ impl Default for Weights {
             t_slot_chain: [0.0; 4],
             hold_t: 0.0,
             hold_i: 0.0,
+            conversion: 0.0,
+            hole_runs: 0.0,
+            hole_shifts: 0.0,
+            mini_single_delta: 0.0,
+            mini_double_delta: 0.0,
+            mini_triple_delta: 0.0,
         }
     }
 }
@@ -82,8 +99,12 @@ pub const N_CORE_PARAMS: usize = N_FEATURES + 1 + N_CLEARS + 3;
 /// (all default to 0 = off).
 pub const ADOPT_PARAM_NAMES: [&str; 7] = ["b2bState", "tSlotChain0", "tSlotChain1", "tSlotChain2", "tSlotChain3", "holdT", "holdI"];
 
+/// S2-only parameters appended after the adopt block, in this order (all default to
+/// 0 = off; existing indices never move).
+pub const S2_PARAM_NAMES: [&str; 6] = ["conversion", "holeRuns", "holeShifts", "miniSingleDelta", "miniDoubleDelta", "miniTripleDelta"];
+
 /// Total number of tunable parameters in the flat vector.
-pub const N_PARAMS: usize = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len();
+pub const N_PARAMS: usize = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len() + S2_PARAM_NAMES.len();
 
 /// Flat parameter names: `board.<feature>`, `attack`, `clear.<kind>`, `b2bBreak`,
 /// `wastedT`, `discount`, then the adopt parameters — the TS object paths, so tuner
@@ -103,6 +124,9 @@ pub fn param_names() -> Vec<String> {
     for a in ADOPT_PARAM_NAMES {
         v.push(a.into());
     }
+    for a in S2_PARAM_NAMES {
+        v.push(a.into());
+    }
     v
 }
 
@@ -119,6 +143,13 @@ impl Weights {
         p[N_CORE_PARAMS + 1..N_CORE_PARAMS + 5].copy_from_slice(&self.t_slot_chain);
         p[N_CORE_PARAMS + 5] = self.hold_t;
         p[N_CORE_PARAMS + 6] = self.hold_i;
+        let s2 = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len();
+        p[s2] = self.conversion;
+        p[s2 + 1] = self.hole_runs;
+        p[s2 + 2] = self.hole_shifts;
+        p[s2 + 3] = self.mini_single_delta;
+        p[s2 + 4] = self.mini_double_delta;
+        p[s2 + 5] = self.mini_triple_delta;
         p
     }
 
@@ -134,6 +165,13 @@ impl Weights {
         w.t_slot_chain.copy_from_slice(&p[N_CORE_PARAMS + 1..N_CORE_PARAMS + 5]);
         w.hold_t = p[N_CORE_PARAMS + 5];
         w.hold_i = p[N_CORE_PARAMS + 6];
+        let s2 = N_CORE_PARAMS + ADOPT_PARAM_NAMES.len();
+        w.conversion = p[s2];
+        w.hole_runs = p[s2 + 1];
+        w.hole_shifts = p[s2 + 2];
+        w.mini_single_delta = p[s2 + 3];
+        w.mini_double_delta = p[s2 + 4];
+        w.mini_triple_delta = p[s2 + 5];
         w
     }
 
@@ -180,6 +218,7 @@ mod tests {
         }
         for (name, value) in [
             ("attack", w.attack),
+            ("conversion", w.conversion),
             ("b2bBreak", w.b2b_break),
             ("wastedT", w.wasted_t),
             ("discount", w.discount),
@@ -200,6 +239,7 @@ mod tests {
         assert_eq!(param_names()[N_FEATURES], "attack");
         assert_eq!(param_names()[N_CORE_PARAMS - 1], "discount");
         assert_eq!(param_names()[N_CORE_PARAMS], "b2bState");
-        assert_eq!(param_names()[N_PARAMS - 1], "holdI");
+        assert_eq!(param_names()[N_CORE_PARAMS + ADOPT_PARAM_NAMES.len()], "conversion");
+        assert_eq!(param_names()[N_PARAMS - 1], "miniTripleDelta");
     }
 }

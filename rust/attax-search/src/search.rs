@@ -2,16 +2,24 @@
 //!
 //! Exactness notes (see rust/SEARCH-PORT.md):
 //! - every float expression is evaluated in the TS order (`scale * discount * dot`, etc.);
-//! - `discount ** depth` uses `f64::powf`; libm and Bun can differ by one ULP
-//!   (observed at depth 6 with discount 0.97). See SEARCH-PORT.md.
+//! - `discount ** depth` uses `f64::powi`: Bun's `**` with an integer exponent matches
+//!   `powi` bit for bit (verified at 0.97 for depths 0..=20), while libm `powf` differs
+//!   by one ULP at most depths >= 6 — the divergence SEARCH-PORT.md recorded.
 //! - children are sorted with a stable sort on value (TS `Array.prototype.sort` is stable),
 //!   and generation order follows movegen's BFS order, so ties break identically.
 
+use std::cell::Cell;
 use std::collections::HashSet;
 
-use crate::features::{F_DANGER, F_MAX_HEIGHT, F_TSLOT, Features, board_features, tslot_donations};
-use crate::movegen::{Board, MAX_ROWS, MoveGen, Placement, Pos, Tspin, lock_placement, locks_out, spawn_position};
-use crate::pieces::Kind;
+use crate::features::{F_DANGER, F_MAX_HEIGHT, F_TSLOT, F_WELL_DEPTH, Features, board_features, hole_geometry, tslot_donations};
+use crate::movegen::{
+    Board, GarbageRows, GenOptions, MoveGen, Placement, Pos, Tspin, classify_s2_spin, lock_placement, locks_out,
+    spawn_position,
+};
+use crate::pieces::{Kind, cells_for};
+use crate::rules::{MultiplierCache, award_lock_s2};
+use crate::solvency::{SolvencyParams, solvency_margin, solvency_penalty};
+use crate::stock::{StockParams, StockState, stock_potential};
 use crate::weights::{ClearKind, Weights};
 
 #[derive(Clone, Debug)]
@@ -29,6 +37,51 @@ pub struct SearchInput {
     pub pending: i32,
     /// Possible pieces after the visible queue (chance ply); empty = no speculation.
     pub speculative: Vec<Kind>,
+    /// S2: logical referee frame at the root decision. 0 when absent.
+    pub frame: i64,
+    /// S2: garbage flags aligned with board row indices. Absent on the guideline path.
+    pub garbage_rows: Option<GarbageRows>,
+    /// S2: exact difficult-clear chain. When present it is used verbatim for the root
+    /// state (and `b2b` is ignored there); the guideline path never sets it.
+    pub b2b_chain: Option<i32>,
+    /// S2: referee-given rows due on the root lock. 0 when absent.
+    pub due_this_lock: i32,
+    /// S2: referee kickset witness for root placements, materialized as the accepted
+    /// witness keys (see `witness_key`). `None` = no root filter.
+    pub accept_root_keys: Option<HashSet<String>>,
+}
+
+impl SearchInput {
+    /// A guideline-shaped input with every S2 field at its absent default; S2 callers
+    /// override the fields they carry.
+    pub fn new(
+        board: Board,
+        active: (Kind, Pos),
+        hold: Option<Kind>,
+        can_hold: bool,
+        preview: Vec<Kind>,
+        b2b: bool,
+        combo: i32,
+        pending: i32,
+        speculative: Vec<Kind>,
+    ) -> SearchInput {
+        SearchInput {
+            board,
+            active,
+            hold,
+            can_hold,
+            preview,
+            b2b,
+            combo,
+            pending,
+            speculative,
+            frame: 0,
+            garbage_rows: None,
+            b2b_chain: None,
+            due_this_lock: 0,
+            accept_root_keys: None,
+        }
+    }
 }
 
 /// Dedupe rules profile (`SearchProfile` in search.ts).
@@ -47,8 +100,16 @@ pub struct SearchOptions {
     pub diverse: bool,
     pub exposure: f64,
     pub guideline: bool,
-    /// Dedupe rules profile; `Guideline` reproduces the legacy key.
+    /// Rules profile. `Guideline` reproduces the frozen root-lift search; `S2` selects
+    /// the full S2 semantics (staged awards, All-Mini+ spins, 180° inputs with the S2
+    /// kick table, materialized garbage, terminal death, full-provenance dedupe key).
     pub profile: SearchProfile,
+    /// S2 only — C1 stock potential (canonical §C1). Absent or scale 0 = Φ ≡ 0.
+    pub stock: Option<StockParams>,
+    /// S2 only — C2 solvency layer (canonical §C2). Absent or coefficient 0 = no penalty.
+    pub solvency: Option<SolvencyParams>,
+    /// S2 only — hard root solvency veto (decision-stage filter over ranked root lines).
+    pub root_veto: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,23 +140,6 @@ pub struct SearchResult {
     pub breakdown: [f64; crate::features::N_FEATURES],
 }
 
-/// Per-row garbage flags (`garbageRows` in `NodeState`), kept `Copy` like `Board`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct GarbageRows {
-    len: usize,
-    rows: [u8; MAX_ROWS],
-}
-
-#[cfg(test)]
-impl GarbageRows {
-    fn from_rows(rows: &[u8]) -> Self {
-        assert!(rows.len() <= MAX_ROWS, "garbage_rows taller than MAX_ROWS");
-        let mut out = [0; MAX_ROWS];
-        out[..rows.len()].copy_from_slice(rows);
-        Self { len: rows.len(), rows: out }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Node {
     board: Board,
@@ -108,6 +152,10 @@ struct Node {
     combo: i32,
     pending: i32,
     lift: i32,
+    /// S2: referee-given rows due on the root lock (root only; children carry 0).
+    due_this_lock: i32,
+    /// S2: terminal under the referee death rule (valued as a leaf, never expanded).
+    dead: bool,
     tslot: i32,
     reward: f64,
     value: f64,
@@ -243,8 +291,18 @@ struct Ctx<'a> {
     t_slot_chain: Option<[f64; 4]>,
     t_left: Vec<i32>,
     bag_credit: i32,
-    /// `discount ** depth`, precomputed with `powf` (platform rounding can differ from JS).
+    /// `discount ** depth`, precomputed. Bun's `**` with an integer exponent matches
+    /// `f64::powi` bit for bit on this host (verified for depths 0..=20 at 0.97, where
+    /// `powf` differs from Bun by one ULP at most depths >= 6 — the SEARCH-PORT.md
+    /// rounding divergence), so integer powers go through `powi`.
     scale: Vec<f64>,
+    /// S2: logical referee frame at the root decision (the multiplier's base frame).
+    root_frame: i64,
+    /// S2: margin-multiplier accumulation cache (a pure function of the frame).
+    mult: Cell<MultiplierCache>,
+    /// S2 mechanism parameters (canonical §C1/§C2), resolved by the caller.
+    stock: Option<StockParams>,
+    solvency: Option<SolvencyParams>,
 }
 
 impl Ctx<'_> {
@@ -252,8 +310,17 @@ impl Ctx<'_> {
     fn scale(&self, depth: u32) -> f64 {
         match self.scale.get(depth as usize) {
             Some(&s) => s,
-            None => self.w.discount.powf(depth as f64),
+            None => self.w.discount.powi(depth as i32),
         }
+    }
+
+    /// S2 margin multiplier at a node's lock frame (`rootFrame + 60 * depth`).
+    #[inline(always)]
+    fn multiplier(&self, depth: u32) -> f64 {
+        let mut cache = self.mult.get();
+        let value = cache.get(self.root_frame + 60 * depth as i64);
+        self.mult.set(cache);
+        value
     }
 }
 
@@ -323,6 +390,8 @@ fn expand(
         combo,
         pending: 0,
         lift,
+        due_this_lock: 0,
+        dead: false,
         tslot: features[F_TSLOT],
         reward: accumulated,
         value,
@@ -331,6 +400,233 @@ fn expand(
         parent: parent_index,
         root: if node.depth == 0 { root_index } else { node.root },
     })
+}
+
+/// S2 expansion (`expandS2` in search.ts): exact difficult-clear chain, staged S2
+/// awards with the lock-frame margin multiplier, All-Mini+ spin classification,
+/// garbage flags compacted with the clear, carried residual pending with landed rows
+/// materialized into the child board, terminal death at the visible field top
+/// (row 21), and the optional C1 Φ / C2 solvency terms in the terminal bracket.
+/// Never returns None: death is a terminal flag on the child, not a rejection.
+#[allow(clippy::too_many_arguments)]
+fn expand_s2(
+    ctx: &Ctx,
+    node: &Node,
+    parent_index: u32,
+    placement: &Placement,
+    option: &PieceOption,
+    root_index: i32,
+) -> Node {
+    let w = ctx.w;
+    // Staged S2 lock awards and All-Mini+; the exact chain is never reduced to a flag.
+    let mut placement = *placement;
+    placement.tspin = classify_s2_spin(&node.board, &placement);
+    let spin = placement.tspin;
+
+    // Match lock_placement's cell coordinates and bottom-to-top survivor collapse.
+    let mut filled = node.board;
+    {
+        let s = crate::pieces::shape(placement.kind, placement.rotation as usize);
+        let shift = (placement.x as i32 + s.min_x) as u32;
+        for i in 0..s.height {
+            let row = placement.y as i32 + s.min_y + i;
+            if row >= 0 && row < node.board.len as i32 {
+                filled.rows[row as usize] |= s.rows[i as usize] << shift;
+            }
+        }
+    }
+    // Compact the surviving flags in the same direction lock_placement collapses the
+    // board (write cursor from the high-index end), so each flag stays on its own
+    // board row after a clear.
+    let node_flags = node.garbage_rows.unwrap_or_else(|| GarbageRows::new(node.board.len));
+    let mut garbage_rows = GarbageRows::new(node.board.len);
+    let mut garbage_cleared = 0i32;
+    let mut write = node.board.len as i32 - 1;
+    for read in (0..node.board.len as i32).rev() {
+        if filled.rows[read as usize] == crate::movegen::FULL_ROW {
+            garbage_cleared += node_flags.rows[read as usize] as i32;
+        } else {
+            garbage_rows.rows[write as usize] = node_flags.rows[read as usize];
+            write -= 1;
+        }
+    }
+    let outcome = lock_placement(&node.board, &placement);
+    let lines = outcome.lines_cleared;
+    let combo = if lines > 0 { node.combo + 1 } else { -1 };
+    let multiplier = ctx.multiplier(node.depth);
+    let award = award_lock_s2(lines, spin, combo, outcome.perfect_clear, node.b2b_chain, multiplier, garbage_cleared);
+    // The S2 rules profile enables surge, so the award stands as staged (the TS
+    // adjustment for a surge-less profile never fires here).
+    let attack = award.attack;
+    let difficult = lines > 0 && (lines == 4 || spin != Tspin::None || outcome.perfect_clear);
+    let b2b_chain = award.difficult_chain;
+
+    // Garbage: our attack cancels what is pending; the due remainder lands under the
+    // stack on a non-clearing lock. The residual pending is carried into the child.
+    let pending_in = node.pending;
+    let (pending, landed) = if lines > 0 {
+        ((pending_in - attack).max(0), 0)
+    } else {
+        let landed = if node.depth == 0 { node.due_this_lock } else { pending_in }.min(pending_in);
+        (pending_in - landed, landed)
+    };
+
+    let mut reward = attack as f64 * w.attack;
+    // Attack is paid pre-cancel; only excess converts to pressure (root only).
+    if node.depth == 0 {
+        reward += w.conversion * (attack - pending_in).max(0) as f64;
+    }
+    let kind = clear_kind(lines, spin, outcome.perfect_clear);
+    if let Some(k) = kind {
+        reward += w.clear[k as usize];
+    }
+    if kind == Some(ClearKind::TspinMini) {
+        let delta = match lines {
+            1 => w.mini_single_delta,
+            2 => w.mini_double_delta,
+            3 => w.mini_triple_delta,
+            _ => 0.0,
+        };
+        if delta != 0.0 {
+            reward += delta;
+        }
+    }
+    if node.b2b_chain != 0 && lines > 0 && !difficult && !outcome.perfect_clear {
+        reward += w.b2b_break;
+    }
+    if placement.kind == Kind::T && spin == Tspin::None && node.tslot > 0 {
+        reward += w.wasted_t;
+    }
+
+    // Materialize the landed rows into the child board (child lift is therefore 0).
+    // The hole column is the post-lock board's well — one shared hole per tank.
+    let mut board = outcome.board;
+    let mut child_garbage_rows = garbage_rows;
+    if landed > 0 {
+        let len = outcome.board.len;
+        let mask = crate::movegen::FULL_ROW ^ (1 << well_column(&outcome.board));
+        let mut shifted = Board::new(len);
+        let mut shifted_flags = GarbageRows::new(len);
+        for row in 0..len {
+            let source = row + landed as usize;
+            if source < len {
+                shifted.rows[row] = outcome.board.rows[source];
+                shifted_flags.rows[row] = garbage_rows.rows[source];
+            } else {
+                shifted.rows[row] = mask;
+                shifted_flags.rows[row] = 1;
+            }
+        }
+        board = shifted;
+        child_garbage_rows = shifted_flags;
+    }
+    let features: Features = board_features(&board, 0);
+    // Referee death rule (occupied-buffer): any occupied cell above the visible
+    // 20-row field after the lock is a loss. Death is TERMINAL, not null.
+    let dead = features[F_MAX_HEIGHT] >= (board.len as i32).min(21);
+    let scale = ctx.scale(node.depth);
+    let accumulated = node.reward + scale * (reward - ctx.exposure * features[F_DANGER] as f64);
+
+    let child = Node {
+        board,
+        garbage_rows: Some(child_garbage_rows),
+        hold: option.hold,
+        next: option.next,
+        can_hold: true,
+        b2b: b2b_chain > 0,
+        b2b_chain,
+        combo,
+        pending,
+        lift: 0,
+        due_this_lock: 0,
+        dead,
+        tslot: features[F_TSLOT],
+        reward: accumulated,
+        value: 0.0,
+        depth: node.depth + 1,
+        step: Some(Step { placement, used_hold: option.used_hold, lines_cleared: lines, attack, reward }),
+        parent: parent_index,
+        root: if node.depth == 0 { root_index } else { node.root },
+    };
+
+    // C1: the stock potential is a terminal estimate inside the same discounted
+    // bracket as the board evaluation. Skipped when absent or scaled to 0.
+    let phi = match ctx.stock {
+        Some(params) if params.scale != 0.0 => stock_potential(
+            &StockState {
+                chain: child.b2b_chain,
+                combo: child.combo,
+                pending: child.pending,
+                max_height: features[F_MAX_HEIGHT],
+                t_slot: features[F_TSLOT],
+                well_depth: features[F_WELL_DEPTH],
+                multiplier,
+            },
+            &params,
+            w.attack,
+            w.discount,
+        ),
+        _ => 0.0,
+    };
+    // C2: the solvency penalty shares the terminal bracket. Skipped when absent or
+    // coefficient 0.
+    let risk = match ctx.solvency {
+        Some(params) if params.coefficient != 0.0 => {
+            solvency_penalty(features[F_MAX_HEIGHT], child.pending, &params, 20)
+        }
+        _ => 0.0,
+    };
+    let b2b_state = if w.b2b_state != 0.0 && child.b2b_chain >= 1 { w.b2b_state } else { 0.0 };
+    let (hole_runs, hole_shifts) = if w.hole_runs != 0.0 || w.hole_shifts != 0.0 {
+        hole_geometry(&board)
+    } else {
+        (0, 0)
+    };
+    // The TS bracket, in its exact left-to-right order:
+    // dot + stateValue + holeRuns term + holeShifts term + Φ − risk.
+    let value = accumulated
+        + scale
+            * w.discount
+            * (w.dot(&features)
+                + b2b_state
+                + if w.hole_runs != 0.0 { w.hole_runs * hole_runs as f64 } else { 0.0 }
+                + if w.hole_shifts != 0.0 { w.hole_shifts * hole_shifts as f64 } else { 0.0 }
+                + phi
+                - risk);
+    Node { value, ..child }
+}
+
+/// Column with the lowest stack (the board's well), in board coordinates
+/// (`wellColumn` in search.ts; first minimal column wins).
+fn well_column(board: &Board) -> i32 {
+    let mut well = 0i32;
+    let mut lowest = i32::MAX;
+    for x in 0..10 {
+        let mut height = 0i32;
+        for row in 0..board.len {
+            if board.rows[row] & (1 << x) != 0 {
+                height = board.len as i32 - row as i32;
+                break;
+            }
+        }
+        if height < lowest {
+            lowest = height;
+            well = x;
+        }
+    }
+    well
+}
+
+/// The referee witness key for a root placement, in the exact shape the S2 lab's
+/// `run-match.mjs` builds it (`${kind}:${usedHold}:${lastSrs > 0}:${cellKey(cells)}`,
+/// cells from `placementCells`: `[x + c.x, 39 - y - c.y]`, string-sorted, `;`-joined).
+fn witness_key(p: &Placement, used_hold: bool) -> String {
+    let mut cells: Vec<String> = cells_for(p.kind, p.rotation as usize)
+        .iter()
+        .map(|&(cx, cy)| format!("{},{}", p.x as i32 + cx, 39 - p.y as i32 - cy))
+        .collect();
+    cells.sort();
+    format!("{}:{}:{}:{}", p.kind.as_char(), used_hold, p.last_srs > 0, cells.join(";"))
 }
 
 /// Terminal state value (`stateValue` in search.ts): the weighted board plus the adopt
@@ -357,6 +653,16 @@ fn state_value(ctx: &Ctx, features: &Features, board: &Board, b2b: bool, child: 
     total
 }
 
+/// A depth-1 child: its step (for the candidate list) plus the post-lock state the
+/// S2 root solvency veto reads (board features at its lift, residual pending).
+#[derive(Clone, Copy)]
+struct FirstMove {
+    step: Step,
+    board: Board,
+    lift: i32,
+    pending: i32,
+}
+
 impl Searcher {
     pub fn new() -> Searcher {
         Searcher::default()
@@ -377,8 +683,19 @@ impl Searcher {
             t_slot_chain: if options.profile == SearchProfile::Guideline && w.t_slot_chain.iter().any(|&v| v != 0.0) { Some(w.t_slot_chain) } else { None },
             t_left,
             bag_credit: (input.speculative.contains(&Kind::T) as i32) + (!input.speculative.is_empty() && input.speculative.len() <= 3) as i32,
-            scale: (0..32).map(|d| w.discount.powf(d as f64)).collect(),
+            scale: (0..32).map(|d| w.discount.powi(d)).collect(),
+            root_frame: input.frame,
+            mult: Cell::new(MultiplierCache::new()),
+            stock: options.stock,
+            solvency: options.solvency,
         };
+        // Movegen switches follow the rules profile exactly as in TS search():
+        // the S2 profile turns on spin evidence and 180° inputs with the S2 table.
+        let gen_opts = match options.profile {
+            SearchProfile::Guideline => GenOptions::default(),
+            SearchProfile::S2 => GenOptions { spin_evidence: true, rotate180: true, kicks180_s2: true },
+        };
+        let s2 = options.profile == SearchProfile::S2;
         let mut future: Vec<Kind> = sequence.clone();
         future.push(Kind::I);
         let rows = input.board.len;
@@ -387,15 +704,17 @@ impl Searcher {
         self.arena.clear();
         self.arena.push(Node {
             board: input.board,
-            garbage_rows: None,
+            garbage_rows: input.garbage_rows,
             hold: input.hold,
             next: 0,
             can_hold: input.can_hold,
-            b2b: input.b2b,
-            b2b_chain: if input.b2b { 1 } else { 0 },
+            b2b: input.b2b_chain.map(|c| c > 0).unwrap_or(input.b2b),
+            b2b_chain: input.b2b_chain.unwrap_or(if input.b2b { 1 } else { 0 }),
             combo: input.combo,
             pending: input.pending,
             lift: 0,
+            due_this_lock: input.due_this_lock,
+            dead: false,
             tslot: root_features[F_TSLOT],
             reward: 0.0,
             value: 0.0,
@@ -406,8 +725,9 @@ impl Searcher {
         });
         let mut beam: Vec<u32> = vec![0];
         let mut nodes: u64 = 0;
-        // Steps of every depth-1 child, indexed by `root`.
-        let mut first_moves: Vec<Step> = Vec::new();
+        // Every depth-1 child, indexed by `root`: its step (for candidates) and the
+        // post-lock state the S2 root veto reads (board, lift, pending).
+        let mut first_moves: Vec<FirstMove> = Vec::new();
         // (arena index, value) — value may differ from the node's (chance average).
         let mut finished: Vec<(u32, f64)> = Vec::new();
         let mut deepest: Vec<u32> = Vec::new();
@@ -432,14 +752,22 @@ impl Searcher {
                             let n_spec = piece_options(&node, &future, &mut spec_opts);
                             for option in &spec_opts[..n_spec] {
                                 self.spec_placements.clear();
-                                self.movegen.generate(
+                                self.movegen.generate_with(
                                     &node.board,
                                     option.kind,
                                     spawn_position(option.kind, node.board.len),
+                                    gen_opts,
                                     &mut self.spec_placements,
                                 );
                                 for placement in &self.spec_placements {
-                                    let child = expand(&ctx, &node, ni, placement, option, 0, 0);
+                                    // The chance ply reads values only; S2 dead
+                                    // children still count (expandS2 never returns
+                                    // null, and TS takes the max over all of them).
+                                    let child = if s2 {
+                                        Some(expand_s2(&ctx, &node, ni, placement, option, 0))
+                                    } else {
+                                        expand(&ctx, &node, ni, placement, option, 0, 0)
+                                    };
                                     nodes += 1;
                                     if let Some(c) = child {
                                         best = best.max(c.value);
@@ -460,23 +788,49 @@ impl Searcher {
                         spawn_position(option.kind, node.board.len)
                     };
                     self.placements.clear();
-                    self.movegen.generate(&node.board, option.kind, start, &mut self.placements);
+                    self.movegen.generate_with(&node.board, option.kind, start, gen_opts, &mut self.placements);
                     for placement in &self.placements {
-                        let child = expand(
-                            &ctx,
-                            &node,
-                            ni,
-                            placement,
-                            option,
-                            input.pending,
-                            first_moves.len() as i32,
-                        );
+                        // Referee kickset witness (root only): an unwitnessed root is
+                        // skipped before expansion and does not count as a node.
+                        if node.depth == 0 {
+                            if let Some(keys) = &input.accept_root_keys {
+                                if !keys.contains(&witness_key(placement, option.used_hold)) {
+                                    continue;
+                                }
+                            }
+                        }
+                        let child = if s2 {
+                            Some(expand_s2(&ctx, &node, ni, placement, option, first_moves.len() as i32))
+                        } else {
+                            expand(
+                                &ctx,
+                                &node,
+                                ni,
+                                placement,
+                                option,
+                                input.pending,
+                                first_moves.len() as i32,
+                            )
+                        };
                         nodes += 1;
                         let Some(child) = child else { continue };
                         if node.depth == 0 {
-                            first_moves.push(child.step.unwrap());
+                            first_moves.push(FirstMove {
+                                step: child.step.unwrap(),
+                                board: child.board,
+                                lift: child.lift,
+                                pending: child.pending,
+                            });
                         }
-                        self.children.push(child);
+                        if child.dead {
+                            // S2: dead lines are leaves — valued for the fallback /
+                            // best-try choice, never expanded.
+                            let idx = self.arena.len() as u32;
+                            self.arena.push(child);
+                            finished.push((idx, child.value));
+                        } else {
+                            self.children.push(child);
+                        }
                     }
                 }
             }
@@ -508,16 +862,61 @@ impl Searcher {
         } else {
             deepest.iter().map(|&i| (i, self.arena[i as usize].value)).collect()
         };
+        // One pass over the leaves in their original order: the best leaf overall
+        // and, per root, the best value (insertion order = first leaf seen per root)
+        // and the leaf that attains it (for the S2 veto).
         let mut best_leaf: Option<(u32, f64)> = None;
+        let mut root_best: Vec<(i32, f64)> = Vec::new();
+        let mut best_leaf_by_root: Vec<(i32, u32)> = Vec::new();
         for &(i, v) in &leaves {
-            if self.arena[i as usize].depth == 0 {
+            let node = &self.arena[i as usize];
+            if node.depth == 0 {
                 continue;
             }
             if best_leaf.is_none_or(|(_, bv)| v > bv) {
                 best_leaf = Some((i, v));
             }
+            if let Some(pos) = root_best.iter().position(|(r, _)| *r == node.root) {
+                if v > root_best[pos].1 {
+                    root_best[pos].1 = v;
+                    best_leaf_by_root[pos].1 = i;
+                }
+            } else {
+                root_best.push((node.root, v));
+                best_leaf_by_root.push((node.root, i));
+            }
         }
-        let (best_index, best_value) = best_leaf?;
+        let (mut best_index, mut best_value) = best_leaf?;
+
+        // S2 hard root solvency veto — the champion's choose_rescue as a pure
+        // decision-stage filter over the ranked root lines (search.ts). If the
+        // value-best root is insolvent and any other root is solvent, play the
+        // FIRST solvent root in rank order. Search values are untouched.
+        if s2 && options.root_veto {
+            let margin_of = |root: i32| -> i32 {
+                let fm = &first_moves[root as usize];
+                let f = board_features(&fm.board, fm.lift);
+                solvency_margin(f[F_MAX_HEIGHT], fm.pending, 20)
+            };
+            let best_root = self.arena[best_index as usize].root;
+            if margin_of(best_root) < 0 {
+                let mut ranked: Vec<usize> = (0..root_best.len()).collect();
+                ranked.sort_by(|&a, &b| {
+                    root_best[b].1.partial_cmp(&root_best[a].1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                for pos in ranked {
+                    let root = root_best[pos].0;
+                    if root == best_root {
+                        continue;
+                    }
+                    if margin_of(root) >= 0 {
+                        best_index = best_leaf_by_root[pos].1;
+                        best_value = root_best[pos].1;
+                        break;
+                    }
+                }
+            }
+        }
 
         let mut line: Vec<Step> = Vec::new();
         let mut n = best_index;
@@ -532,27 +931,11 @@ impl Searcher {
         line.reverse();
         let best_node = self.arena[best_index as usize];
 
-        // rootBest: Map in first-insertion order, then stable sort by value desc.
-        let mut root_best: Vec<(i32, f64)> = Vec::new();
-        for &(i, v) in &leaves {
-            let node = &self.arena[i as usize];
-            if node.depth == 0 {
-                continue;
-            }
-            match root_best.iter_mut().find(|(r, _)| *r == node.root) {
-                Some(entry) => {
-                    if v > entry.1 {
-                        entry.1 = v;
-                    }
-                }
-                None => root_best.push((node.root, v)),
-            }
-        }
         root_best.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let candidates = root_best
             .iter()
             .map(|&(r, v)| {
-                let s = first_moves[r as usize];
+                let s = first_moves[r as usize].step;
                 Candidate { placement: s.placement, used_hold: s.used_hold, value: v }
             })
             .collect();
@@ -716,6 +1099,22 @@ fn select_beam(
 mod tests {
     use super::*;
 
+    /// The scale's float exactness rests on `powi` matching Bun's `0.97 ** d`
+    /// bit for bit; `powf` differs by one ULP at most depths >= 6 (the original
+    /// SEARCH-PORT.md rounding divergence). Pin the bits Bun produced so a
+    /// future "simplification" back to powf fails loudly here first.
+    #[test]
+    fn discount_powi_bits_match_bun() {
+        for (depth, bits) in [
+            (0, 0x3ff0000000000000u64),
+            (5, 0x3feb7abfc78b016b),
+            (6, 0x3feaa7b4e7f4ea56),
+            (20, 0x3fe166c364d3d894),
+        ] {
+            assert_eq!(0.97f64.powi(depth).to_bits(), bits, "depth {depth}");
+        }
+    }
+
     /// Bottom rows of a 40-row board, lowest last (engine row order).
     fn board(rows: &[u16]) -> Board {
         let mut b = Board::new(40);
@@ -738,17 +1137,17 @@ mod tests {
     }
 
     fn input(board: Board, kind: Kind, preview: &[Kind], b2b: bool, speculative: &[Kind]) -> SearchInput {
-        SearchInput {
+        SearchInput::new(
             board,
-            active: (kind, spawn_position(kind, board.len)),
-            hold: None,
-            can_hold: true,
-            preview: preview.to_vec(),
+            (kind, spawn_position(kind, board.len)),
+            None,
+            true,
+            preview.to_vec(),
             b2b,
-            combo: -1,
-            pending: 0,
-            speculative: speculative.to_vec(),
-        }
+            -1,
+            0,
+            speculative.to_vec(),
+        )
     }
 
     fn opts(weights: Weights) -> SearchOptions {
@@ -759,6 +1158,9 @@ mod tests {
             exposure: 0.0,
             guideline: true,
             profile: SearchProfile::Guideline,
+            stock: None,
+            solvency: None,
+            root_veto: false,
         }
     }
 
@@ -832,15 +1234,26 @@ mod tests {
     }
 
     #[test]
-    fn adopt_terms_do_not_apply_under_the_s2_profile() {
-        // The TS S2 path keeps its own bracket; the Rust S2 profile mirrors that.
+    fn guideline_adopt_terms_do_not_apply_under_the_s2_profile() {
+        // The TS S2 bracket reads b2bState (its own C1 term) but never the guideline
+        // adopt terms (tSlotChain, holdT, holdI), which live only in the guideline
+        // path's stateValue. With those three on and b2bState off, S2 is identical.
         let mut s = Searcher::new();
         let mut i = input(Board::new(40), Kind::J, &[], true, &[]);
         i.can_hold = false;
         let s2 = |w: Weights| SearchOptions { profile: SearchProfile::S2, ..opts(w) };
         let off = fingerprint(&s.search(&i, &s2(Weights::default())));
-        let on = fingerprint(&s.search(&i, &s2(adopt_on())));
-        assert_eq!(on, off);
+        let guideline_terms = Weights {
+            t_slot_chain: [0.0, 1.0, 2.0, 3.0],
+            hold_t: 40.0,
+            hold_i: 20.0,
+            ..Weights::default()
+        };
+        assert_eq!(fingerprint(&s.search(&i, &s2(guideline_terms))), off);
+        // b2bState is the S2 bracket's own term: with a live chain it must move values.
+        let on = s.search(&i, &s2(Weights { b2b_state: 100.0, ..Weights::default() })).unwrap();
+        let base = s.search(&i, &s2(Weights::default())).unwrap();
+        assert!(on.candidates.iter().zip(&base.candidates).any(|(a, b)| a.value != b.value));
     }
 
     #[test]
@@ -874,11 +1287,6 @@ mod tests {
         }
     }
 
-    /// Every adopt term switched on (extended as candidates land).
-    fn adopt_on() -> Weights {
-        Weights { b2b_state: 100.0, t_slot_chain: [0.0, 1.0, 2.0, 3.0], hold_t: 40.0, hold_i: 20.0, ..Weights::default() }
-    }
-
     fn base_node() -> Node {
         let mut rows = [0u16; 20];
         rows[18] = 0x3f0;
@@ -894,6 +1302,8 @@ mod tests {
             combo: -1,
             pending: 0,
             lift: 0,
+            due_this_lock: 0,
+            dead: false,
             tslot: 0,
             reward: 0.0,
             value: 0.0,

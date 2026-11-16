@@ -220,6 +220,46 @@ pub fn kicks(kind: Kind, from: usize, dir: usize) -> &'static Kicks {
     if kind == Kind::I { &I_KICKS[from][dir] } else { &JLSTZ[from][dir] }
 }
 
+/// 180° kick tests, keyed by the FROM rotation (target = from + 2), (dx, dy) with dy up —
+/// verbatim from `movegen.ts` (`KICKS_180_JLSTZ`, the SRS+ table converted from
+/// @haelp/teto). Only used when movegen is asked for rotate180.
+pub static KICKS_180_JLSTZ: [&[(i32, i32)]; 4] = [
+    &[(0, 0), (0, 1), (1, 1), (-1, 1), (1, 0), (-1, 0)],
+    &[(0, 0), (1, 0), (1, 2), (1, 1), (0, 2), (0, 1)],
+    &[(0, 0), (0, -1), (-1, -1), (1, -1), (-1, 0), (1, 0)],
+    &[(0, 0), (-1, 0), (-1, 2), (-1, 1), (0, 2), (0, 1)],
+];
+
+/// TETR.IO S2 180° kick tests for J/L/S/T/Z (`KICKS_180_JLSTZ_S2` in movegen.ts): the SRS+
+/// list minus its sixth candidate, in the same order (S2 spec §3.2).
+pub static KICKS_180_JLSTZ_S2: [&[(i32, i32)]; 4] = [
+    &[(0, 0), (0, 1), (1, 1), (-1, 1), (1, 0)],
+    &[(0, 0), (1, 0), (1, 2), (1, 1), (0, 2)],
+    &[(0, 0), (0, -1), (-1, -1), (1, -1), (-1, 0)],
+    &[(0, 0), (-1, 0), (-1, 2), (-1, 1), (0, 2)],
+];
+
+/// 180° kick tests for I (`KICKS_180_I` in movegen.ts): identical in both rulesets.
+pub static KICKS_180_I: [&[(i32, i32)]; 4] = [
+    &[(0, 0), (0, 1)],
+    &[(0, 0), (1, 0)],
+    &[(0, 0), (0, -1)],
+    &[(0, 0), (-1, 0)],
+];
+
+/// 180° kick list for a rotation from `from`, selecting the S2 JLSTZ table when `s2` is
+/// set (the I table is shared). Mirrors the table selection in `generatePlacements`.
+#[inline(always)]
+pub fn kicks180(kind: Kind, from: usize, s2: bool) -> &'static [(i32, i32)] {
+    if kind == Kind::I {
+        KICKS_180_I[from & 3]
+    } else if s2 {
+        KICKS_180_JLSTZ_S2[from & 3]
+    } else {
+        KICKS_180_JLSTZ[from & 3]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
