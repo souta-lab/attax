@@ -28,7 +28,7 @@ import { classifyS2Spin } from "../../../src/core/s2-spin.js";
 import { asRotation, kickTable as guidelineKickTable, type Kick } from "../../../src/core/srs.js";
 import type { TspinKind } from "../../../src/core/tspin.js";
 import { placementCells } from "../attax-player.js";
-import type { Candidate, SearchInput, SearchResult, Step } from "../search.js";
+import type { Candidate, SearchInput, SearchResult, Step } from "../s2-input.js";
 
 export type DriverVariant = "existing" | "corrected" | "corrected_augmented";
 

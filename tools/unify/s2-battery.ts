@@ -2,11 +2,14 @@
  * Chunk 3b golden battery: fixed S2 + guideline search cases used to prove
  * behaviour identity across the single-core port.
  *
- * `capture-s2-golden.ts` runs these cases against the PRE-PORT searches
- * (tools/s2-lab/search.ts for S2, src/ai/bot/search.ts for guideline) and
- * records full results in s2-golden.json. After the port, the parity test
- * (tools/s2-lab/shared-parity.test.ts) replays the same cases against the
- * shared src search and requires exact equality.
+ * `capture-s2-golden.ts` ran these cases against the PRE-PORT searches
+ * (the since-deleted tools/s2-lab/search.ts for S2, src/ai/bot/search.ts for
+ * guideline) and recorded full results in s2-golden.json. After the port, the
+ * parity test (tools/s2-lab/shared-parity.test.ts) replays the same cases
+ * against the shared src search and requires exact equality.
+ *
+ * The S2 inputs use the lab input shape (tools/s2-lab/s2-input.ts: numeric
+ * exact chain in `b2b`); map them with `toSharedInput` before searching.
  */
 import { spawnPosition } from "../../src/ai/bot/movegen.js";
 import type { SearchInput as SrcSearchInput } from "../../src/ai/bot/state.js";
@@ -15,7 +18,7 @@ import type { PieceKind } from "../../src/core/pieces.js";
 import type {
   SearchInput as S2SearchInput,
   SearchOptions as S2SearchOptions,
-} from "../s2-lab/search.js";
+} from "../s2-lab/s2-input.js";
 import { DEFAULT_SOLVENCY_PARAMS } from "../s2-lab/solvency.js";
 import { DEFAULT_STOCK_PARAMS } from "../s2-lab/stock.js";
 

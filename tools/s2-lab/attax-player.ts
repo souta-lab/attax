@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BOT_DEFAULTS } from "../../src/ai/bot/fighter.js";
 import { type Placement, spawnPosition } from "../../src/ai/bot/movegen.js";
+import { search } from "../../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
 import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
-import { type SearchInput, search } from "./search.js";
+import { type SearchInput, toSharedInput } from "./s2-input.js";
 import { DEFAULT_SOLVENCY_PARAMS, type SolvencyParams } from "./solvency.js";
 import { DEFAULT_STOCK_PARAMS, type StockParams } from "./stock.js";
 
@@ -246,11 +247,15 @@ export function createAttaxDecider(profilePath: string | undefined) {
     mechanisms,
     profileId,
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
+      // The shared core under rules profile "s2" (the former lab search). The
+      // projected lab input carries the exact chain as a number; toSharedInput
+      // moves it into b2bChain (and the b2b flag) — every other field verbatim.
       return search(
-        { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
+        toSharedInput({ ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) }),
         {
           weights,
           width: BOT_DEFAULTS.width,
+          profile: "s2",
           ...(stock ? { stock } : {}),
           ...(solvency ? { solvency } : {}),
           ...(rootVeto ? { rootVeto } : {}),

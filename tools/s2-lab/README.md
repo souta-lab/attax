@@ -33,13 +33,14 @@ not run realtime INPUT controls or certify official game fidelity. The
 champion keeps its complete default profile, 2048 selections and persistent
 per-game WASM session; THINK TIME, MULTITHREAD and RG remain off.
 
-`search.ts` is the stage-2 S2 specialization of `src/ai/bot/search.ts`: unchanged
-beam/weights, numeric difficult-chain state, stage-1 S2 awards/classifier,
-amount-only root garbage, and a mandatory root-witness filter in the runner.
-The original search cannot accept an S2 reward function or an exact chain;
-keeping this specialization here avoids changing shipping guideline behavior.
-It reuses production move generation, board features, weights and piece shapes.
-Future changes to production search must be deliberately reconciled here.
+The lab searches with the shared core, `src/ai/bot/search.ts`, under rules
+profile `"s2"`: unchanged beam/weights, exact difficult-chain state, staged S2
+awards/classifier, amount-only root garbage, and a mandatory root-witness
+filter in the runner. The former private copy (`tools/s2-lab/search.ts`) was
+deleted in unify chunk 3b; `s2-input.ts` keeps the lab's input shape (numeric
+exact chain in `b2b`) and its single mapping onto the shared input
+(`toSharedInput`). `shared-parity.test.ts` pins both the shared search and the
+player's own decision path to the pre-port goldens in `tools/unify/`.
 
 See [STAGE2-REPORT.md](../../STAGE2-REPORT.md) for conversions, smoke evidence,
 known limits, and the restricted Git metadata handoff.

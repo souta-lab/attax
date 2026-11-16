@@ -23,7 +23,7 @@ import {
   labRoot,
   resolvePlacementRules,
 } from "../lab.mjs";
-import type { SearchInput } from "../search.js";
+import type { SearchInput } from "../s2-input.js";
 import { type DriverVariant, runVariantSearch, weightsToVector24 } from "./s2-variants.js";
 import {
   buildVariantAnnotation,

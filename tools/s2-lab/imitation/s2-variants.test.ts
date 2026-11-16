@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { spawnPosition } from "../../../src/ai/bot/movegen.js";
+import { search as sharedSearch } from "../../../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS, type Weights } from "../../../src/ai/bot/weights.js";
 import type { PieceKind } from "../../../src/core/pieces.js";
 import { cellKey, placementCells, projectAttax } from "../attax-player.js";
 import { createS2AmountOnlyDecisionState, lab, resolvePlacementRules } from "../lab.mjs";
-import { search } from "../search.js";
+import {
+  type SearchInput as S2LabInput,
+  type SearchOptions as S2LabOptions,
+  toSharedInput,
+} from "../s2-input.js";
 import {
   dotVectors,
   generateS2Placements,
@@ -12,6 +17,15 @@ import {
   runVariantSearch,
   weightsToVector24,
 } from "./s2-variants.js";
+
+/**
+ * The former lab search is the shared core under rules profile "s2": map the
+ * lab-shaped input (numeric exact chain in `b2b`) onto the shared input
+ * exactly as the player does, then search with profile "s2".
+ */
+function search(input: S2LabInput, options: S2LabOptions) {
+  return sharedSearch(toSharedInput(input), { ...options, profile: "s2" });
+}
 
 function makeBoardFromRows(rowsFromBottom: ReadonlyArray<readonly [number, number]>): {
   bitboard: Uint16Array;
@@ -54,7 +68,7 @@ function makePieceBitboard(rowsFromBottom: ReadonlyArray<readonly [number, numbe
 }
 
 describe("s2-variants", () => {
-  test("corrected variant matches post-F1-F5 tools/s2-lab/search.ts (while existing preserves pre-fix baseline)", () => {
+  test("corrected variant matches the post-F1-F5 shared S2 search (while existing preserves pre-fix baseline)", () => {
     const { bitboard, garbageRows } = makePieceBitboard([
       [0, 0b1111011111, true],
       [1, 0b1111011111, true],
@@ -92,7 +106,7 @@ describe("s2-variants", () => {
     expect(ref).not.toBeNull();
     expect(corr.searchResult).not.toBeNull();
     expect(exist.searchResult).not.toBeNull();
-    // tools/s2-lab/search.ts now includes F1-F5 fixes (non-T spin evidence), while
+    // The shared S2 search (formerly tools/s2-lab/search.ts) includes the F1-F5 fixes (non-T spin evidence), while
     // "existing" preserves the pre-F1-F5 baseline for §D ablation.
     expect(exist.searchResult?.best?.placement.tspin).toBe("none");
     expect(corr.searchResult?.best?.placement.tspin).toBe("mini");

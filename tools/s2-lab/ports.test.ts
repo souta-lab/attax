@@ -3,11 +3,21 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnPosition } from "../../src/ai/bot/movegen.js";
+import { search as sharedSearch } from "../../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
 import { createAttaxDecider, type PublicDecision, projectAttax } from "./attax-player.js";
-import { type SearchInput, search } from "./search.js";
+import { type SearchOptions as S2LabOptions, type SearchInput, toSharedInput } from "./s2-input.js";
 import { assessSolvency, DEFAULT_SOLVENCY_PARAMS, solvencyMargin } from "./solvency.js";
 import { DEFAULT_STOCK_PARAMS, type StockState, stockPotential } from "./stock.js";
+
+/**
+ * The former lab search is the shared core under rules profile "s2": map the
+ * lab-shaped input (numeric exact chain in `b2b`) onto the shared input
+ * exactly as the player does, then search with profile "s2".
+ */
+function search(input: SearchInput, options: S2LabOptions) {
+  return sharedSearch(toSharedInput(input), { ...options, profile: "s2" });
+}
 
 const ATTACK = DEFAULT_WEIGHTS.attack;
 const GAMMA = DEFAULT_WEIGHTS.discount;

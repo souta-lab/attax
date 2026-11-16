@@ -1,7 +1,21 @@
 import { describe, expect, test } from "bun:test";
+import { search as sharedSearch } from "../../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
 import { cellKey, type PublicDecision, placementCells, projectAttax } from "./attax-player.js";
-import { search } from "./search.js";
+import {
+  type SearchInput as S2LabInput,
+  type SearchOptions as S2LabOptions,
+  toSharedInput,
+} from "./s2-input.js";
+
+/**
+ * The former lab search is the shared core under rules profile "s2": map the
+ * lab-shaped input (numeric exact chain in `b2b`) onto the shared input
+ * exactly as the player does, then search with profile "s2".
+ */
+function search(input: S2LabInput, options: S2LabOptions) {
+  return sharedSearch(toSharedInput(input), { ...options, profile: "s2" });
+}
 
 function decision(b2b = 0, combo = 0): PublicDecision {
   return {
