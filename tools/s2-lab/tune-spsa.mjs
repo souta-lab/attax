@@ -28,6 +28,12 @@ const defaults = {
   "profile-namespace": "league",
   "adopt-groups": "",
   "adopt-scale": "1",
+  // Item 98 (2026-11-16): per-successful-update profile snapshots for the
+  // frozen late-iterate-average candidate, and a dry-run mode that builds
+  // the iteration-1 arms, asserts every non-frozen coordinate (including
+  // zero-initialised ones) differs between them, and exits.
+  "iterate-dir": "",
+  "dry-run-out": "",
 };
 const { values } = parseArgs({
   options: {
@@ -38,6 +44,7 @@ const { values } = parseArgs({
     // Campaign 2: opponent is always the champion (no pool sampling,
     // no snapshot cadence); all league error/stop machinery applies.
     "champion-only": { type: "boolean", default: false },
+    "dry-run": { type: "boolean", default: false },
   },
 });
 function number(key, min, integer = true) {
@@ -94,6 +101,25 @@ for (const tag of (values["adopt-groups"] || "")
     groups.push([path]);
   }
 }
+// Item 98: the Φ (stock potential) parameters are joint SPSA dimensions
+// with γ (Fable GO condition: γ tested jointly with Φ). They ride in the
+// profile's mechanisms.stock section and are appended as singleton groups;
+// the start profile must carry the section (config O values), and every
+// arm profile the driver writes carries its own perturbed copy.
+const PHI_PATHS = ["stock.scale", "stock.betaB", "stock.betaR"];
+for (const path of PHI_PATHS) groups.push([path]);
+const COORD_CLAMPS = {
+  "stock.scale": [0, 2],
+  "stock.betaB": [0, 1.5],
+  "stock.betaR": [0, 1.5],
+};
+// γ (the profile's discount) is a raw-space SPSA coordinate with its own
+// gains and the Fable clamp [0.95, 0.995]; it is not part of the u-space
+// groups (its seed scale is 1, so u and raw coincide, but its perturbation
+// and step sizes are absolute, not relative).
+const GAMMA_CLAMP = [0.95, 0.995];
+const gammaC = (k) => 0.005 / (k + 1) ** 0.101;
+const gammaA = (k) => 0.0005 / (k + 11) ** 0.602;
 const frozenGroups = new Set(
   (values["frozen-groups"] || "")
     .split(",")
@@ -104,19 +130,28 @@ for (const i of frozenGroups)
   if (!Number.isSafeInteger(i) || i < 0 || i >= groups.length)
     throw new Error(`invalid frozen group index ${i}`);
 function flatten(profile) {
-  return Object.fromEntries(
-    Object.entries(profile).flatMap(([key, value]) =>
-      typeof value === "object"
-        ? Object.entries(value).map(([k, v]) => [`${key}.${k}`, v])
-        : [[key, value]],
-    ),
-  );
+  const entries = [];
+  for (const [key, value] of Object.entries(profile)) {
+    if (key === "mechanisms") {
+      // Only the Φ (stock) section is a tuning coordinate set; any other
+      // mechanism section in a start profile is a configuration error.
+      for (const section of Object.keys(value))
+        if (section !== "stock") throw new Error(`unsupported mechanisms section ${section}`);
+      for (const [k, v] of Object.entries(value.stock ?? {})) entries.push([`stock.${k}`, v]);
+    } else if (typeof value === "object") {
+      for (const [k, v] of Object.entries(value)) entries.push([`${key}.${k}`, v]);
+    } else entries.push([key, value]);
+  }
+  return Object.fromEntries(entries);
 }
 function expand(flat) {
   const profile = { board: {}, clear: {} };
   for (const [path, value] of Object.entries(flat)) {
     const [a, b] = path.split(".");
-    if (b) profile[a][b] = value;
+    if (a === "stock") {
+      profile.mechanisms ??= { stock: {} };
+      profile.mechanisms.stock[b] = value;
+    } else if (b) profile[a][b] = value;
     else profile[a] = value;
   }
   return profile;
@@ -155,8 +190,9 @@ let state = {
   iteration: 0,
   thetaU: Object.fromEntries(Object.entries(seedFlat).map(([p, v]) => [p, v / seedScales[p]])),
   seedProfile,
-  scales: Object.fromEntries(seedScales),
+  scales: { ...seedScales },
   history: [],
+  successfulUpdates: 0,
 };
 if (values.league) {
   delete state.iteration;
@@ -198,6 +234,59 @@ if (state.halted) {
 }
 const serialize = (u) =>
   `${JSON.stringify(expand(Object.fromEntries(Object.entries(u).map(([p, v]) => [p, v * state.scales[p]]))), null, 2)}\n`;
+if (state.scales.discount !== 1)
+  throw new Error("γ (discount) raw-space gains assume a seed scale of 1");
+function buildArms(k) {
+  const j = k + 1;
+  const rng = mulberry32(987654321 + (values.league ? 5000 + j : k));
+  const delta = groups.map(() => (rng() < 0.5 ? -1 : 1));
+  // Frozen groups (campaign 2: sparse-event perfectClear, audit J2):
+  // zero perturbation in both arms, so the coordinates never move.
+  for (const i of frozenGroups) delta[i] = 0;
+  const deltaGamma = rng() < 0.5 ? -1 : 1;
+  const c = c0 / (k + 1) ** 0.101;
+  const plus = { ...state.thetaU },
+    minus = { ...state.thetaU };
+  groups.forEach((paths, i) => {
+    for (const p of paths) {
+      plus[p] += c * delta[i];
+      minus[p] -= c * delta[i];
+    }
+  });
+  // γ perturbation is absolute (raw space; its seed scale is 1).
+  plus.discount += gammaC(k) * deltaGamma;
+  minus.discount -= gammaC(k) * deltaGamma;
+  return { delta, deltaGamma, c, plus, minus };
+}
+if (values["dry-run"]) {
+  const { plus, minus } = buildArms(0);
+  const raw = (u) =>
+    Object.fromEntries(Object.entries(u).map(([p, v]) => [p, v * state.scales[p]]));
+  const plusRaw = raw(plus),
+    minusRaw = raw(minus);
+  const frozenPaths = new Set([...frozenGroups].flatMap((i) => groups[i]));
+  const rows = [];
+  for (const p of [...groups.flat(), "discount"]) {
+    const differs = plusRaw[p] !== minusRaw[p];
+    if (frozenPaths.has(p) && differs)
+      throw new Error(`dry run: frozen coordinate ${p} differs between arms`);
+    if (!frozenPaths.has(p) && !differs)
+      throw new Error(
+        `dry run: coordinate ${p} does not differ between arms (zero-init perturbation failure)`,
+      );
+    rows.push(`${p}\t${minusRaw[p]}\t${plusRaw[p]}${frozenPaths.has(p) ? "\t(frozen)" : ""}`);
+  }
+  if (values["dry-run-out"]) {
+    await mkdir(values["dry-run-out"], { recursive: true });
+    await writeFile(resolve(values["dry-run-out"], "plus.json"), serialize(plus));
+    await writeFile(resolve(values["dry-run-out"], "minus.json"), serialize(minus));
+  }
+  console.log(rows.join("\n"));
+  console.log(
+    `DRY RUN OK: ${rows.length} coordinates (${rows.filter((r) => !r.includes("(frozen)")).length} perturbed), arms ${values["dry-run-out"] || "not written"}`,
+  );
+  process.exit(0);
+}
 const children = new Set();
 async function evaluate(
   u,
@@ -399,21 +488,8 @@ try {
     }
     // Checkpoint before launching either child, including the very first evaluation.
     await atomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
-    const rng = mulberry32(987654321 + (values.league ? 5000 + j : k));
-    const delta = groups.map(() => (rng() < 0.5 ? -1 : 1));
-    // Frozen groups (campaign 2: sparse-event perfectClear, audit J2):
-    // zero perturbation in both arms, so the coordinates never move.
-    for (const i of frozenGroups) delta[i] = 0;
-    const c = c0 / (k + 1) ** 0.101;
+    const { delta, deltaGamma, c, plus, minus } = buildArms(k);
     const a = a0 / (k + 11) ** 0.602;
-    const plus = { ...state.thetaU },
-      minus = { ...state.thetaU };
-    groups.forEach((paths, i) => {
-      for (const p of paths) {
-        plus[p] += c * delta[i];
-        minus[p] -= c * delta[i];
-      }
-    });
     const block = seedBase + stride * k;
     const directory = await mkdtemp(resolve(tmpdir(), "s2-spsa-"));
     let jp, jm;
@@ -545,8 +621,29 @@ try {
         Math.max(p === "attack" ? 5 : -600, Math.min(p === "attack" ? 600 : 900, value)) /
         state.scales[p];
     }
+    // Φ coordinate clamps (tighter than the generic weight clamp).
+    for (const [p, [lo, hi]] of Object.entries(COORD_CLAMPS)) {
+      const value = state.thetaU[p] * state.scales[p];
+      state.thetaU[p] = Math.max(lo, Math.min(hi, value)) / state.scales[p];
+    }
+    // γ update: raw-space SPSA step with its own gains, Fable clamp.
+    state.thetaU.discount += gammaA(k) * ((jp.J - jm.J) / (2 * gammaC(k))) * deltaGamma;
+    state.thetaU.discount =
+      Math.max(
+        GAMMA_CLAMP[0],
+        Math.min(GAMMA_CLAMP[1], state.thetaU.discount * state.scales.discount),
+      ) / state.scales.discount;
     const contents = serialize(state.thetaU);
     await atomic(profileOut, contents);
+    state.successfulUpdates = (state.successfulUpdates ?? 0) + 1;
+    if (values["iterate-dir"])
+      await atomic(
+        resolve(
+          values["iterate-dir"],
+          `iter-${String(state.successfulUpdates).padStart(4, "0")}.json`,
+        ),
+        contents,
+      );
     const sha = createHash("sha256").update(contents).digest("hex").slice(0, 12);
     const signs = delta.map((d) => (d > 0 ? "+" : "-")).join("");
     const timestamp = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -566,6 +663,8 @@ try {
       timestamp,
       blockStart: block,
       delta,
+      deltaGamma,
+      discount: state.thetaU.discount * state.scales.discount,
       plus: jp,
       minus: jm,
       profileSha: sha,

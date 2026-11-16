@@ -1,0 +1,44 @@
+{
+  "board": {
+    "maxHeight": 4.975442239575993,
+    "danger": 0.3583940171433935,
+    "holes": -80.76894932071689,
+    "holeCover": 2.777977456806035,
+    "holeRows": 74.85269100961845,
+    "bumpiness": -14.0585934924339,
+    "bumpinessSq": 3.177137809944672,
+    "rowTransitions": 0.6007003434987049,
+    "wellDepth": 8.647431279399363,
+    "extraWells": -58.807760483001715,
+    "tSlot": 9.538942209294886
+  },
+  "attack": 22.30914686685577,
+  "conversion": 0.11744857927241475,
+  "clear": {
+    "single": 18.617653712525755,
+    "double": 51.70206046457682,
+    "triple": 88.3109060877021,
+    "quad": 76.27230218782479,
+    "tspinMini": 27.86079264824581,
+    "tspinSingle": 35.87141071805813,
+    "tspinDouble": 71.38388629967724,
+    "tspinTriple": 160.0,
+    "perfectClear": 44.92804778967625
+  },
+  "b2bBreak": -15.729009444066955,
+  "wastedT": -106.61988479091964,
+  "discount": 0.97,
+  "b2bState": 0,
+  "holeRuns": 0,
+  "holeShifts": 0,
+  "miniSingleDelta": 0,
+  "miniDoubleDelta": 0,
+  "miniTripleDelta": 0,
+  "mechanisms": {
+    "stock": {
+      "betaB": 0.5,
+      "betaR": 0.5,
+      "scale": 1
+    }
+  }
+}
