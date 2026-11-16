@@ -5,9 +5,9 @@
  * - `garbageSemantics` selects between `expand()` ("root-lift") and `expandS2()`
  *   ("materialized-carried") — the two expansion models are kept as separate
  *   functions while their selection and internal mechanics are profile-driven.
- * - `spinEvidence`, `rotate180`, `spinClassifier`, `attackRules`, `surge`,
- *   `comboInAttack`, `deathHeight`, `visibleRows`, `dedupe`, and `allowRootVeto`
- *   drive the corresponding rules choices in `search.ts`.
+ * - `spinEvidence`, `rotate180`, `kicks180`, `spinClassifier`, `attackRules`,
+ *   `surge`, `comboInAttack`, `deathHeight`, `visibleRows`, `dedupe`, and
+ *   `allowRootVeto` drive the corresponding rules choices in `search.ts`.
  * - `SearchOptions.guideline` remains an external-rig override on the "root-lift"
  *   path (standard Hoiko matches pass `guideline: false`, which retains combo/PC).
  */
@@ -47,6 +47,13 @@ export interface RulesProfile {
   readonly garbageSemantics: "root-lift" | "materialized-carried";
   /** Whether 180° rotations are available. */
   readonly rotate180: boolean;
+  /**
+   * Which 180° kick table movegen uses: "srs+" (the SRS+ table, whose JLSTZ
+   * list has a sixth candidate) or "s2" (the TETR.IO S2 table, five JLSTZ
+   * candidates — a placement reachable only through the sixth candidate is
+   * candidate-unreachable under S2 rules). The I table is identical in both.
+   */
+  readonly kicks180: "srs+" | "s2";
   /** Whether spin evidence is tracked for non-T pieces. */
   readonly spinEvidence: boolean;
   /** Which spin classifier to use: engine (guideline) or s2 (All-Mini+). */
@@ -68,6 +75,7 @@ export const RULES_PROFILE_TABLE: Readonly<Record<UnifiedProfileId, RulesProfile
     comboInAttack: false,
     garbageSemantics: "root-lift",
     rotate180: false,
+    kicks180: "srs+",
     spinEvidence: false,
     spinClassifier: "engine",
     dedupe: "guideline",
@@ -83,6 +91,7 @@ export const RULES_PROFILE_TABLE: Readonly<Record<UnifiedProfileId, RulesProfile
     comboInAttack: true,
     garbageSemantics: "materialized-carried",
     rotate180: true,
+    kicks180: "s2",
     spinEvidence: true,
     spinClassifier: "s2",
     dedupe: "s2",

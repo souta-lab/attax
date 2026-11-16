@@ -43,7 +43,7 @@ const KINDS: readonly PieceKind[] = ["I", "O", "T", "S", "Z", "J", "L"];
  * when generatePlacements is asked for rotate180; the guideline engine
  * has no 180 input and never requests these.
  */
-const KICKS_180_JLSTZ: Readonly<Record<number, readonly Kick[]>> = {
+export const KICKS_180_JLSTZ: Readonly<Record<number, readonly Kick[]>> = {
   0: [
     { dx: 0, dy: 0 },
     { dx: 0, dy: 1 },
@@ -77,7 +77,45 @@ const KICKS_180_JLSTZ: Readonly<Record<number, readonly Kick[]>> = {
     { dx: 0, dy: 1 },
   ],
 };
-const KICKS_180_I: Readonly<Record<number, readonly Kick[]>> = {
+/**
+ * TETR.IO S2 180° kick tests for J/L/S/T/Z: the SRS+ list above minus its
+ * sixth candidate, in the same order (S2 spec §3.2; the S2 referee's
+ * `JLSTZ_180_KICKS`). The sixth SRS+ candidate does not exist under S2
+ * rules, so a placement reachable only through it is judged
+ * candidate-unreachable by an S2 referee. The I table below is identical
+ * in both rulesets (two candidates) and stays shared.
+ */
+export const KICKS_180_JLSTZ_S2: Readonly<Record<number, readonly Kick[]>> = {
+  0: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 1, dy: 1 },
+    { dx: -1, dy: 1 },
+    { dx: 1, dy: 0 },
+  ],
+  2: [
+    { dx: 0, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: -1, dy: -1 },
+    { dx: 1, dy: -1 },
+    { dx: -1, dy: 0 },
+  ],
+  1: [
+    { dx: 0, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: 1, dy: 2 },
+    { dx: 1, dy: 1 },
+    { dx: 0, dy: 2 },
+  ],
+  3: [
+    { dx: 0, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: -1, dy: 2 },
+    { dx: -1, dy: 1 },
+    { dx: 0, dy: 2 },
+  ],
+};
+export const KICKS_180_I: Readonly<Record<number, readonly Kick[]>> = {
   0: [
     { dx: 0, dy: 0 },
     { dx: 0, dy: 1 },
@@ -216,6 +254,13 @@ export function generatePlacements(
      * Default off: the historical reachable set is unchanged.
      */
     readonly rotate180?: boolean;
+    /**
+     * Which 180° kick table to use when `rotate180` is on: "srs+" (default,
+     * the historical table) or "s2" (the TETR.IO S2 table, whose JLSTZ list
+     * has no sixth candidate). Only the rules profile selects "s2"; every
+     * other caller keeps the default and is unchanged.
+     */
+    readonly kicks180?: "srs+" | "s2";
   },
 ): Placement[] {
   const out: Placement[] = [];
@@ -304,7 +349,13 @@ export function generatePlacements(
     }
     if (options?.rotate180) {
       const to = (rotation + 2) & 3;
-      const kicks = (kind === "I" ? KICKS_180_I : KICKS_180_JLSTZ)[rotation] as readonly Kick[];
+      const table180 =
+        kind === "I"
+          ? KICKS_180_I
+          : options?.kicks180 === "s2"
+            ? KICKS_180_JLSTZ_S2
+            : KICKS_180_JLSTZ;
+      const kicks = table180[rotation] as readonly Kick[];
       for (let i = 0; i < kicks.length; i += 1) {
         const kick = kicks[i] as Kick;
         const nx = x + kick.dx;

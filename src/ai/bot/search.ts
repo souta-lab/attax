@@ -156,7 +156,11 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   const profile = rulesProfile(options.profile ?? "guideline");
   const movegen =
     profile.spinEvidence || profile.rotate180
-      ? { spinEvidence: profile.spinEvidence, rotate180: profile.rotate180 }
+      ? {
+          spinEvidence: profile.spinEvidence,
+          rotate180: profile.rotate180,
+          kicks180: profile.kicks180,
+        }
       : undefined;
   const s2ctx: S2Context = {
     rootFrame: input.frame ?? 0,
