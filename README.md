@@ -27,9 +27,13 @@ are in [`scripts/`](scripts/).
 > **The world's strongest in guideline versus.** Across every matchup measured so far,
 > Attax has won each matchup it has played: the official Cold Clear 2 **79–21**,
 > chouhy's fork **27–13**, Hoiko **195–5** and clys **88–12** (conditions and details
-> below). The next target is the **S2 ruleset**: an S2 profile ships in this repo and
-> its tuning campaign is under way, aiming at the strongest there too — no S2 results
-> are claimed yet. See [Caveats](#%EF%B8%8F-caveats--not-measured) for what has *not*
+> below). **Attax v3** (current `main`) unifies the bot into a single search core for
+> the guideline and TETR.IO S2 rulesets, with the rules differences carried as
+> profile data; guideline play is unchanged from v2, so the record above stands. In
+> S2, the first measured result is a foothold, not a win: against **Sold Slear**, the
+> reigning champion of 61bi's bot lab and a bot still under active development,
+> Attax's S2 configuration took **16.75% of decided games** over 400 games in the lab
+> (details below). See [Caveats](#%EF%B8%8F-caveats--not-measured) for what has *not*
 > been measured.
 
 ## 📑 Contents
@@ -38,6 +42,7 @@ are in [`scripts/`](scripts/).
 - [Result: Hoiko](#-result-hoiko)
 - [Result: clys](#result-clys)
 - [Result: Cold Clear 2](#result-cold-clear-2)
+- [Result: Sold Slear (S2)](#result-sold-slear-s2)
 - [Profiles](#-profiles)
 - [TBP](#tbp)
 - [License](#license)
@@ -58,11 +63,14 @@ are in [`scripts/`](scripts/).
 | **clys** (by citrus610) | 100 | **88–12** | **88.0%** (80.2%–93.0%) | **0.7346** vs 0.7791 |
 | **Cold Clear 2** (official upstream, `ed8b193`) | 100 | **79–21** | **79.0%** (70.0–85.8%) | 0.8951 vs **0.9279** |
 | **Cold Clear 2 fork** (chouhy) | 40 | **27–13** | **67.5%** (52.0–79.9%) | **0.9218** vs 0.8298 |
+| **Sold Slear** (S2 champion, s2-bot-lab) | 400 | 64–318 (18 draws) | 16.75% of decided games | — |
 
-All matchups use held-out seeds (never used for tuning), and every seed was played from
-both seats. The Cold Clear 2 matches were played by the competition profile, **attax v2**
-(see [Profiles](#-profiles)), under an external TBP rig; against the official build Attax
-won on survival despite the lower attack rate. The details, conditions and limits follow.
+All guideline matchups use held-out seeds (never used for tuning), and every seed was
+played from both seats. The Cold Clear 2 matches were played by the competition profile,
+**attax v2** (see [Profiles](#-profiles)), under an external TBP rig; against the official
+build Attax won on survival despite the lower attack rate. The Sold Slear row is the S2
+profile's first measurement, played by **attax v3** under the lab protocol detailed below.
+The details, conditions and limits follow.
 
 ## 🥊 Result: Hoiko
 
@@ -144,6 +152,26 @@ external clys records, external attack per piece is pooled generated attack befo
 cancellation, and the game-level Wilson intervals are descriptive (the independent
 units are the seat-swapped seed pairs).
 
+## Result: Sold Slear (S2)
+
+Sold Slear is the champion of 61bi's s2-bot-lab, the lab for the TETR.IO S2 ruleset:
+the latest S2 champion, and still under active development. It is the opponent the
+S2 profile exists to chase, and the first S2 opponent Attax has measured against.
+
+**Conditions.** The match was played in the lab over 400 games: seeds **9401–9600**,
+every seed played from both seats. Attax played the unified **v3** search in its S2
+configuration — the fixed driver, the Φ stock potential on, and the solvency veto
+off — with hand-set weights (no tuning had been applied to this profile yet).
+
+| Matchup | N | W–L–D | Win rate (decided games) |
+|---|---|---|---|
+| Attax (S2 profile) vs Sold Slear | 400 | 64–318–18 | **16.75%** |
+
+This is a foothold, not a win: the champion takes the matchup decisively today. The
+result is recorded because of who the opponent is — the reigning, still-improving S2
+champion — and because it fixes the baseline the S2 tuning campaign now has to beat:
+roughly one decided game in six, before any tuning.
+
 ## 👤 Profiles
 
 One bot ships in three profiles. The guideline side shares a single weight table and
@@ -161,18 +189,23 @@ the search plays one additional ply over the exact remaining-bag distribution
 instead of a single guessed piece. It is env-gated in the rig adapter
 (`tools/cc2-rematch/attax-tbp.ts`: `ATTAX_ROWS=40`, `ATTAX_WIDTH=96`,
 `ATTAX_SPECULATE=1`) and is off by default everywhere else. This build is
-**attax v2** — the one that played both Cold Clear 2 matches — and it is the state
-`main` now carries. Attax versions count improvement iterations from this base:
-a future league iteration *j* produces v(2+*j*). The number is provenance, not a
-result claim.
+**attax v2** — the one that played both Cold Clear 2 matches.
 
-The **S2 profile** is a separate rules profile (`tetrio-s2` in `src/core/`, harness
+**Attax v3** is the state `main` now carries: the unified tree. The guideline and
+S2 rulesets share one search core in `src/ai/bot/`, and the rules differences are
+carried as profile data — board size, attack table, garbage semantics — rather
+than as separate code paths. Guideline play is unchanged from v2, so every
+guideline result above stands as measured; what v3 changes is the architecture,
+and what it adds is a working S2 side. The number is provenance, not a result
+claim.
+
+The **S2 profile** is the S2 rules profile (`tetrio-s2` in `src/core/`, harness
 in `tools/s2-lab/`) for the S2 ruleset used by 61bi's bot lab, with its own weight
 group in the shared table (including a conversion-shaping term the guideline search
-never reads). A league-format tuning campaign against the lab's champion is in
-progress, aiming to make this profile the strongest in S2 as well. No results are
-claimed for this profile yet, and no learned weights are part of this build: the
-profile ships with the same hand-set defaults as the guideline side.
+never reads). Its first measured result is the Sold Slear match above: **16.75% of
+decided games** over 400 games in the lab (seeds 9401–9600, both seats), played
+with hand-set weights — no learned weights are part of this build, and the tuning
+campaign against the champion starts from that baseline.
 
 ## 🚀 Why it is strong
 
