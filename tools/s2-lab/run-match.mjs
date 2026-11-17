@@ -23,6 +23,7 @@ import {
   profile,
   resolvePlacementRules,
 } from "./lab.mjs";
+import { createPlanCarryoverDecider } from "./plan-carryover.js";
 
 const { createGame, extendSeededQueue, toS2GuiState } = await lab("cc2-gui/game.mjs");
 const { guiStateToCanonical } = await lab("src-js/gui-state.mjs");
@@ -61,8 +62,18 @@ if (!!values["opponent-profile"] !== !!values["opponent-id"])
   throw new Error("opponent profile and id must be supplied together");
 if (values["champion-vs-champion"] && values["opponent-profile"])
   throw new Error("opponent profile conflicts with champion-vs-champion");
-const opponent = values["opponent-profile"] ? createAttaxDecider(values["opponent-profile"]) : null;
-const attax = createDefaultAttaxDecider();
+// Plan carry-over (item 100, default off): ATTAX_S2_PLAN_CARRYOVER=1 wraps
+// both attax-side deciders per game; the search then also returns its best
+// line's predicted states (TS engine; on Rust the wrapper is a pass-through).
+const carryEnv = process.env.ATTAX_S2_PLAN_CARRYOVER;
+if (carryEnv !== undefined && carryEnv !== "0" && carryEnv !== "1")
+  throw new Error(`expected "0" or "1" in ATTAX_S2_PLAN_CARRYOVER, got ${carryEnv}`);
+const planCarryover = carryEnv === "1";
+const deciderOpts = planCarryover ? { lineStates: true } : undefined;
+const opponent = values["opponent-profile"]
+  ? createAttaxDecider(values["opponent-profile"], deciderOpts)
+  : null;
+const attax = createDefaultAttaxDecider(deciderOpts);
 const pps = ppsForCc2Parameters(parameters);
 const digest = createHash("sha256").update(canonicalize(profile)).digest("hex");
 const wasmPath =
@@ -104,6 +115,10 @@ async function play(gameIndex) {
     match.bots.map((b) => [b.id, structuredClone(b.state)]),
   );
   const drivers = new Map();
+  // The plan is per-player state: one carry-over wrapper per game per side
+  // (games may run concurrently on the shared deciders).
+  const attaxGame = planCarryover ? createPlanCarryoverDecider(attax) : attax;
+  const opponentGame = planCarryover && opponent ? createPlanCarryoverDecider(opponent) : opponent;
   const receipts = { left: null, right: null };
   const lastTankTopout = { left: false, right: false };
   let outcome = null;
@@ -167,7 +182,7 @@ async function play(gameIndex) {
           }
           const witnessKey = (p, usedHold) =>
             `${p.kind}:${usedHold}:${p.lastSrs > 0}:${cellKey(placementCells(p))}`;
-          const searched = await (kinds[side] === "attax" ? attax : opponent).decideAsync(
+          const searched = await (kinds[side] === "attax" ? attaxGame : opponentGame).decideAsync(
             decision,
             (p, usedHold) => {
               const accepted = witnesses.has(witnessKey(p, usedHold));
@@ -276,6 +291,14 @@ async function play(gameIndex) {
     error,
     rejectedRoots,
     protocolErrors: error ? 1 : 0,
+    ...(planCarryover
+      ? {
+          planCarryoverStats: {
+            attax: attaxGame.stats,
+            opponent: opponentGame?.stats ?? null,
+          },
+        }
+      : {}),
     settings: {
       opponentProfileId: opponent?.profileId ?? null,
       mode: "paced",
@@ -289,6 +312,7 @@ async function play(gameIndex) {
       championProfileSha256: digest,
       wasmSha256,
       attaxWidth: 96,
+      planCarryover,
       attaxEngine: engineIdentity(),
       attaxWeights: loadS2Weights().profileId,
       attaxWeightsSource: loadS2Weights().source,

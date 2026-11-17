@@ -775,9 +775,12 @@ export function createAttaxDecider(
 }
 
 /** The decider decideAttax uses: the ATTAX_S2_PROFILE-selected (or default) profile. */
-export function createDefaultAttaxDecider() {
+export function createDefaultAttaxDecider(opts?: Parameters<typeof createAttaxDecider>[1]) {
   loadS2Weights();
-  return createAttaxDecider(loaded?.source === "DEFAULT_WEIGHTS" ? undefined : loaded?.source);
+  return createAttaxDecider(
+    loaded?.source === "DEFAULT_WEIGHTS" ? undefined : loaded?.source,
+    opts,
+  );
 }
 
 export function decideAttax(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
