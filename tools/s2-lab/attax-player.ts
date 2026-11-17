@@ -29,6 +29,13 @@ export interface MechanismSettings {
    * reservation + economy-distinct pool). Absent = off (plain dedupe).
    */
   readonly diverse?: boolean;
+  /**
+   * Garbage-scenario root scoring (canonical §C2, item 100): extra pending
+   * rows per scenario; roots are ranked by their worst best-line value across
+   * the set (the actual input is always scenario 0). TS engine only for now —
+   * the Rust payload cannot express it, so a Rust decider refuses it loudly.
+   */
+  readonly garbageScenarios?: readonly number[];
 }
 
 const profiles = new Map<
@@ -102,6 +109,38 @@ function mechanismParams<T extends Record<string, number>>(
   return out as T;
 }
 
+/** A non-empty list of non-negative safe integers (extra pending rows per scenario). */
+function parseGarbageScenarios(value: unknown, where: string): readonly number[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0)
+  ) {
+    throw new Error(`expected a non-empty array of non-negative integers at ${where}`);
+  }
+  return [...(value as number[])];
+}
+
+/**
+ * ATTAX_S2_GARBAGE_SCENARIOS: unset or "" = the profile's value; "off" =
+ * disabled; otherwise a comma list of non-negative integers ("0,4,8" = extra
+ * pending rows per scenario). Anything else fails loudly.
+ */
+function envGarbageScenarios(
+  env: string | undefined,
+  fromProfile: readonly number[] | undefined,
+): readonly number[] | undefined {
+  if (env === undefined || env === "") return fromProfile;
+  if (env === "off") return undefined;
+  const parts = env.split(",");
+  if (!parts.every((p) => /^[0-9]+$/.test(p) && Number.isSafeInteger(Number(p)))) {
+    throw new Error(
+      `expected "off" or a comma list of non-negative integers in ATTAX_S2_GARBAGE_SCENARIOS, got ${env}`,
+    );
+  }
+  return parts.map(Number);
+}
+
 function parseMechanisms(raw: unknown): MechanismSettings {
   if (raw === undefined) return {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -112,6 +151,7 @@ function parseMechanisms(raw: unknown): MechanismSettings {
     solvency?: SolvencyParams;
     solvencyMode?: "soft" | "hard";
     diverse?: boolean;
+    garbageScenarios?: readonly number[];
   } = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key === "stock") {
@@ -128,6 +168,8 @@ function parseMechanisms(raw: unknown): MechanismSettings {
         throw new Error("expected a boolean at mechanisms.diverse");
       }
       out.diverse = value;
+    } else if (key === "garbageScenarios") {
+      out.garbageScenarios = parseGarbageScenarios(value, "mechanisms.garbageScenarios");
     } else {
       throw new Error(`unknown mechanism: mechanisms.${key}`);
     }
@@ -605,7 +647,17 @@ if (RUST_MODE !== "server" && RUST_MODE !== "oneshot") {
   throw new Error(`expected "server" or "oneshot" in ATTAX_RUST_MODE, got ${RUST_MODE}`);
 }
 
-export function createAttaxDecider(profilePath: string | undefined, opts?: { width?: number }) {
+export function createAttaxDecider(
+  profilePath: string | undefined,
+  opts?: {
+    width?: number;
+    /**
+     * Ask the search for the best line's predicted states (SearchResult.lineStates)
+     * — the plan carry-over input. TS engine only; Rust results never carry it.
+     */
+    lineStates?: boolean;
+  },
+) {
   // Startup self-check: the engine handshake runs before the run begins, so a
   // missing/failing Rust binary aborts here rather than mid-match.
   engineIdentity();
@@ -647,6 +699,19 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
   }
   const diverse =
     diverseEnv === "0" ? false : diverseEnv === "1" ? true : (mechanisms.diverse ?? false);
+  const garbageScenarios = envGarbageScenarios(
+    process.env.ATTAX_S2_GARBAGE_SCENARIOS,
+    mechanisms.garbageScenarios,
+  );
+  if (garbageScenarios !== undefined && ENGINE === "rust") {
+    // Repo rule: no silent fallback or divergence. The Rust payload cannot
+    // express scenario scoring, so refuse rather than run without it.
+    throw new Error(
+      "garbageScenarios is not implemented on the Rust engine (TS path only for now): " +
+        "run with ATTAX_ENGINE=ts-reference, or disable it (ATTAX_S2_GARBAGE_SCENARIOS=off)",
+    );
+  }
+  const lineStates = opts?.lineStates === true;
   const rustOpts: RustCallOpts = { weights, width, stock, solvency, rootVeto, diverse };
   const server = ENGINE === "rust" && RUST_MODE === "server" ? new RustServer() : null;
   const project = (decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) =>
@@ -667,6 +732,8 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
       ...(solvency ? { solvency } : {}),
       ...(rootVeto ? { rootVeto } : {}),
       ...(diverse ? { diverse } : {}),
+      ...(garbageScenarios ? { garbageScenarios } : {}),
+      ...(lineStates ? { lineStates } : {}),
     });
     timingSamples.push(performance.now() - t0);
     return result;
@@ -676,7 +743,7 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
     mechanisms,
     profileId,
     /** The resolved search settings this decider runs (profile + env overrides). */
-    settings: { diverse },
+    settings: { diverse, garbageScenarios: garbageScenarios ?? null },
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
       const shared = project(decision, acceptRoot);
       if (ENGINE === "rust") {
