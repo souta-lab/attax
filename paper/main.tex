@@ -83,23 +83,23 @@ evaluator with eleven board features and 24 parameters in total. Under
 guideline versus rules, Attax defeats every opponent it has been
 measured against: a byte-faithful replica of the Hoiko binary (195--5
 over 200 held-out games), the Monte Carlo beam-search bot clys (88--12),
-the official Cold Clear 2 engine (79--21), and a Cold Clear 2 fork
-(27--13) --- in the Cold Clear 2 match while generating \emph{less}
-attack per piece than its opponent (0.8951 against 0.9279), winning on
-survival rather than firepower. We treat the evaluation protocol ---
-fixed seed partitions, held-out headline seeds, pre-registered pass bars
-and abort rules, no re-rolls --- as a contribution in its own right. We
-then report a case study in which the same bot, taken to the S2 ruleset,
-lost its first counted match 0--20 to the reigning lab champion, Sold
-Slear, and two pre-registered SPSA weight-tuning campaigns failed to
-produce measurable improvement: the first ended with its selection
-procedure retaining the untuned seed profile, the second was stopped by
-its own registered abort rule. A subsequent independent audit explains
-why: the campaigns had been tuning weights for a search whose internal
-world model diverged from the referee on the death boundary, on garbage
-materialization, and on spin evidence. The negative result is the point
---- under a fixed protocol, it is attributable to specific, verified
-defects rather than to tuning effort.
+the official Cold Clear 2 engine (79--21) --- in the Cold Clear 2 match
+while generating \emph{less} attack per piece than its opponent (0.8951
+against 0.9279), winning on survival rather than firepower. We treat the
+evaluation protocol --- fixed seed partitions, held-out headline seeds,
+pre-registered pass bars and abort rules, no re-rolls --- as a
+contribution in its own right. We then report a case study in which the
+same bot, taken to the S2 ruleset, lost its first counted match 0--20 to
+the reigning lab champion, Sold Slear, and two pre-registered SPSA
+weight-tuning campaigns failed to produce measurable improvement: the
+first ended with its selection procedure retaining the untuned seed
+profile, the second was stopped by its own registered abort rule. A
+subsequent independent audit explains why: the campaigns had been tuning
+weights for a search whose internal world model diverged from the
+referee on the death boundary, on garbage materialization, and on spin
+evidence. The negative result is the point --- under a fixed protocol,
+it is attributable to specific, verified defects rather than to tuning
+effort.
 \end{abstract}
 
 \section{1. Introduction}\label{introduction}
@@ -384,8 +384,6 @@ Hoiko (replica) & 200 & 195--5 & 97.5\% (94.3--98.9) & 0.70 vs 0.46 \\
 clys & 100 & 88--12 & 88.0\% (80.2--93.0) & 0.7346 vs 0.7791 \\
 Cold Clear 2 (official) & 100 & 79--21 & 79.0\% (70.0--85.8) & 0.8951 vs
 0.9279 \\
-Cold Clear 2 fork (chouhy) & 40 & 27--13 & 67.5\% (52.0--79.9) & 0.9218
-vs 0.8298 \\
 \end{longtable}
 }
 
@@ -425,11 +423,6 @@ per piece (0.9279 against 0.8951); Attax won on survival, clearing 7,600
 lines to Cold Clear 2's 6,528. We state this plainly because it
 qualifies the win: under this ruleset and time control, Attax is not the
 harder-hitting engine; it is the one that dies less.
-
-\textbf{Cold Clear 2 fork.} chouhy's fork, measured the same way on
-seeds 2701--2720 from both seats: Attax won 27--13 (12/15 by seat), this
-time also ahead on attack rate (0.9218 against 0.8298), while the fork
-cleared more lines (11,512 against 10,639). All games replay-verified.
 
 \section{5. Case study: the S2
 campaign}\label{case-study-the-s2-campaign}
@@ -755,7 +748,7 @@ configuration, not an achievement to be rounded up.
   tuning under S2 in general. The probe's seat-layout deviation (Section
   5.2) is disclosed rather than repaired after the fact.
 \item
-  \textbf{Survival wins.} In two of four headline matchups Attax won
+  \textbf{Survival wins.} In two of three headline matchups Attax won
   while generating less attack per piece. The results establish game
   outcomes under the stated conditions, not superiority on every axis.
 \end{itemize}

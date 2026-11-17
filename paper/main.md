@@ -14,9 +14,9 @@ eleven board features and 24 parameters in total. Under guideline versus
 rules, Attax defeats every opponent it has been measured against: a
 byte-faithful replica of the Hoiko binary (195–5 over 200 held-out games), the
 Monte Carlo beam-search bot clys (88–12), the official Cold Clear 2 engine
-(79–21), and a Cold Clear 2 fork (27–13) — in the Cold Clear 2 match while
-generating *less* attack per piece than its opponent (0.8951 against 0.9279),
-winning on survival rather than firepower. We treat the evaluation protocol —
+(79–21) — in the Cold Clear 2 match while generating *less* attack per
+piece than its opponent (0.8951 against 0.9279), winning on survival
+rather than firepower. We treat the evaluation protocol —
 fixed seed partitions, held-out headline seeds, pre-registered pass bars and
 abort rules, no re-rolls — as a contribution in its own right. We then report
 a case study in which the same bot, taken to the S2 ruleset, lost its first
@@ -236,7 +236,6 @@ versus rules, with identical piece sequences for both sides.
 | Hoiko (replica) | 200 | 195–5 | 97.5% (94.3–98.9) | 0.70 vs 0.46 |
 | clys | 100 | 88–12 | 88.0% (80.2–93.0) | 0.7346 vs 0.7791 |
 | Cold Clear 2 (official) | 100 | 79–21 | 79.0% (70.0–85.8) | 0.8951 vs 0.9279 |
-| Cold Clear 2 fork (chouhy) | 40 | 27–13 | 67.5% (52.0–79.9) | 0.9218 vs 0.8298 |
 
 *Table 2: Headline results, generated from `bench-results/` records.
 APP is compared only within a harness (Section 3).*
@@ -272,11 +271,6 @@ against 0.8951); Attax won on survival, clearing 7,600 lines to Cold Clear
 2's 6,528. We state this plainly because it qualifies the win: under this
 ruleset and time control, Attax is not the harder-hitting engine; it is the
 one that dies less.
-
-**Cold Clear 2 fork.** chouhy's fork, measured the same way on seeds
-2701–2720 from both seats: Attax won 27–13 (12/15 by seat), this time also
-ahead on attack rate (0.9218 against 0.8298), while the fork cleared more
-lines (11,512 against 10,639). All games replay-verified.
 
 ## 5. Case study: the S2 campaign
 
@@ -552,7 +546,7 @@ is data about a configuration, not an achievement to be rounded up.
   bound the designs tried, not the value of weight tuning under S2 in
   general. The probe's seat-layout deviation (Section 5.2) is disclosed
   rather than repaired after the fact.
-- **Survival wins.** In two of four headline matchups Attax won while
+- **Survival wins.** In two of three headline matchups Attax won while
   generating less attack per piece. The results establish game outcomes
   under the stated conditions, not superiority on every axis.
 
