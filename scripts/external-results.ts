@@ -77,8 +77,8 @@ export function cc2Games(): Oriented[] {
   return externalGames("cc2", /^cc2-\d+\.json$/, "cold-clear-2");
 }
 
-export function cc2ForkGames(): Oriented[] {
-  return externalGames("cc2-fork", /^cc2fork-\d+\.json$/, "cold-clear-2-fork");
+export function cc2W96Games(): Oriented[] {
+  return externalGames("cc2-w96", /^cc2-\d+\.json$/, "cold-clear-2");
 }
 
 export function cc2ForkW96Games(): Oriented[] {

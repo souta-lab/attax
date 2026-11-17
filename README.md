@@ -5,7 +5,7 @@
 **A versus AI for the falling-block game — the strongest in guideline versus, measured head-to-head.**
 
 [![Play live](https://img.shields.io/badge/play-live%20arena-2ea44f)](https://s0u7a.f5.si/attax/)
-[![vs Cold Clear 2](https://img.shields.io/badge/vs%20Cold%20Clear%202-79%E2%80%9321%20(79.0%25)-blue)](#result-cold-clear-2)
+[![vs Cold Clear 2](https://img.shields.io/badge/vs%20Cold%20Clear%202-81%E2%80%9319%20(81.0%25)-blue)](#result-cold-clear-2)
 [![vs Hoiko](https://img.shields.io/badge/vs%20Hoiko-195%E2%80%935%20(97.5%25)-blue)](#-result-hoiko)
 ![TypeScript](https://img.shields.io/badge/TypeScript-bun%20%2B%20vite-3178c6)
 ![Rust](https://img.shields.io/badge/Rust-WASM-dea584)
@@ -25,17 +25,19 @@ are in [`bench-results/`](bench-results/), the Hoiko-replica fidelity evidence i
 are in [`scripts/`](scripts/).
 
 > **The world's strongest in guideline versus.** Across every matchup measured so far,
-> Attax has won each matchup it has played: the official Cold Clear 2 **79–21**,
-> chouhy's fork **27–13** (and measured again on the current build, attax v3, at beam
-> width 96: **79–16–5** over 100 games, details below), Hoiko **195–5** and clys
-> **88–12** (conditions and details below). **Attax v3** (current `main`) unifies the bot into a single search core for
-> the guideline and TETR.IO S2 rulesets, with the rules differences carried as
-> profile data; guideline play is unchanged from v2, so the record above stands. In
-> S2, the first measured result is a foothold, not a win: against **Sold Slear**, the
-> reigning champion of 61bi's bot lab and a bot still under active development,
-> Attax's S2 configuration took **16.75% of decided games** over 400 games in the lab
-> (details below). See [Caveats](#%EF%B8%8F-caveats--not-measured) for what has *not*
-> been measured.
+> Attax has won each matchup it has played: the official Cold Clear 2 **81–19** (measured
+> again on the current build, attax v3, at beam width 96; the earlier build, attax v2, at
+> width 48 measured **79–21**), chouhy's fork **79–16–5** (current build, attax v3, at
+> beam width 96, over 100 games, details below), Hoiko **195–5** and clys **88–12**
+> (conditions and details below). **Attax v3** (current
+> `main`) unifies the bot into a single search core for the guideline and TETR.IO S2
+> rulesets, with the rules differences carried as profile data; guideline play is
+> unchanged from v2, so the record above stands. In S2, the latest measurement is still
+> a foothold, not a win: against **Sold Slear**, the reigning champion of 61bi's bot lab
+> and a bot still under active development, Attax's S2 configuration took **43.1% of
+> decided games** over 120 games at beam width 96 in the lab (pre-kick-fix build, TS
+> core; details below), up from 16.75% in the earlier width-48 baseline. See
+> [Caveats](#%EF%B8%8F-caveats--not-measured) for what has *not* been measured.
 
 ## 📑 Contents
 
@@ -62,19 +64,20 @@ are in [`scripts/`](scripts/).
 |---|---|---|---|---|
 | **Hoiko** (Rust/WASM replica of Hoiko.exe) | 200 | **195–5** | **97.5%** (94.3–98.9%) | **0.70** vs 0.46 |
 | **clys** (by citrus610) | 100 | **88–12** | **88.0%** (80.2%–93.0%) | **0.7346** vs 0.7791 |
-| **Cold Clear 2** (official upstream, `ed8b193`) | 100 | **79–21** | **79.0%** (70.0–85.8%) | 0.8951 vs **0.9279** |
+| **Cold Clear 2** (official upstream, `ed8b193`, beam width 96) | 100 | **81–19** | **81.0%** (72.2–87.5%) | 0.8844 vs **0.8989** |
+| **Cold Clear 2** (official upstream, `ed8b193`, earlier build at beam width 48) | 100 | **79–21** | **79.0%** (70.0–85.8%) | 0.8951 vs **0.9279** |
 | **Cold Clear 2 fork** (chouhy, beam width 96) | 100 | **79–16–5** | **79.0%** (70.0–85.8%) | **0.9218** vs 0.8101 |
-| **Cold Clear 2 fork** (chouhy, earlier build at beam width 48) | 40 | **27–13** | **67.5%** (52.0–79.9%) | **0.9218** vs 0.8298 |
-| **Sold Slear** (S2 champion, s2-bot-lab) | 400 | 64–318 (18 draws) | 16.75% of decided games | — |
+| **Sold Slear** (S2 champion, s2-bot-lab) | 120 | 50–66 (4 draws) | 43.1% of decided games | 1.245 vs 1.326 |
 
 All guideline matchups use held-out seeds (never used for tuning), and every seed was
-played from both seats. The official Cold Clear 2 match and the earlier width-48 fork
-match were played by the competition profile, **attax v2** (see [Profiles](#-profiles)),
-under an external TBP rig; against the official build Attax won on survival despite the
-lower attack rate. The fork rematch at beam width 96 was played by **attax v3** (current
-`main`) under the same external TBP rig. The Sold Slear row is the S2 profile's first
-measurement, played by **attax v3** under the lab protocol detailed below. The details,
-conditions and limits follow.
+played from both seats. The width-48 official Cold Clear 2 match was played by the
+competition profile, **attax v2** (see [Profiles](#-profiles)), under an external TBP
+rig; Attax won on survival despite the lower attack rate. The width-96 matches
+(official and fork) were played by **attax v3** (current `main`) under the same
+external TBP rig. The Sold Slear row is the S2 profile's width-96 measurement from the
+item-101 paired fleet block, played by **attax v3** (pre-kick-fix tree, TS core) under
+the lab protocol detailed below; the earlier width-48 baseline is kept in that section.
+The details, conditions and limits follow.
 
 ## 🥊 Result: Hoiko
 
@@ -147,10 +150,7 @@ were replay-verified in full.
 Against the official upstream build at `ed8b193`, seeds 13001–13050 from both seats,
 Attax won **79–21** with no draws (win rate 79.0%, Wilson 95% CI 70.0–85.8%). The
 official build actually produced more attack per piece, 0.9279 to Attax's 0.8951;
-Attax won on survival, the same pattern as the clys match. Against chouhy's fork of
-the same upstream base, seeds 2701–2720 from both seats, Attax won **27–13** with no
-draws (67.5%, CI 52.0–79.9%), this time also ahead on attack per piece, 0.9218 to
-0.8298.
+Attax won on survival, the same pattern as the clys match.
 
 Against the same fork build at `b20a92b` (allspin defaults), **attax v3** at `c83d339`
 with beam width explicitly 96 played seeds 33001–33050 from both seats (replay-verified
@@ -159,13 +159,23 @@ piece 0.9218 to 0.8101 (unlike the official match); all 5 draws reached the 1000
 cap. On this TBP path the TS reference search (`ts-reference`) executed the decisions,
 which are bit-identical to the Rust engine on the verified corpora. This is a new
 measurement on a different build, width, and seed block — not a re-roll of the closed
-19–13–8 gate and not a same-conditions A/B against the 27–13 record.
+19–13–8 gate and not a same-conditions A/B against the earlier width-48 fork measurement.
+
+Against the same official build at `ed8b193`, **attax v3** at `de66bf5` (search
+byte-identical to `c83d339`) with beam width explicitly 96 played seeds 34001–34050
+from both seats (replay-verified in full) and won **81–19** (81.0%, Wilson 95% CI
+72.2–87.5%), with no draws. The official build again produced more attack per piece,
+0.8989 to Attax's 0.8844; Attax won on survival, clearing 7,226 lines to Cold Clear 2's
+6,229. On this TBP path the TS reference search (`ts-reference`) executed the decisions,
+which are bit-identical to the Rust engine on the verified corpora. This is a new
+measurement on a different build, width, and seed block — not a re-roll and not a
+same-conditions A/B against the 79–21 record.
 
 Per-seed records and generated summaries live in `bench-results/external/cc2/`,
-`bench-results/external/cc2-fork/`, and `bench-results/external/cc2-fork-w96/`; as
-with the external clys records, external attack per piece is pooled generated attack
-before cancellation, and the game-level Wilson intervals are descriptive (the
-independent units are the seat-swapped seed pairs).
+`bench-results/external/cc2-w96/`, and `bench-results/external/cc2-fork-w96/`; as with
+the external clys records, external
+attack per piece is pooled generated attack before cancellation, and the game-level
+Wilson intervals are descriptive (the independent units are the seat-swapped seed pairs).
 
 ## Result: Sold Slear (S2)
 
@@ -173,19 +183,29 @@ Sold Slear is the champion of 61bi's s2-bot-lab, the lab for the TETR.IO S2 rule
 the latest S2 champion, and still under active development. It is the opponent the
 S2 profile exists to chase, and the first S2 opponent Attax has measured against.
 
-**Conditions.** The match was played in the lab over 400 games: seeds **9401–9600**,
-every seed played from both seats. Attax played the unified **v3** search in its S2
-configuration — the fixed driver, the Φ stock potential on, and the solvency veto
-off — with hand-set weights (no tuning had been applied to this profile yet).
+**Conditions.** The current record is the width-96 arm of the item-101 paired fleet
+block, played in the lab (s2-bot-lab) over 120 scheduled games: seeds **9801–9860**,
+every seed played from both seats, against the champion's pinned WASM build under
+the lab protocol (paced mode, 1 PPS amount-only, legacy-lcg queue, 1000-lock cap).
+Attax played the unified **v3** search in its S2 configuration — config O: seed
+weights, the Φ stock potential on, the solvency and root vetoes off — at beam width
+**96**, on the pre-kick-fix tree (`1f41806`) with the TS core. Of the 120 scheduled
+games, 116 finished: **50 wins, 66 losses**; the remaining 4 were non-decided
+(champion-side compat errors, scored as draws in the block tally — not tied games).
+Attax's pooled attack per piece was 1.245 to the champion's 1.326.
 
 | Matchup | N | W–L–D | Win rate (decided games) |
 |---|---|---|---|
-| Attax (S2 profile) vs Sold Slear | 400 | 64–318–18 | **16.75%** |
+| Attax (S2 profile, width 96, fleet block) vs Sold Slear | 120 | 50–66–4 | **43.1%** |
+| Attax (S2 profile, width 48, earlier baseline) vs Sold Slear | 400 | 64–318–18 | **16.75%** |
 
-This is a foothold, not a win: the champion takes the matchup decisively today. The
-result is recorded because of who the opponent is — the reigning, still-improving S2
-champion — and because it fixes the baseline the S2 tuning campaign now has to beat:
-roughly one decided game in six, before any tuning.
+The width-48 row is the earlier baseline measurement (seeds 9401–9600, both seats;
+fixed driver, Φ on, veto off, hand-set weights), recorded before the width study.
+Even at width 96 this is a foothold, not a win: the champion still takes the
+matchup. But the share of decided games rose from roughly one in six in the
+baseline to roughly three in seven. An SPSA tuning campaign against the same
+champion is now running on the current build (kick fixes landed, Rust core); no
+results from it are claimed yet.
 
 ## 👤 Profiles
 
@@ -204,7 +224,8 @@ the search plays one additional ply over the exact remaining-bag distribution
 instead of a single guessed piece. It is env-gated in the rig adapter
 (`tools/cc2-rematch/attax-tbp.ts`: `ATTAX_ROWS=40`, `ATTAX_WIDTH=96`,
 `ATTAX_SPECULATE=1`) and is off by default everywhere else. This build is
-**attax v2** — the one that played both Cold Clear 2 matches.
+**attax v2** — the one that played the width-48 official Cold Clear 2 match; **attax v3**
+(below) played the width-96 matches under the same profile settings.
 
 **Attax v3** is the state `main` now carries: the unified tree. The guideline and
 S2 rulesets share one search core in `src/ai/bot/`, and the rules differences are
@@ -217,10 +238,11 @@ claim.
 The **S2 profile** is the S2 rules profile (`tetrio-s2` in `src/core/`, harness
 in `tools/s2-lab/`) for the S2 ruleset used by 61bi's bot lab, with its own weight
 group in the shared table (including a conversion-shaping term the guideline search
-never reads). Its first measured result is the Sold Slear match above: **16.75% of
-decided games** over 400 games in the lab (seeds 9401–9600, both seats), played
-with hand-set weights — no learned weights are part of this build, and the tuning
-campaign against the champion starts from that baseline.
+never reads). Its latest measured result is the width-96 Sold Slear match above:
+**43.1% of decided games** over 120 games in the lab (seeds 9801–9860, both seats),
+played with hand-set weights on the pre-kick-fix tree — no learned weights are part
+of this build. The SPSA tuning campaign against the champion is now running on the
+current build.
 
 ## 🚀 Why it is strong
 

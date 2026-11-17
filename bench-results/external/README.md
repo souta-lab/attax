@@ -28,7 +28,11 @@ result from checked-in records. No engine, search, arena, audit or replay code c
 - `cc2-fork/cc2fork-2701.json` through `cc2-fork/cc2fork-2720.json`: the same rig's
   `field40-spec-2701` run against chouhy's Cold Clear 2 fork (built from the same
   upstream base), imported the same way (all 20 seeds replay-verified).
-  `cc2-fork/summary.json` likewise generated and asserted.
+  `cc2-fork/summary.json` likewise generated and asserted. The `cc2-fork` matchup
+  (27–13 over 40 games at beam width 48) was withdrawn from the published results table
+  on 2026-11-17 by the owner's decision — superseded by the width-96 100-game record in
+  `cc2-fork-w96/` — and its records are retained here as evidence only; they no longer
+  feed `bun run results` or the page.
 - `cc2-fork-w96/cc2fork-33001.json` through `cc2-fork-w96/cc2fork-33050.json`: the
   same rig's `v3-w96-fork-33001` run, pitting Attax v3 at `c83d339` (field-40 profile
   with exact bag speculation and beam width explicitly 96) against chouhy's Cold Clear 2
@@ -37,6 +41,15 @@ result from checked-in records. No engine, search, arena, audit or replay code c
   `scripts/import-cc2-fork-w96.ts`. The executing engine was the TS reference search
   (`ts-reference`), whose decisions are bit-identical to the Rust engine on the verified
   corpora.
+- `cc2-w96/cc2-34001.json` through `cc2-w96/cc2-34050.json`: the same rig's
+  `v3-w96-official-34001` run, pitting Attax v3 at `de66bf5` (search byte-identical
+  to `c83d339`; field-40 profile with exact bag speculation and beam width explicitly
+  96) against the official upstream Cold Clear 2 by MinusKelvin at `ed8b193` (binary
+  SHA-256 `a8d8cf9ace9b9217004803e4cc560c0007fc19c239e5b57895f185ed03bd6f2f`), imported
+  the same way (all 50 seeds replay-verified). `cc2-w96/summary.json` is generated and
+  asserted by `scripts/import-cc2-w96.ts`. The executing engine was the TS reference
+  search (`ts-reference`), whose decisions are bit-identical to the Rust engine on the
+  verified corpora.
 
 ## Conversion and numerical provenance
 

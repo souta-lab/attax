@@ -1,0 +1,42 @@
+{
+  "opponent": "cold-clear-2",
+  "games": 100,
+  "wins": 81,
+  "losses": 19,
+  "draws": 0,
+  "win_rate": 0.81,
+  "wilson95": [
+    0.7222097592919214,
+    0.8748534600729575
+  ],
+  "totals": {
+    "attax": {
+      "pieces": 8815,
+      "attack": 7796,
+      "lines": 7226,
+      "attack_per_piece": 0.8844015882019285
+    },
+    "opponent": {
+      "pieces": 8763,
+      "attack": 7877,
+      "lines": 6229,
+      "attack_per_piece": 0.8988930731484651
+    }
+  },
+  "seat_wins": {
+    "0": 41,
+    "1": 40
+  },
+  "ms": 100,
+  "pps": 5,
+  "upstream": "ed8b19327b6bd1410ddd873d8611485bd45d8fae",
+  "run": "v3-w96-official-34001",
+  "note": "strict external TBP window; child is suspended during the local search and gets the same wall-clock window",
+  "binary_sha256": "a8d8cf9ace9b9217004803e4cc560c0007fc19c239e5b57895f185ed03bd6f2f",
+  "beam_width": 96,
+  "seeds": [
+    34001,
+    34050
+  ],
+  "attax_commit": "de66bf56210cddbf2a51638b676e63d474ecd814"
+}
