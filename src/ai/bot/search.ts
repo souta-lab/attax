@@ -66,6 +66,19 @@ export interface SearchOptions {
    * Absent/false = no veto; the search values are never modified by it.
    */
   readonly rootVeto?: boolean;
+  /**
+   * S2 only — garbage-scenario root scoring (canonical §C2, item 100): extra
+   * pending rows per scenario. The actual input is always scenario 0; every
+   * root is scored by its WORST best-line value across the shared scenario set
+   * (see searchWithGarbageScenarios). Absent = off (plain search).
+   */
+  readonly garbageScenarios?: readonly number[];
+  /**
+   * Also return the best line's predicted node states (SearchResult.lineStates).
+   * Opt-in so that results stay byte-identical for every existing consumer that
+   * serializes whole results (the S2 golden parity tests, case dumps).
+   */
+  readonly lineStates?: boolean;
 }
 
 export interface Step {
@@ -94,6 +107,13 @@ export interface SearchResult {
   readonly candidates: readonly Candidate[];
   readonly nodes: number;
   readonly depth: number;
+  /**
+   * Only with SearchOptions.lineStates: the search's own predicted states along
+   * the returned line — lineStates[k] is the state after k locks of `line`
+   * (lineStates[0] = the root state). TS engine only for now: the Rust engine
+   * does not return it, so lab results normalized from Rust never carry it.
+   */
+  readonly lineStates?: readonly NodeState[];
 }
 
 interface Node {
@@ -152,6 +172,22 @@ export function tAvailable(adopt: AdoptContext, next: number, hold: PieceKind | 
 }
 
 export function search(input: SearchInput, options: SearchOptions): SearchResult | null {
+  if (options.garbageScenarios !== undefined) return searchWithGarbageScenarios(input, options);
+  return searchCore(input, options)?.result ?? null;
+}
+
+/** search()'s result plus the per-root internals the scenario merge needs. */
+interface CoreOutput {
+  readonly result: SearchResult;
+  /** Per root index: the best leaf value (insertion order = first leaf seen). */
+  readonly rootBest: ReadonlyMap<number, number>;
+  /** Per root index: the leaf attaining rootBest. */
+  readonly bestLeafByRoot: ReadonlyMap<number, Node>;
+  readonly firstMoves: readonly Node[];
+  readonly nodes: number;
+}
+
+function searchCore(input: SearchInput, options: SearchOptions): CoreOutput | null {
   const { weights: w, width } = options;
   const profile = rulesProfile(options.profile ?? "guideline");
   const movegen =
@@ -308,33 +344,14 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
   // line stands: it is the least-bad try, and search still returns a move.
   // Search values are untouched, so veto-off is bit-identical.
   if (profile.allowRootVeto && options.rootVeto) {
-    const marginOf = (rootIndex: number): number => {
-      const first = firstMoves[rootIndex];
-      if (first === undefined) return Number.NEGATIVE_INFINITY;
-      return solvencyMargin(
-        {
-          maxHeight: boardFeatures(first.state.board, first.state.lift).maxHeight,
-          pending: first.state.pending,
-        },
-        profile.visibleRows,
-      );
-    };
-    if (marginOf(bestLeaf.root) < 0) {
-      const ranked = [...rootBest.entries()].sort((a, b) => b[1] - a[1]);
-      for (const [rootIndex] of ranked) {
-        if (rootIndex === bestLeaf.root) continue;
-        if (marginOf(rootIndex) >= 0) {
-          bestLeaf = bestLeafByRoot.get(rootIndex) ?? bestLeaf;
-          break;
-        }
-      }
-    }
+    const chosen = vetoRoot(
+      bestLeaf.root,
+      () => [...rootBest.entries()].sort((a, b) => b[1] - a[1]).map(([rootIndex]) => rootIndex),
+      firstMoves,
+      profile,
+    );
+    if (chosen !== bestLeaf.root) bestLeaf = bestLeafByRoot.get(chosen) ?? bestLeaf;
   }
-
-  const line: Step[] = [];
-  for (let n: Node | null = bestLeaf; n !== null && n.step !== null; n = n.parent)
-    line.unshift(n.step);
-  const first = firstMoves[bestLeaf.root] as Node;
 
   const candidates: Candidate[] = [...rootBest.entries()]
     .map(([index, value]) => {
@@ -345,14 +362,154 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     .sort((a, b) => b.value - a.value);
 
   return {
+    result: resultFor(bestLeaf, bestLeaf.value, candidates, nodes, firstMoves, w, options),
+    rootBest,
+    bestLeafByRoot,
+    firstMoves,
+    nodes,
+  };
+}
+
+/**
+ * The S2 hard-veto root choice (see searchCore). `ranked` lists root indices
+ * best first; it is only evaluated when the value-best root is insolvent.
+ * Returns `bestRoot` unchanged when it is solvent or no other root is.
+ */
+function vetoRoot(
+  bestRoot: number,
+  ranked: () => readonly number[],
+  firstMoves: readonly Node[],
+  profile: RulesProfile,
+): number {
+  const marginOf = (rootIndex: number): number => {
+    const first = firstMoves[rootIndex];
+    if (first === undefined) return Number.NEGATIVE_INFINITY;
+    return solvencyMargin(
+      {
+        maxHeight: boardFeatures(first.state.board, first.state.lift).maxHeight,
+        pending: first.state.pending,
+      },
+      profile.visibleRows,
+    );
+  };
+  if (marginOf(bestRoot) >= 0) return bestRoot;
+  for (const rootIndex of ranked()) {
+    if (rootIndex === bestRoot) continue;
+    if (marginOf(rootIndex) >= 0) return rootIndex;
+  }
+  return bestRoot;
+}
+
+/** Shape the SearchResult for the line ending at `leaf` (field order is load-bearing). */
+function resultFor(
+  leaf: Node,
+  value: number,
+  candidates: Candidate[],
+  nodes: number,
+  firstMoves: readonly Node[],
+  w: Weights,
+  options: SearchOptions,
+): SearchResult {
+  const line: Step[] = [];
+  for (let n: Node | null = leaf; n !== null && n.step !== null; n = n.parent) line.unshift(n.step);
+  const first = firstMoves[leaf.root] as Node;
+  const result: SearchResult = {
     best: line[0] as Step,
     line,
-    value: bestLeaf.value,
+    value,
     breakdown: weighBoard(boardFeatures(first.state.board, first.state.lift), w),
     candidates,
     nodes,
-    depth: bestLeaf.depth,
+    depth: leaf.depth,
   };
+  if (!options.lineStates) return result;
+  const lineStates: NodeState[] = [];
+  for (let n: Node | null = leaf; n !== null; n = n.parent) lineStates.unshift(n.state);
+  return { ...result, lineStates };
+}
+
+/** Root identity across scenario runs: the root placement and whether it used hold. */
+function rootKey(placement: Placement, usedHold: boolean): string {
+  return `${placement.kind}|${placement.rotation}|${placement.x}|${placement.y}|${placement.lastSrs}|${placement.tspin}|${usedHold}`;
+}
+
+/**
+ * Garbage-scenario root scoring (canonical §C2, item 100). NOT a chance ply:
+ * a small FIXED set of incoming-garbage scenarios, shared by every compared
+ * root. Scenario 0 is the actual input; each listed scenario adds `extra`
+ * pending rows to the root input (dueThisLock is clamped to the new pending,
+ * i.e. unchanged — the extra rows arrive after the root lock, landing at the
+ * next non-clearing lock) and runs the unchanged search. Each root's score is
+ * the MINIMUM of its best-line value over all scenarios (worst case, the
+ * canonical margin philosophy); a root absent from a scenario run (its lines
+ * all pruned, or the run returned no move) scores -Infinity there.
+ *
+ * The result is the actual-input search result except: `candidates` carry the
+ * scenario scores (re-sorted, ties in base rank order); best/line/value/depth/
+ * breakdown/lineStates are the base search's best line OF THE WINNING ROOT
+ * (so `value` is that line's actual-input value, not its scenario score);
+ * `nodes` counts the work of every scenario run. With rootVeto the hard veto
+ * applies to the scenario ranking. Base null => null.
+ */
+export function searchWithGarbageScenarios(
+  input: SearchInput,
+  options: SearchOptions,
+): SearchResult | null {
+  const scenarios = options.garbageScenarios;
+  if (scenarios === undefined) return searchCore(input, options)?.result ?? null;
+  if ((options.profile ?? "guideline") !== "s2") {
+    throw new Error('garbageScenarios is an S2-only mechanism (profile "s2")');
+  }
+  for (const extra of scenarios) {
+    if (!Number.isSafeInteger(extra) || extra < 0) {
+      throw new Error(`garbageScenarios: expected non-negative integers, got ${extra}`);
+    }
+  }
+  const base = searchCore(input, options);
+  if (base === null) return null;
+  const firstKey = (index: number): string => {
+    const step = (base.firstMoves[index] as Node).step as Step;
+    return rootKey(step.placement, step.usedHold);
+  };
+  const baseRoots = [...base.rootBest.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([index, value]) => ({ index, key: firstKey(index), score: value }));
+  let nodes = base.nodes;
+  // Each distinct extra amount once; 0 is the base run itself.
+  for (const extra of [...new Set(scenarios)]) {
+    if (extra === 0) continue;
+    const pending = input.pending + extra;
+    const run = searchCore(
+      { ...input, pending, dueThisLock: Math.min(input.dueThisLock ?? 0, pending) },
+      options,
+    );
+    const values = new Map<string, number>();
+    if (run !== null) {
+      nodes += run.nodes;
+      for (const [index, value] of run.rootBest) {
+        const step = (run.firstMoves[index] as Node).step as Step;
+        const key = rootKey(step.placement, step.usedHold);
+        const prev = values.get(key);
+        if (prev === undefined || value > prev) values.set(key, value);
+      }
+    }
+    for (const root of baseRoots) {
+      root.score = Math.min(root.score, values.get(root.key) ?? Number.NEGATIVE_INFINITY);
+    }
+  }
+  // Stable sort: equal scores keep the base rank order.
+  const ranked = [...baseRoots].sort((a, b) => b.score - a.score);
+  let winner = (ranked[0] as (typeof ranked)[number]).index;
+  const profile = rulesProfile("s2");
+  if (profile.allowRootVeto && options.rootVeto) {
+    winner = vetoRoot(winner, () => ranked.map((r) => r.index), base.firstMoves, profile);
+  }
+  const leaf = base.bestLeafByRoot.get(winner) as Node;
+  const candidates: Candidate[] = ranked.map((r) => {
+    const step = (base.firstMoves[r.index] as Node).step as Step;
+    return { placement: step.placement, usedHold: step.usedHold, value: r.score };
+  });
+  return resultFor(leaf, leaf.value, candidates, nodes, base.firstMoves, options.weights, options);
 }
 
 interface PieceOption {
