@@ -24,6 +24,11 @@ export interface MechanismSettings {
    * Absent = "soft" when a solvency section is present, off otherwise.
    */
   readonly solvencyMode?: "soft" | "hard";
+  /**
+   * Beam root diversity (search()'s `diverse`: selectBeam's bounded root
+   * reservation + economy-distinct pool). Absent = off (plain dedupe).
+   */
+  readonly diverse?: boolean;
 }
 
 const profiles = new Map<
@@ -106,6 +111,7 @@ function parseMechanisms(raw: unknown): MechanismSettings {
     stock?: StockParams;
     solvency?: SolvencyParams;
     solvencyMode?: "soft" | "hard";
+    diverse?: boolean;
   } = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key === "stock") {
@@ -117,6 +123,11 @@ function parseMechanisms(raw: unknown): MechanismSettings {
         throw new Error(`expected "soft" or "hard" at mechanisms.solvencyMode`);
       }
       out.solvencyMode = value;
+    } else if (key === "diverse") {
+      if (typeof value !== "boolean") {
+        throw new Error("expected a boolean at mechanisms.diverse");
+      }
+      out.diverse = value;
     } else {
       throw new Error(`unknown mechanism: mechanisms.${key}`);
     }
@@ -145,10 +156,10 @@ function loadProfile(profilePath: string | undefined) {
   for (const key of S2_ONLY_ADOPT_KEYS) {
     if (identityWeights[key] === 0) delete identityWeights[key];
   }
+  // (parseMechanisms only sets keys that are present, so "no keys" is exactly
+  // the historical "no stock, no solvency, no solvencyMode" condition.)
   const identity =
-    mechanisms.stock === undefined &&
-    mechanisms.solvency === undefined &&
-    mechanisms.solvencyMode === undefined
+    Object.keys(mechanisms).length === 0
       ? canonical(identityWeights)
       : canonical({ weights: identityWeights, mechanisms });
   const loaded = {
@@ -355,16 +366,17 @@ function witnessKeyOf(p: Placement, usedHold: boolean): string {
   return `${p.kind}:${usedHold}:${p.lastSrs > 0}:${cellKey(placementCells(p))}`;
 }
 
-type RustCallOpts = {
+export type RustCallOpts = {
   weights: Weights;
   width: number;
   stock?: StockParams;
   solvency?: SolvencyParams;
   rootVeto: boolean;
+  diverse: boolean;
 };
 
 /** Serialize one decision for the Rust engine (oneshot and server share it). */
-function rustPayload(
+export function rustPayload(
   input: SharedInput,
   opts: RustCallOpts,
   acceptRoot?: SharedInput["acceptRoot"],
@@ -442,6 +454,7 @@ function rustPayload(
       ...(opts.stock ? { stock: opts.stock } : {}),
       ...(opts.solvency ? { solvency: opts.solvency } : {}),
       ...(opts.rootVeto ? { rootVeto: true } : {}),
+      ...(opts.diverse ? { diverse: true } : {}),
     },
     weights: opts.weights,
   });
@@ -626,6 +639,15 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
       ? envMechanism(solvencyEnv, mechanisms.solvency, DEFAULT_SOLVENCY_PARAMS)
       : undefined;
   const rootVeto = solvencyMode === "hard";
+  // Root diversity: ATTAX_S2_DIVERSE "0" forces off, "1" forces on, unset
+  // defers to the profile (absent = off, the historical plain-dedupe beam).
+  const diverseEnv = process.env.ATTAX_S2_DIVERSE;
+  if (diverseEnv !== undefined && diverseEnv !== "0" && diverseEnv !== "1") {
+    throw new Error(`expected "0" or "1" in ATTAX_S2_DIVERSE, got ${diverseEnv}`);
+  }
+  const diverse =
+    diverseEnv === "0" ? false : diverseEnv === "1" ? true : (mechanisms.diverse ?? false);
+  const rustOpts: RustCallOpts = { weights, width, stock, solvency, rootVeto, diverse };
   const server = ENGINE === "rust" && RUST_MODE === "server" ? new RustServer() : null;
   const project = (decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) =>
     // The shared core under rules profile "s2" (the former lab search). The
@@ -644,6 +666,7 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
       ...(stock ? { stock } : {}),
       ...(solvency ? { solvency } : {}),
       ...(rootVeto ? { rootVeto } : {}),
+      ...(diverse ? { diverse } : {}),
     });
     timingSamples.push(performance.now() - t0);
     return result;
@@ -652,10 +675,12 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
     weights,
     mechanisms,
     profileId,
+    /** The resolved search settings this decider runs (profile + env overrides). */
+    settings: { diverse },
     decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
       const shared = project(decision, acceptRoot);
       if (ENGINE === "rust") {
-        return searchViaRust(shared, { weights, width, stock, solvency, rootVeto }, acceptRoot);
+        return searchViaRust(shared, rustOpts, acceptRoot);
       }
       return runTs(shared);
     },
@@ -668,12 +693,10 @@ export function createAttaxDecider(profilePath: string | undefined, opts?: { wid
       const shared = project(decision, acceptRoot);
       if (ENGINE === "rust") {
         if (server) {
-          const line = await server.request(
-            rustPayload(shared, { weights, width, stock, solvency, rootVeto }, acceptRoot),
-          );
+          const line = await server.request(rustPayload(shared, rustOpts, acceptRoot));
           return normalizeRustResult(JSON.parse(line));
         }
-        return searchViaRust(shared, { weights, width, stock, solvency, rootVeto }, acceptRoot);
+        return searchViaRust(shared, rustOpts, acceptRoot);
       }
       return runTs(shared);
     },
