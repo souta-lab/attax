@@ -179,7 +179,7 @@ const bot = createBot({
   exposure: Number(process.env.ATTAX_EXPOSURE ?? 12),
   speculate: process.env.ATTAX_SPECULATE === "1",
   guideline: process.env.ATTAX_GUIDELINE === "1",
-}); // default preview 5, beam width 48, default weights
+}); // default preview 5, beam width 96, default weights
 
 function snapshot() {
   // Attax grid: 20 rows, index 0 = top.  Cells above TBP row 19 cannot be represented.

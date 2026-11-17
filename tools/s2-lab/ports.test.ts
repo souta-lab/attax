@@ -132,9 +132,9 @@ describe("C1 search integration", () => {
 
   test("absent and zero-scaled stock are bit-identical", () => {
     for (const input of inputs) {
-      const base = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+      const base = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
       const zeroed = search(input, {
-        width: 48,
+        width: 96,
         weights: DEFAULT_WEIGHTS,
         stock: { ...DEFAULT_STOCK_PARAMS, scale: 0 },
       });
@@ -144,8 +144,8 @@ describe("C1 search integration", () => {
 
   test("stock raises the value of a charged one-piece line by gamma * Phi", () => {
     const input = projectAttax(decision());
-    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
-    const on = search(input, { width: 48, weights: DEFAULT_WEIGHTS, stock: DEFAULT_STOCK_PARAMS });
+    const off = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
+    const on = search(input, { width: 96, weights: DEFAULT_WEIGHTS, stock: DEFAULT_STOCK_PARAMS });
     expect(on?.best.placement).toEqual(off?.best.placement);
     // Every child keeps chain 6 on an empty board: Phi = w_A * (5 + 0.5 * 0.35).
     const expected = GAMMA * ATTACK * (5 + 0.5 * 0.35);
@@ -255,15 +255,15 @@ function cliffInput(): SearchInput {
 describe("C2 search integration", () => {
   test("absent and zero-coefficient solvency are bit-identical", () => {
     const input = cliffInput();
-    const base = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const base = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
     const zeroed = search(input, {
-      width: 48,
+      width: 96,
       weights: DEFAULT_WEIGHTS,
       solvency: { ...DEFAULT_SOLVENCY_PARAMS, coefficient: 0 },
     });
     expect(fingerprint(zeroed)).toBe(fingerprint(base));
     const both = search(input, {
-      width: 48,
+      width: 96,
       weights: DEFAULT_WEIGHTS,
       stock: { ...DEFAULT_STOCK_PARAMS, scale: 0 },
       solvency: { ...DEFAULT_SOLVENCY_PARAMS, coefficient: 0 },
@@ -273,9 +273,9 @@ describe("C2 search integration", () => {
 
   test("the solvency layer demotes doomed roots and crowns the surviving clear", () => {
     const input = cliffInput();
-    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const off = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
     const on = search(input, {
-      width: 48,
+      width: 96,
       weights: DEFAULT_WEIGHTS,
       solvency: DEFAULT_SOLVENCY_PARAMS,
     });
@@ -375,15 +375,15 @@ describe("C2 hard root veto (choose_rescue)", () => {
 
   test("veto-off is bit-identical (absent vs explicit false)", () => {
     const input = vetoInput();
-    const absent = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
-    const explicit = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: false });
+    const absent = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
+    const explicit = search(input, { width: 96, weights: DEFAULT_WEIGHTS, rootVeto: false });
     expect(fingerprint(explicit)).toBe(fingerprint(absent));
   });
 
   test("insolvent rank 0 is replaced by the first solvent rank, values untouched", () => {
     const input = vetoInput();
-    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
-    const hard = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    const off = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
+    const hard = search(input, { width: 96, weights: DEFAULT_WEIGHTS, rootVeto: true });
     // Rank 0 without the veto: the hold-J line (root margin -1, insolvent).
     expect(off?.best.placement.kind).toBe("J");
     expect(off?.best.placement.rotation).toBe(3);
@@ -413,16 +413,16 @@ describe("C2 hard root veto (choose_rescue)", () => {
     // 30 pending, all due: clearing roots cancel at most a few rows and
     // non-clearing roots tank the full 30 — no root can pay the margin.
     const input = vetoInput({ pending: 30, dueThisLock: 30 });
-    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
-    const hard = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    const off = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
+    const hard = search(input, { width: 96, weights: DEFAULT_WEIGHTS, rootVeto: true });
     expect(off).not.toBeNull();
     expect(fingerprint(hard)).toBe(fingerprint(off));
   });
 
   test("when rank 0 is solvent, the veto changes nothing", () => {
     const input = projectAttax(decision()); // empty board, no pending
-    const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
-    const hard = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    const off = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
+    const hard = search(input, { width: 96, weights: DEFAULT_WEIGHTS, rootVeto: true });
     expect(fingerprint(hard)).toBe(fingerprint(off));
   });
 
@@ -468,7 +468,7 @@ describe("C2 hard root veto (choose_rescue)", () => {
       chain: { b2b: 0, combo: 0 },
       incoming: { pendingRows: 5, dueThisLockRows: 5 },
     };
-    const expected = search(input, { width: 48, weights: DEFAULT_WEIGHTS, rootVeto: true });
+    const expected = search(input, { width: 96, weights: DEFAULT_WEIGHTS, rootVeto: true });
     const dir = mkdtempSync(join(tmpdir(), "s2-veto-test-"));
     const hardPath = join(dir, "hard.json");
     writeFileSync(hardPath, JSON.stringify({ mechanisms: { solvencyMode: "hard" } }));
@@ -484,7 +484,7 @@ describe("C2 hard root veto (choose_rescue)", () => {
       expect(viaEnv?.best.placement).toEqual(expected?.best.placement);
       process.env.ATTAX_S2_SOLVENCY = "0";
       const forcedOff = createAttaxDecider(plain).decide(d);
-      const off = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+      const off = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
       expect(forcedOff?.best.placement).toEqual(off?.best.placement);
     } finally {
       delete process.env.ATTAX_S2_SOLVENCY_MODE;

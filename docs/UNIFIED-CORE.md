@@ -144,6 +144,15 @@ The frozen 390-10 record must reproduce exactly after each change.
 
 Gate: `tools/unify/` regression scripts.
 
+> 2026-11-17 amendment: the 390-10 record is the width-48 record. The
+> width-48 reproduction path was retired that day (width 96 is the standard
+> everywhere), and the Hoiko regression baseline was re-measured at width 96
+> over the same partition (seeds 1001-1200, both seats, HOIKO_ADAPT=0):
+> **378W-22L-0D**, recorded in `bench-results/bot-vs-hoiko.w96.jsonl` (see
+> `~/workspace/attax-s2/W48-REMOVAL-INVENTORY-2026-11-17.md`). The 390-10
+> record stands as the width-48 historical record; it is no longer the
+> regression gate.
+
 ## What chunk 3a does NOT do
 
 - Does NOT delete `tools/s2-lab/search.ts` (left fully untouched).

@@ -1,18 +1,23 @@
 /**
  * Chunk 3b parity: the shared src search under profile "s2" IS the lab search,
  * and the guideline path is unchanged. Every battery case must reproduce the
- * pre-port golden result EXACTLY (deep equality, floats included).
+ * recorded golden result EXACTLY (deep equality, floats included).
+ *
+ * The goldens were originally captured before the single-core port at width
+ * 48 (the pre-port record). On 2026-11-17 the width-48 reproduction path was
+ * retired: the battery moved to the shipped standard width 96 and the
+ * goldens were re-captured from the shared core at that width, so they are
+ * now the width-96 behaviour record, checked by the first block through the
+ * battery's explicit options.
  *
  * The second block runs the PLAYER (attax-player's public-decision projection,
  * its input mapping onto the shared core, and its profile/mechanism wiring)
  * over every battery case a public decision can express — the mapping is the
  * risk of the rewire, so the check goes through it rather than around it. The
  * player always searches at the production default width (BOT_DEFAULTS.width,
- * 96 since the 2026-11-16 width decision), while the battery and its goldens
- * stay at the pre-port record's width 48, so the player block's baseline is
- * the shared search itself run at the player's width on the reference
- * conversion. The goldens remain the pre-port record, checked by the first
- * block through the battery's explicit options.
+ * 96 since the 2026-11-16 width decision), which is also the battery's width,
+ * so the player block's baseline is the shared search itself run at the
+ * player's width on the reference conversion.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -51,7 +56,7 @@ function srcInput(c: S2Case): SearchInput {
   return { ...rest, b2b: b2b > 0, b2bChain: b2b };
 }
 
-describe("shared search reproduces the pre-port goldens", () => {
+describe("shared search reproduces the recorded goldens", () => {
   for (const c of s2Battery()) {
     test(`s2: ${c.name}`, () => {
       const options: SearchOptions = { ...c.options, profile: "s2" };
@@ -110,7 +115,7 @@ function publicDecision(c: S2Case): PublicDecision {
   };
 }
 
-describe("the player reproduces the pre-port goldens through its own mapping", () => {
+describe("the player reproduces the shared search through its own mapping", () => {
   const ENV = [
     "ATTAX_S2_PROFILE",
     "ATTAX_S2_STOCK_POTENTIAL",

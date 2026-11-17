@@ -11,7 +11,7 @@
  *   - competition corpus: cases JSONL from tools/search-port/dump-cases.ts (guideline,
  *     40 rows, width 96, no diversity, recorded boards, pending 0 as the TBP adapter sends);
  *   - Hoiko-benchmark path: every bot decision of one fixed-seed bot-vs-Hoiko game, with the
- *     benchmark's bot options (scripts/benchmark.ts: width 48, no guideline, real pending).
+ *     benchmark's bot options (scripts/benchmark.ts: width 96 (BOT_DEFAULTS), no guideline, real pending).
  *
  * Usage: bun tools/search-port/dedupe-measure.ts CASES.jsonl [SEED] [BENCH_CASES_OUT.jsonl]
  *   The optional third argument writes the Hoiko-path decisions as attax-agree cases
@@ -177,7 +177,7 @@ try {
           },
           options: {
             weights: DEFAULT_WEIGHTS,
-            width: 48,
+            width: 96,
             diverse: false,
             exposure: 0,
             guideline: false,
@@ -193,7 +193,7 @@ try {
     `\nrecorded game seed ${seed} (bot left, current tree): winner ${record.winner}, ticks ${record.ticks}`,
   );
   measure(
-    `Hoiko-benchmark path (seed ${seed}, width 48, no guideline)`,
+    `Hoiko-benchmark path (seed ${seed}, width 96, no guideline)`,
     recorded,
     oldSearch,
     newSearch,

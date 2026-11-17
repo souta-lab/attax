@@ -1,12 +1,15 @@
 /**
- * Chunk 3b golden battery: fixed S2 + guideline search cases used to prove
- * behaviour identity across the single-core port.
+ * Chunk 3b golden battery: fixed S2 + guideline search cases used to pin
+ * search behaviour.
  *
- * `capture-s2-golden.ts` ran these cases against the PRE-PORT searches
- * (the since-deleted tools/s2-lab/search.ts for S2, src/ai/bot/search.ts for
- * guideline) and recorded full results in s2-golden.json. After the port, the
- * parity test (tools/s2-lab/shared-parity.test.ts) replays the same cases
- * against the shared src search and requires exact equality.
+ * `capture-s2-golden.ts` originally ran these cases against the PRE-PORT
+ * searches (the since-deleted tools/s2-lab/search.ts for S2,
+ * src/ai/bot/search.ts for guideline) at width 48 and recorded full results
+ * in s2-golden.json. On 2026-11-17 the width-48 reproduction path was
+ * retired (width 96 is the shipped standard everywhere): the battery now
+ * runs at width 96 and the goldens were re-captured from the shared core at
+ * that width. The parity test (tools/s2-lab/shared-parity.test.ts) replays
+ * the same cases against the shared src search and requires exact equality.
  *
  * The S2 inputs use the lab input shape (tools/s2-lab/s2-input.ts: numeric
  * exact chain in `b2b`); map them with `toSharedInput` before searching.
@@ -81,21 +84,21 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
   const mid = mkBoard(MID_STACK);
   const base = s2Input({ board: mid.board });
   const cases: S2Case[] = [
-    { name: "plain", input: base, options: { weights, width: 48 } },
+    { name: "plain", input: base, options: { weights, width: 96 } },
     {
       name: "stock-on",
       input: base,
-      options: { weights, width: 48, stock: DEFAULT_STOCK_PARAMS },
+      options: { weights, width: 96, stock: DEFAULT_STOCK_PARAMS },
     },
     {
       name: "solvency-on",
       input: s2Input({ board: mid.board, pending: 7, dueThisLock: 7 }),
-      options: { weights, width: 48, solvency: DEFAULT_SOLVENCY_PARAMS },
+      options: { weights, width: 96, solvency: DEFAULT_SOLVENCY_PARAMS },
     },
     {
       name: "veto-on",
       input: s2Input({ board: mid.board, pending: 7, dueThisLock: 7 }),
-      options: { weights, width: 48, rootVeto: true },
+      options: { weights, width: 96, rootVeto: true },
     },
     {
       name: "pending-frame",
@@ -112,12 +115,12 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
         dueThisLock: 4,
         frame: 14550,
       }),
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
     {
       name: "speculative",
       input: s2Input({ board: mid.board, preview: [], speculativePieces: ALL_KINDS }),
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
     {
       name: "near-death",
@@ -132,7 +135,7 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
         pending: 3,
         dueThisLock: 3,
       }),
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
     {
       name: "all-fatal",
@@ -147,7 +150,7 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
         pending: 8,
         dueThisLock: 8,
       }),
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
     {
       name: "hold-empty",
@@ -157,7 +160,7 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
         hold: null,
         preview: ["I", "T", "S"],
       }),
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
     {
       name: "accept-root",
@@ -165,9 +168,9 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
         board: mid.board,
         acceptRoot: (placement, usedHold) => usedHold || placement.x >= 2,
       }),
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
-    { name: "diverse", input: base, options: { weights, width: 48, diverse: true } },
+    { name: "diverse", input: base, options: { weights, width: 96, diverse: true } },
     {
       name: "surge",
       input: s2Input({
@@ -175,7 +178,7 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
         b2b: 6,
         combo: 0,
       }),
-      options: { weights, width: 48, stock: DEFAULT_STOCK_PARAMS },
+      options: { weights, width: 96, stock: DEFAULT_STOCK_PARAMS },
     },
     {
       name: "exposure",
@@ -184,7 +187,7 @@ export function s2Battery(weights: Weights = DEFAULT_WEIGHTS): S2Case[] {
           Array.from({ length: 14 }, (_, i) => (i % 3 === 0 ? "####.#####" : "#########.")),
         ).board,
       }),
-      options: { weights, width: 48, exposure: 0.25 },
+      options: { weights, width: 96, exposure: 0.25 },
     },
   ];
   return cases;
@@ -216,17 +219,17 @@ export function guidelineBattery(weights: Weights = DEFAULT_WEIGHTS): GuidelineC
     pending: 0,
   };
   return [
-    { name: "g-plain", input: base, options: { weights, width: 48 } },
+    { name: "g-plain", input: base, options: { weights, width: 96 } },
     {
       name: "g-speculative",
       input: { ...base, preview: ["S"], speculativePieces: ALL_KINDS },
-      options: { weights, width: 48 },
+      options: { weights, width: 96 },
     },
     {
       name: "g-rig-40",
       input: { ...base, board: spec, active: { kind: "T", ...spawnPosition("T", 40) } },
-      options: { weights, width: 48, guideline: true },
+      options: { weights, width: 96, guideline: true },
     },
-    { name: "g-diverse", input: base, options: { weights, width: 48, diverse: true } },
+    { name: "g-diverse", input: base, options: { weights, width: 96, diverse: true } },
   ];
 }

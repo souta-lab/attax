@@ -37,22 +37,22 @@ describe("S2 C1 b2bState", () => {
     const { b2bState: _drop, ...absent } = DEFAULT_WEIGHTS;
     const input = toSharedInput(projectAttax(decision()));
     for (const stock of [undefined, DEFAULT_STOCK_PARAMS]) {
-      const base = search(input, { profile: "s2", width: 48, weights: absent as Weights, stock });
+      const base = search(input, { profile: "s2", width: 96, weights: absent as Weights, stock });
       expect(
         fingerprint(
-          search(input, { profile: "s2", width: 48, weights: withWeights({ b2bState: 0 }), stock }),
+          search(input, { profile: "s2", width: 96, weights: withWeights({ b2bState: 0 }), stock }),
         ),
       ).toBe(fingerprint(base));
       expect(
-        fingerprint(search(input, { profile: "s2", width: 48, weights: DEFAULT_WEIGHTS, stock })),
+        fingerprint(search(input, { profile: "s2", width: 96, weights: DEFAULT_WEIGHTS, stock })),
       ).toBe(fingerprint(base));
     }
   });
 
   test("adds gamma times b2bState per child whose exact chain remains alive", () => {
     const input = toSharedInput(projectAttax(decision()));
-    const off = search(input, { profile: "s2", width: 48, weights: DEFAULT_WEIGHTS });
-    const on = search(input, { profile: "s2", width: 48, weights: withWeights({ b2bState: 100 }) });
+    const off = search(input, { profile: "s2", width: 96, weights: DEFAULT_WEIGHTS });
+    const on = search(input, { profile: "s2", width: 96, weights: withWeights({ b2bState: 100 }) });
     expect(on?.best.placement).toEqual(off?.best.placement);
     expect(on?.candidates.length).toBe(off?.candidates.length);
     on?.candidates.forEach((candidate, i) => {
@@ -61,9 +61,9 @@ describe("S2 C1 b2bState", () => {
     const dead = toSharedInput(projectAttax(decision(0)));
     expect(
       fingerprint(
-        search(dead, { profile: "s2", width: 48, weights: withWeights({ b2bState: 100 }) }),
+        search(dead, { profile: "s2", width: 96, weights: withWeights({ b2bState: 100 }) }),
       ),
-    ).toBe(fingerprint(search(dead, { profile: "s2", width: 48, weights: DEFAULT_WEIGHTS })));
+    ).toBe(fingerprint(search(dead, { profile: "s2", width: 96, weights: DEFAULT_WEIGHTS })));
   });
 
   test("off profiles retain identity; nonzero C1 separates and loads", () => {
@@ -108,10 +108,10 @@ describe("S2 C3 hole geometry", () => {
   test("absent and zero preserve search identity, including with stock", () => {
     const input = toSharedInput(boardFor(messy));
     for (const stock of [undefined, DEFAULT_STOCK_PARAMS]) {
-      const base = search(input, { profile: "s2", width: 48, weights: DEFAULT_WEIGHTS, stock });
+      const base = search(input, { profile: "s2", width: 96, weights: DEFAULT_WEIGHTS, stock });
       const zero = search(input, {
         profile: "s2",
-        width: 48,
+        width: 96,
         weights: { ...DEFAULT_WEIGHTS, holeRuns: 0, holeShifts: 0 },
         stock,
       });
@@ -195,7 +195,7 @@ function miniRootKey(
 
 describe("S2 C5 mini spins priced by line count", () => {
   const deltas = { miniSingleDelta: 11, miniDoubleDelta: 23, miniTripleDelta: 37 };
-  const run = (input: ReturnType<typeof toSharedInput>, weights: Weights, width = 48) =>
+  const run = (input: ReturnType<typeof toSharedInput>, weights: Weights, width = 96) =>
     search(input, { profile: "s2", width, weights });
 
   test("absent and zero deltas are bit-identical, including mini-capable corpus boards", () => {

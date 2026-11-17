@@ -36,7 +36,7 @@ const show = (b: BitBoard) => {
 };
 
 // --- A. Perfect clear on a board that still has garbage under it ----------------------
-// Two half rows; pieces O, O. Hoiko-benchmark options (no guideline, width 48).
+// Two half rows; pieces O, O. Hoiko-benchmark options (no guideline, width 96).
 // Root pending 2: the first O cancels nothing, so 2 garbage rows land after it.
 {
   const b = board([0x3f0, 0x3f0]);
@@ -51,7 +51,7 @@ const show = (b: BitBoard) => {
       combo: -1,
       pending: 2,
     },
-    { weights: DEFAULT_WEIGHTS, width: 48 },
+    { weights: DEFAULT_WEIGHTS, width: 96 },
   );
   console.log(`A. lift model, pending 2, queue O O, board:\n${show(b)}`);
   for (const s of r?.line ?? [])

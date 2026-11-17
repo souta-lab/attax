@@ -64,7 +64,7 @@ describe("stage-2 public state conversion", () => {
   test("rejects all roots when no independent referee witness exists", () => {
     const input = projectAttax(decision());
     expect(
-      search({ ...input, acceptRoot: () => false }, { width: 48, weights: DEFAULT_WEIGHTS }),
+      search({ ...input, acceptRoot: () => false }, { width: 96, weights: DEFAULT_WEIGHTS }),
     ).toBeNull();
   });
   test("maps core piece cells to bottom-origin canonical cells", () => {
@@ -82,7 +82,7 @@ describe("stage-2 public state conversion", () => {
     };
     // Four rows with a one-column well; an I fills the well for a PC.
     for (let y = 36; y < 40; y++) input.board[y] = 0x3fe;
-    const found = search(input, { width: 48, weights: DEFAULT_WEIGHTS });
+    const found = search(input, { width: 96, weights: DEFAULT_WEIGHTS });
     expect(found?.best.linesCleared).toBe(4);
     expect(found?.best.attack).toBe(10); // continued Quad 5 + separate PC 5
   });

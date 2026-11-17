@@ -5,7 +5,7 @@
  * interleaved on one machine and compared per case.
  *
  * Usage: bun tools/search-port/bench-s2.ts CASES.jsonl --width N --out TIMINGS.json
- * At the dump width (48) it also verifies the reconstructed inputs reproduce the
+ * At the dump width (96) it also verifies the reconstructed inputs reproduce the
  * recorded TS expectations exactly (best, line, value bits, candidates, nodes,
  * depth) — a reconstruction check, printed to stderr.
  */
@@ -16,7 +16,7 @@ import { type SearchInput, type SearchOptions, search } from "../../src/ai/bot/s
 const args = process.argv.slice(2);
 const path = args.shift();
 if (path === undefined) throw new Error("usage: bench-s2.ts CASES.jsonl --width N --out F");
-let width = 48;
+let width = 96;
 let out: string | undefined;
 while (args.length > 0) {
   const a = args.shift() as string;

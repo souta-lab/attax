@@ -142,6 +142,18 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 0,
+      "x": 1,
+      "y": 30,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -657.296618180087
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 2,
       "x": 6,
@@ -163,6 +175,18 @@
      },
      "usedHold": true,
      "value": -696.946680493087
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -699.8799164163839
     },
     {
      "placement": {
@@ -190,15 +214,15 @@
     },
     {
      "placement": {
-      "kind": "T",
-      "rotation": 1,
-      "x": 4,
-      "y": 30,
-      "lastSrs": 2,
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
       "tspin": "none"
      },
-     "usedHold": false,
-     "value": -772.284958199508
+     "usedHold": true,
+     "value": -754.3764997854719
     },
     {
      "placement": {
@@ -210,55 +234,67 @@
       "tspin": "none"
      },
      "usedHold": false,
-     "value": -776.2217092978979
+     "value": -765.6893588208569
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 4,
+      "y": 30,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -772.284958199508
     }
    ],
-   "nodes": 9696,
+   "nodes": 18244,
    "depth": 6
   },
   "stock-on": {
    "best": {
     "placement": {
-     "kind": "T",
-     "rotation": 2,
-     "x": 4,
-     "y": 30,
-     "lastSrs": 1,
+     "kind": "J",
+     "rotation": 3,
+     "x": 6,
+     "y": 29,
+     "lastSrs": 3,
      "tspin": "none"
     },
-    "usedHold": false,
-    "linesCleared": 1,
+    "usedHold": true,
+    "linesCleared": 0,
     "attack": 0,
-    "reward": -60
+    "reward": 0
    },
    "line": [
     {
      "placement": {
-      "kind": "T",
-      "rotation": 2,
-      "x": 4,
-      "y": 30,
-      "lastSrs": 1,
-      "tspin": "none"
-     },
-     "usedHold": false,
-     "linesCleared": 1,
-     "attack": 0,
-     "reward": -60
-    },
-    {
-     "placement": {
       "kind": "J",
-      "rotation": 2,
-      "x": 5,
-      "y": 30,
-      "lastSrs": 1,
+      "rotation": 3,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
       "tspin": "none"
      },
      "usedHold": true,
      "linesCleared": 0,
      "attack": 0,
      "reward": 0
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 4,
+      "y": 30,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "linesCleared": 1,
+     "attack": 0,
+     "reward": -60
     },
     {
      "placement": {
@@ -285,8 +321,8 @@
      },
      "usedHold": true,
      "linesCleared": 1,
-     "attack": 0,
-     "reward": -60
+     "attack": 1,
+     "reward": 30
     },
     {
      "placement": {
@@ -317,21 +353,45 @@
      "reward": 30
     }
    ],
-   "value": -483.7432263219488,
+   "value": -434.16472983378173,
    "breakdown": {
-    "maxHeight": -48,
-    "danger": 0,
-    "holes": -360,
-    "holeCover": -180,
-    "holeRows": -240,
-    "bumpiness": -16,
-    "bumpinessSq": -6,
-    "rowTransitions": -108,
+    "maxHeight": -66,
+    "danger": -40,
+    "holes": -420,
+    "holeCover": -252,
+    "holeRows": -280,
+    "bumpiness": -40,
+    "bumpinessSq": -39,
+    "rowTransitions": -168,
     "wellDepth": 18,
     "extraWells": 0,
     "tSlot": 0
    },
    "candidates": [
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -434.16472983378173
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -447.5598216415508
+    },
     {
      "placement": {
       "kind": "T",
@@ -406,6 +466,54 @@
     },
     {
      "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -699.8799164163839
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -738.3051239679439
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 0,
+      "x": 7,
+      "y": 30,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -738.7542377122058
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 4,
+      "y": 30,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -748.9438544449849
+    },
+    {
+     "placement": {
       "kind": "T",
       "rotation": 0,
       "x": 6,
@@ -415,9 +523,21 @@
      },
      "usedHold": false,
      "value": -754.2593755467088
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -757.9125938255729
     }
    ],
-   "nodes": 9740,
+   "nodes": 17941,
    "depth": 6
   },
   "solvency-on": {
@@ -622,6 +742,30 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -949932.64
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -949970.276
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 3,
       "x": 8,
@@ -631,6 +775,18 @@
      },
      "usedHold": true,
      "value": -949975.9214
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": -1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -949998.5029999999
     },
     {
      "placement": {
@@ -671,6 +827,18 @@
     {
      "placement": {
       "kind": "J",
+      "rotation": 1,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950032.3753999999
+    },
+    {
+     "placement": {
+      "kind": "J",
       "rotation": 3,
       "x": 0,
       "y": 29,
@@ -691,6 +859,102 @@
      },
      "usedHold": true,
      "value": -950043.6662
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950056.8387999999
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950066.2478
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950082.2431
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950083.184
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950083.184
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950086.9476
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950086.9476
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950102.002
     },
     {
      "placement": {
@@ -718,6 +982,30 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950179.1558
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950190.4465999999
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 3,
       "x": 1,
@@ -727,9 +1015,81 @@
      },
      "usedHold": true,
      "value": -950194.2102
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950216.7918
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950216.7918
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -950246.9005999999
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950290.1819999999
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 4,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950312.7636
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -950312.7636
     }
    ],
-   "nodes": 9622,
+   "nodes": 17835,
    "depth": 6
   },
   "veto-on": {
@@ -934,6 +1294,30 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7188.476
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7226.112
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 3,
       "x": 8,
@@ -943,6 +1327,18 @@
      },
      "usedHold": true,
      "value": -7231.7573999999995
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": -1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7254.339
     },
     {
      "placement": {
@@ -983,6 +1379,18 @@
     {
      "placement": {
       "kind": "J",
+      "rotation": 1,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7288.211399999999
+    },
+    {
+     "placement": {
+      "kind": "J",
       "rotation": 3,
       "x": 0,
       "y": 29,
@@ -1003,6 +1411,102 @@
      },
      "usedHold": true,
      "value": -7299.5022
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7312.6748
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7322.083799999999
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7338.0791
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7339.0199999999995
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7339.0199999999995
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7342.7836
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7342.7836
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7357.838
     },
     {
      "placement": {
@@ -1030,6 +1534,30 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7434.9918
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7446.2826
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 3,
       "x": 1,
@@ -1039,9 +1567,81 @@
      },
      "usedHold": true,
      "value": -7450.0462
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7472.627799999999
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7472.627799999999
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -7502.736599999999
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7546.018
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 4,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7568.5996
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -7568.5996
     }
    ],
-   "nodes": 9622,
+   "nodes": 17835,
    "depth": 6
   },
   "pending-frame": {
@@ -1157,7 +1757,7 @@
      "value": -87.14859846999997
     }
    ],
-   "nodes": 5076,
+   "nodes": 8861,
    "depth": 4
   },
   "speculative": {
@@ -1341,6 +1941,30 @@
     {
      "placement": {
       "kind": "J",
+      "rotation": 1,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1024.2811999999997
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1029.1201142857142
+    },
+    {
+     "placement": {
+      "kind": "J",
       "rotation": 0,
       "x": 2,
       "y": 30,
@@ -1400,6 +2024,18 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 2,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1075.0898
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 0,
       "x": 0,
@@ -1421,6 +2057,18 @@
      },
      "usedHold": false,
      "value": -1085.1833428571429
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1086.6037
     },
     {
      "placement": {
@@ -1568,6 +2216,18 @@
     },
     {
      "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1168.1294285714287
+    },
+    {
+     "placement": {
       "kind": "T",
       "rotation": 1,
       "x": 2,
@@ -1665,6 +2325,42 @@
     {
      "placement": {
       "kind": "T",
+      "rotation": 1,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1213.4339714285713
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1213.5046428571427
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1215.3725857142856
+    },
+    {
+     "placement": {
+      "kind": "T",
       "rotation": 2,
       "x": 7,
       "y": 29,
@@ -1673,6 +2369,18 @@
      },
      "usedHold": false,
      "value": -1216.0446571428572
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1218.5417142857143
     },
     {
      "placement": {
@@ -1709,6 +2417,18 @@
      },
      "usedHold": false,
      "value": -1234.4607999999996
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1238.6262571428572
     },
     {
      "placement": {
@@ -1773,6 +2493,30 @@
     {
      "placement": {
       "kind": "J",
+      "rotation": 1,
+      "x": -1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1259.9995142857144
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 1,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1262.7252142857142
+    },
+    {
+     "placement": {
+      "kind": "J",
       "rotation": 0,
       "x": 5,
       "y": 30,
@@ -1781,9 +2525,105 @@
      },
      "usedHold": true,
      "value": -1266.989057142857
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1276.5643428571427
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 2,
+      "x": 3,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1294.4927142857143
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 2,
+      "x": 4,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1296.1056857142855
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1296.8276428571428
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1310.6723142857143
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 2,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1320.8379142857143
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1344.4116857142856
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 4,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1358.525185714286
     }
    ],
-   "nodes": 17839,
+   "nodes": 25508,
    "depth": 1
   },
   "near-death": {
@@ -3100,7 +3940,7 @@
       "tspin": "none"
      },
      "usedHold": false,
-     "value": -947.924449
+     "value": -905.28436644
     },
     {
      "placement": {
@@ -3112,19 +3952,7 @@
       "tspin": "none"
      },
      "usedHold": true,
-     "value": -979.087057
-    },
-    {
-     "placement": {
-      "kind": "I",
-      "rotation": 2,
-      "x": 6,
-      "y": 29,
-      "lastSrs": 2,
-      "tspin": "none"
-     },
-     "usedHold": true,
-     "value": -1008.292593
+     "value": -972.5612849999999
     },
     {
      "placement": {
@@ -3136,10 +3964,58 @@
       "tspin": "none"
      },
      "usedHold": false,
-     "value": -1040.236148
+     "value": -988.6673289299998
+    },
+    {
+     "placement": {
+      "kind": "I",
+      "rotation": 2,
+      "x": 6,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -999.2452089999999
+    },
+    {
+     "placement": {
+      "kind": "I",
+      "rotation": 2,
+      "x": 0,
+      "y": 29,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1017.498669
+    },
+    {
+     "placement": {
+      "kind": "I",
+      "rotation": 1,
+      "x": 4,
+      "y": 28,
+      "lastSrs": 5,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1072.624642
+    },
+    {
+     "placement": {
+      "kind": "I",
+      "rotation": 1,
+      "x": -1,
+      "y": 28,
+      "lastSrs": 5,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1074.917722
     }
    ],
-   "nodes": 3000,
+   "nodes": 5082,
    "depth": 4
   },
   "accept-root": {
@@ -3344,6 +4220,30 @@
     },
     {
      "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -754.3764997854719
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 4,
+      "y": 30,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -765.6893588208569
+    },
+    {
+     "placement": {
       "kind": "T",
       "rotation": 1,
       "x": 4,
@@ -3355,7 +4255,7 @@
      "value": -772.284958199508
     }
    ],
-   "nodes": 9679,
+   "nodes": 17749,
    "depth": 6
   },
   "diverse": {
@@ -3500,6 +4400,18 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 0,
+      "x": 1,
+      "y": 30,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -657.296618180087
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 2,
       "x": 6,
@@ -3521,6 +4433,18 @@
      },
      "usedHold": true,
      "value": -696.946680493087
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 29,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -699.8799164163839
     },
     {
      "placement": {
@@ -3548,15 +4472,15 @@
     },
     {
      "placement": {
-      "kind": "T",
-      "rotation": 1,
-      "x": 4,
-      "y": 30,
-      "lastSrs": 2,
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 3,
       "tspin": "none"
      },
-     "usedHold": false,
-     "value": -772.284958199508
+     "usedHold": true,
+     "value": -754.3764997854719
     },
     {
      "placement": {
@@ -3568,10 +4492,22 @@
       "tspin": "none"
      },
      "usedHold": false,
-     "value": -776.2217092978979
+     "value": -765.6893588208569
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 4,
+      "y": 30,
+      "lastSrs": 2,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -772.284958199508
     }
    ],
-   "nodes": 9696,
+   "nodes": 18244,
    "depth": 6
   },
   "surge": {
@@ -3606,25 +4542,25 @@
     },
     {
      "placement": {
-      "kind": "J",
-      "rotation": 0,
-      "x": 0,
-      "y": 35,
-      "lastSrs": 0,
+      "kind": "S",
+      "rotation": 2,
+      "x": 6,
+      "y": 34,
+      "lastSrs": 2,
       "tspin": "none"
      },
-     "usedHold": true,
+     "usedHold": false,
      "linesCleared": 0,
      "attack": 0,
      "reward": 0
     },
     {
      "placement": {
-      "kind": "S",
-      "rotation": 2,
-      "x": 6,
-      "y": 34,
-      "lastSrs": 2,
+      "kind": "J",
+      "rotation": 0,
+      "x": 3,
+      "y": 35,
+      "lastSrs": 0,
       "tspin": "none"
      },
      "usedHold": true,
@@ -3637,7 +4573,7 @@
       "kind": "O",
       "rotation": 0,
       "x": 0,
-      "y": 34,
+      "y": 35,
       "lastSrs": 0,
       "tspin": "none"
      },
@@ -3649,10 +4585,10 @@
     {
      "placement": {
       "kind": "L",
-      "rotation": 2,
-      "x": 0,
-      "y": 32,
-      "lastSrs": 1,
+      "rotation": 0,
+      "x": 4,
+      "y": 34,
+      "lastSrs": 0,
       "tspin": "none"
      },
      "usedHold": false,
@@ -3663,19 +4599,19 @@
     {
      "placement": {
       "kind": "I",
-      "rotation": 3,
-      "x": 2,
+      "rotation": 1,
+      "x": -2,
       "y": 33,
       "lastSrs": 2,
       "tspin": "none"
      },
      "usedHold": false,
-     "linesCleared": 0,
-     "attack": 0,
-     "reward": 0
+     "linesCleared": 2,
+     "attack": 7,
+     "reward": 500
     }
    ],
-   "value": -170.10418042078422,
+   "value": -41.44203965866495,
    "breakdown": {
     "maxHeight": -30,
     "danger": 0,
@@ -3700,7 +4636,7 @@
       "tspin": "mini"
      },
      "usedHold": false,
-     "value": -170.10418042078422
+     "value": -41.44203965866495
     },
     {
      "placement": {
@@ -3715,7 +4651,7 @@
      "value": -202.19117259822826
     }
    ],
-   "nodes": 9863,
+   "nodes": 18443,
    "depth": 6
   },
   "exposure": {
@@ -3881,9 +4817,33 @@
      },
      "usedHold": false,
      "value": -1512.3241407677278
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 0,
+      "x": 1,
+      "y": 24,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1650.2282014479708
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 0,
+      "x": 5,
+      "y": 24,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1721.422574520486
     }
    ],
-   "nodes": 10158,
+   "nodes": 18930,
    "depth": 6
   }
  },
@@ -3891,14 +4851,14 @@
   "g-plain": {
    "best": {
     "placement": {
-     "kind": "J",
-     "rotation": 0,
-     "x": 2,
-     "y": 10,
-     "lastSrs": 0,
+     "kind": "T",
+     "rotation": 3,
+     "x": 5,
+     "y": 9,
+     "lastSrs": 1,
      "tspin": "none"
     },
-    "usedHold": true,
+    "usedHold": false,
     "linesCleared": 0,
     "attack": 0,
     "reward": 0
@@ -3906,28 +4866,28 @@
    "line": [
     {
      "placement": {
-      "kind": "J",
-      "rotation": 0,
-      "x": 2,
-      "y": 10,
-      "lastSrs": 0,
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 9,
+      "lastSrs": 1,
       "tspin": "none"
      },
-     "usedHold": true,
+     "usedHold": false,
      "linesCleared": 0,
      "attack": 0,
      "reward": 0
     },
     {
      "placement": {
-      "kind": "T",
-      "rotation": 1,
+      "kind": "S",
+      "rotation": 3,
       "x": 4,
       "y": 10,
-      "lastSrs": 2,
+      "lastSrs": 0,
       "tspin": "none"
      },
-     "usedHold": true,
+     "usedHold": false,
      "linesCleared": 1,
      "attack": 0,
      "reward": -60
@@ -3935,8 +4895,8 @@
     {
      "placement": {
       "kind": "Z",
-      "rotation": 3,
-      "x": 0,
+      "rotation": 1,
+      "x": -1,
       "y": 11,
       "lastSrs": 0,
       "tspin": "none"
@@ -3948,8 +4908,8 @@
     },
     {
      "placement": {
-      "kind": "S",
-      "rotation": 1,
+      "kind": "J",
+      "rotation": 2,
       "x": 7,
       "y": 12,
       "lastSrs": 0,
@@ -3963,8 +4923,8 @@
     {
      "placement": {
       "kind": "L",
-      "rotation": 3,
-      "x": 6,
+      "rotation": 1,
+      "x": 1,
       "y": 12,
       "lastSrs": 0,
       "tspin": "none"
@@ -3989,21 +4949,45 @@
      "reward": 120
     }
    ],
-   "value": -403.87806932895694,
+   "value": -296.42468069311593,
    "breakdown": {
-    "maxHeight": -60,
-    "danger": 0,
-    "holes": -420,
-    "holeCover": -264,
-    "holeRows": -280,
-    "bumpiness": -24,
-    "bumpinessSq": -15,
-    "rowTransitions": -144,
-    "wellDepth": 18,
+    "maxHeight": -66,
+    "danger": -40,
+    "holes": -540,
+    "holeCover": -276,
+    "holeRows": -360,
+    "bumpiness": -48,
+    "bumpinessSq": -42,
+    "rowTransitions": -168,
+    "wellDepth": 0,
     "extraWells": 0,
     "tSlot": 0
    },
    "candidates": [
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 9,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -296.42468069311593
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 6,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -328.910588885347
+    },
     {
      "placement": {
       "kind": "J",
@@ -4015,6 +4999,54 @@
      },
      "usedHold": true,
      "value": -403.87806932895694
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 2,
+      "x": 4,
+      "y": 10,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -433.428013420601
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 0,
+      "x": 1,
+      "y": 10,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -572.615618180087
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 0,
+      "x": 7,
+      "y": 10,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -574.3968848122059
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -587.609114268809
     },
     {
      "placement": {
@@ -4063,45 +5095,9 @@
      },
      "usedHold": true,
      "value": -626.1892045768799
-    },
-    {
-     "placement": {
-      "kind": "T",
-      "rotation": 2,
-      "x": 4,
-      "y": 10,
-      "lastSrs": 1,
-      "tspin": "none"
-     },
-     "usedHold": false,
-     "value": -652.5584679284129
-    },
-    {
-     "placement": {
-      "kind": "J",
-      "rotation": 1,
-      "x": 4,
-      "y": 10,
-      "lastSrs": 0,
-      "tspin": "none"
-     },
-     "usedHold": true,
-     "value": -657.8880802537269
-    },
-    {
-     "placement": {
-      "kind": "T",
-      "rotation": 0,
-      "x": 6,
-      "y": 10,
-      "lastSrs": 0,
-      "tspin": "none"
-     },
-     "usedHold": false,
-     "value": -669.5783755467089
     }
    ],
-   "nodes": 9766,
+   "nodes": 18231,
    "depth": 6
   },
   "g-speculative": {
@@ -4287,6 +5283,42 @@
     {
      "placement": {
       "kind": "J",
+      "rotation": 1,
+      "x": 2,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -855.4958095714285
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 6,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -861.201696
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -876.7534288571427
+    },
+    {
+     "placement": {
+      "kind": "J",
       "rotation": 3,
       "x": 3,
       "y": 9,
@@ -4295,6 +5327,30 @@
      },
      "usedHold": true,
      "value": -902.5569669999999
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 9,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -909.2373292857143
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 1,
+      "x": 3,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -918.4635535714286
     },
     {
      "placement": {
@@ -4347,6 +5403,18 @@
     {
      "placement": {
       "kind": "J",
+      "rotation": 2,
+      "x": 2,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -990.8443022857143
+    },
+    {
+     "placement": {
+      "kind": "J",
       "rotation": 3,
       "x": 1,
       "y": 9,
@@ -4366,7 +5434,7 @@
       "tspin": "none"
      },
      "usedHold": true,
-     "value": -1032.5409301428572
+     "value": -1017.9516035714286
     },
     {
      "placement": {
@@ -4382,6 +5450,30 @@
     },
     {
      "placement": {
+      "kind": "T",
+      "rotation": 1,
+      "x": 0,
+      "y": 9,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1063.7142912857146
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 1,
+      "y": 9,
+      "lastSrs": 3,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1081.7069875714285
+    },
+    {
+     "placement": {
       "kind": "J",
       "rotation": 0,
       "x": 0,
@@ -4390,10 +5482,58 @@
       "tspin": "none"
      },
      "usedHold": true,
-     "value": -1095.3876735714286
+     "value": -1084.3052157142859
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 0,
+      "x": 2,
+      "y": 10,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1087.0862888571426
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 2,
+      "x": 1,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1092.5286817142855
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 2,
+      "x": 1,
+      "y": 9,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -1102.3073209999998
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 0,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -1140.4997961428573
     }
    ],
-   "nodes": 16679,
+   "nodes": 32791,
    "depth": 2
   },
   "g-rig-40": {
@@ -4527,6 +5667,18 @@
     {
      "placement": {
       "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 29,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -586.2782254358079
+    },
+    {
+     "placement": {
+      "kind": "T",
       "rotation": 0,
       "x": 1,
       "y": 30,
@@ -4547,6 +5699,18 @@
      },
      "usedHold": true,
      "value": -662.2944502096609
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 7,
+      "y": 29,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -672.2901142688089
     },
     {
      "placement": {
@@ -4606,23 +5770,23 @@
       "tspin": "none"
      },
      "usedHold": false,
-     "value": -767.3829788208569
+     "value": -765.6893588208569
     }
    ],
-   "nodes": 9831,
+   "nodes": 18529,
    "depth": 6
   },
   "g-diverse": {
    "best": {
     "placement": {
-     "kind": "J",
-     "rotation": 0,
-     "x": 2,
-     "y": 10,
-     "lastSrs": 0,
+     "kind": "T",
+     "rotation": 3,
+     "x": 5,
+     "y": 9,
+     "lastSrs": 1,
      "tspin": "none"
     },
-    "usedHold": true,
+    "usedHold": false,
     "linesCleared": 0,
     "attack": 0,
     "reward": 0
@@ -4630,28 +5794,28 @@
    "line": [
     {
      "placement": {
-      "kind": "J",
-      "rotation": 0,
-      "x": 2,
-      "y": 10,
-      "lastSrs": 0,
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 9,
+      "lastSrs": 1,
       "tspin": "none"
      },
-     "usedHold": true,
+     "usedHold": false,
      "linesCleared": 0,
      "attack": 0,
      "reward": 0
     },
     {
      "placement": {
-      "kind": "T",
-      "rotation": 1,
+      "kind": "S",
+      "rotation": 3,
       "x": 4,
       "y": 10,
-      "lastSrs": 2,
+      "lastSrs": 0,
       "tspin": "none"
      },
-     "usedHold": true,
+     "usedHold": false,
      "linesCleared": 1,
      "attack": 0,
      "reward": -60
@@ -4659,8 +5823,8 @@
     {
      "placement": {
       "kind": "Z",
-      "rotation": 3,
-      "x": 0,
+      "rotation": 1,
+      "x": -1,
       "y": 11,
       "lastSrs": 0,
       "tspin": "none"
@@ -4672,8 +5836,8 @@
     },
     {
      "placement": {
-      "kind": "S",
-      "rotation": 1,
+      "kind": "J",
+      "rotation": 2,
       "x": 7,
       "y": 12,
       "lastSrs": 0,
@@ -4687,8 +5851,8 @@
     {
      "placement": {
       "kind": "L",
-      "rotation": 3,
-      "x": 6,
+      "rotation": 1,
+      "x": 1,
       "y": 12,
       "lastSrs": 0,
       "tspin": "none"
@@ -4713,21 +5877,45 @@
      "reward": 120
     }
    ],
-   "value": -403.87806932895694,
+   "value": -296.42468069311593,
    "breakdown": {
-    "maxHeight": -60,
-    "danger": 0,
-    "holes": -420,
-    "holeCover": -264,
-    "holeRows": -280,
-    "bumpiness": -24,
-    "bumpinessSq": -15,
-    "rowTransitions": -144,
-    "wellDepth": 18,
+    "maxHeight": -66,
+    "danger": -40,
+    "holes": -540,
+    "holeCover": -276,
+    "holeRows": -360,
+    "bumpiness": -48,
+    "bumpinessSq": -42,
+    "rowTransitions": -168,
+    "wellDepth": 0,
     "extraWells": 0,
     "tSlot": 0
    },
    "candidates": [
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 3,
+      "x": 5,
+      "y": 9,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -296.42468069311593
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 3,
+      "x": 6,
+      "y": 9,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -328.910588885347
+    },
     {
      "placement": {
       "kind": "J",
@@ -4739,6 +5927,42 @@
      },
      "usedHold": true,
      "value": -403.87806932895694
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 2,
+      "x": 4,
+      "y": 10,
+      "lastSrs": 1,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -433.428013420601
+    },
+    {
+     "placement": {
+      "kind": "T",
+      "rotation": 0,
+      "x": 1,
+      "y": 10,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": false,
+     "value": -572.615618180087
+    },
+    {
+     "placement": {
+      "kind": "J",
+      "rotation": 0,
+      "x": 7,
+      "y": 10,
+      "lastSrs": 0,
+      "tspin": "none"
+     },
+     "usedHold": true,
+     "value": -574.3968848122059
     },
     {
      "placement": {
@@ -4787,45 +6011,9 @@
      },
      "usedHold": true,
      "value": -626.1892045768799
-    },
-    {
-     "placement": {
-      "kind": "T",
-      "rotation": 2,
-      "x": 4,
-      "y": 10,
-      "lastSrs": 1,
-      "tspin": "none"
-     },
-     "usedHold": false,
-     "value": -652.5584679284129
-    },
-    {
-     "placement": {
-      "kind": "J",
-      "rotation": 1,
-      "x": 4,
-      "y": 10,
-      "lastSrs": 0,
-      "tspin": "none"
-     },
-     "usedHold": true,
-     "value": -657.8880802537269
-    },
-    {
-     "placement": {
-      "kind": "T",
-      "rotation": 0,
-      "x": 6,
-      "y": 10,
-      "lastSrs": 0,
-      "tspin": "none"
-     },
-     "usedHold": false,
-     "value": -669.5783755467089
     }
    ],
-   "nodes": 9699,
+   "nodes": 18015,
    "depth": 6
   }
  }

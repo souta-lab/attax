@@ -91,15 +91,15 @@ describe("s2-variants", () => {
       speculativePieces: [],
     };
 
-    const ref = search(input, { weights: DEFAULT_WEIGHTS, width: 48 });
+    const ref = search(input, { weights: DEFAULT_WEIGHTS, width: 96 });
     const corr = runVariantSearch(input, "corrected", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     const exist = runVariantSearch(input, "existing", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
 
@@ -150,7 +150,7 @@ describe("s2-variants", () => {
 
     const existing = runVariantSearch(input, "existing", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: true,
     });
     for (const c of existing.candidates) {
@@ -159,7 +159,7 @@ describe("s2-variants", () => {
 
     const corrected = runVariantSearch(input, "corrected", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: true,
     });
     for (const c of corrected.candidates) {
@@ -168,7 +168,7 @@ describe("s2-variants", () => {
 
     const augmented = runVariantSearch(input, "corrected_augmented", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       augmentedWeights: aug10,
       completePrunedRoots: true,
     });
@@ -313,12 +313,12 @@ describe("s2-variants", () => {
 
     const existing = runVariantSearch(input, "existing", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     const corrected = runVariantSearch(input, "corrected", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
 
@@ -348,12 +348,12 @@ describe("s2-variants", () => {
     };
     const existTall = runVariantSearch(tallInput, "existing", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     const corrTall = runVariantSearch(tallInput, "corrected", {
       weights: DEFAULT_WEIGHTS,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     // In O-piece height-19 board with due=3, any non-clearing placement reaches >= 21 (> 20)
@@ -451,12 +451,12 @@ describe("s2-variants", () => {
     };
     const existPending = runVariantSearch(pendingInput, "existing", {
       weights: weightsMaxHOnly,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     const corrPending = runVariantSearch(pendingInput, "corrected", {
       weights: weightsMaxHOnly,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     // Both O's lying flat have occupiedHeight = 2. Existing loses pending=5 after depth 0 -> maxHeight=2 (-200).
@@ -524,12 +524,12 @@ describe("s2-variants", () => {
     };
     const existRes = runVariantSearch(input, "existing", {
       weights: wAttackOnly,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     const corrRes = runVariantSearch(input, "corrected", {
       weights: wAttackOnly,
-      width: 48,
+      width: 96,
       completePrunedRoots: false,
     });
     // Step 0 I horizontal clears row 36 (combo=0, attack=0).

@@ -1,13 +1,15 @@
 /**
  * Capture golden results for the chunk 3b battery.
  *
- * The committed tools/unify/s2-golden.json was captured BEFORE the single-core
- * port, against the former private lab search (since deleted) for S2 and
- * src/ai/bot/search.ts for guideline. It is the pre-port behaviour record — do
- * not overwrite it. The S2 side now runs the shared search under profile "s2"
- * (the lab input mapped through toSharedInput, as the player does), so this
- * tool re-captures the same battery from the shared core; write to a scratch
- * path and compare bytes to re-verify the record:
+ * The committed tools/unify/s2-golden.json was originally captured BEFORE the
+ * single-core port, against the former private lab search (since deleted) for
+ * S2 and src/ai/bot/search.ts for guideline, at width 48 — the pre-port
+ * behaviour record. On 2026-11-17 the width-48 reproduction path was retired
+ * and the goldens were re-captured from the shared core at the shipped
+ * standard width 96, which is what the committed file now holds. The S2 side
+ * runs the shared search under profile "s2" (the lab input mapped through
+ * toSharedInput, as the player does); write to a scratch path and compare
+ * bytes to re-verify the record:
  *
  *   bun tools/unify/capture-s2-golden.ts /tmp/s2-golden.check.json
  *   cmp /tmp/s2-golden.check.json tools/unify/s2-golden.json
