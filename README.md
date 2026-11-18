@@ -50,6 +50,7 @@ are in [`scripts/`](scripts/).
 - [TBP](#tbp)
 - [License](#license)
 - [Why it is strong](#-why-it-is-strong)
+- [GPU movegen (provisional)](#-gpu-movegen-provisional)
 - [Fairness](#%EF%B8%8F-fairness)
 - [Caveats / not measured](#%EF%B8%8F-caveats--not-measured)
 - [The bot](#-the-bot-srcaibot)
@@ -257,6 +258,28 @@ current build.
 - **Attack efficiency against Hoiko.** Attack per piece is 0.70 vs Hoiko's 0.46
   (about 50% more). Against clys, Attax instead won on survival despite lower attack
   per piece.
+
+## ⚡ GPU movegen (provisional)
+
+The search's move generator — the breadth-first search over the engine's own inputs —
+now also runs as a Vulkan compute kernel, measured on an AMD RX 6400:
+
+- **1,205,713 BFS/s**, 23.6× the previous GPU implementation (51,115 BFS/s).
+- **Equivalence, not approximation.** The kernel's output was cross-checked in full
+  against the CPU reference: 38,611 positions, 851,287 placements and 5,355,062
+  discoverer-key pairs — **0 mismatches**. The GPU returns exactly what the CPU
+  search returns.
+- At the measured 2,299 movegen calls per decision, the kernel alone converts to
+  ≈ **524 decisions/s (T1)**. This is a conversion from the movegen stage, **not** a
+  measured end-to-end engine rate: full-pipeline integration (M4) is in progress,
+  with a decision-latency target of ≤3 ms. Provisional until the integrated engine
+  is measured.
+
+In the TBP arena Attax already holds the strongest measured record — official Cold
+Clear 2 **81–19** and intetrigence **50–1**, both at beam width 96 under the
+fair-conditions rigs described above. If the integrated GPU engine completes at the
+converted rate, it would also be the fastest in that arena; that is the outlook,
+not yet a measurement.
 
 ## Fresh-seed generalization check
 
