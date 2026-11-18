@@ -34,9 +34,11 @@ are in [`scripts/`](scripts/).
 > rulesets, with the rules differences carried as profile data; guideline play is
 > unchanged from v2, so the record above stands. In S2, the latest measurement is still
 > a foothold, not a win: against **Sold Slear**, the reigning champion of 61bi's bot lab
-> and a bot still under active development, Attax's S2 configuration took **43.1% of
-> decided games** over 120 games at beam width 96 in the lab (pre-kick-fix build, TS
-> core; details below), up from 16.75% in the earlier width-48 baseline. See
+> and a bot still under active development, Attax's S2 configuration won **38.0%**
+> (228–372) over 600 games at beam width 96 in the lab — the baseline measurement of
+> current `main` (`6655fd7`, Rust engine, config O, seeds 90001–90300; details below).
+> The previously listed 43.1% came from a different measurement (pre-kick-fix build,
+> TS core) and is not directly comparable. See
 > [Caveats](#%EF%B8%8F-caveats--not-measured) for what has *not* been measured.
 
 ## 📑 Contents
@@ -68,16 +70,17 @@ are in [`scripts/`](scripts/).
 | **Cold Clear 2** (official upstream, `ed8b193`, beam width 96) | 100 | **81–19** | **81.0%** (72.2–87.5%) | 0.8844 vs **0.8989** |
 | **Cold Clear 2** (official upstream, `ed8b193`, earlier build at beam width 48) | 100 | **79–21** | **79.0%** (70.0–85.8%) | 0.8951 vs **0.9279** |
 | **Cold Clear 2 fork** (chouhy, beam width 96) | 100 | **79–16–5** | **79.0%** (70.0–85.8%) | **0.9218** vs 0.8101 |
-| **Sold Slear** (S2 champion, s2-bot-lab) | 120 | 50–66 (4 draws) | 43.1% of decided games | 1.245 vs 1.326 |
+| **Sold Slear** (S2 champion, s2-bot-lab) | 600 | 228–372 | **38.0%** | 1.1390 vs 1.2549 |
 
 All guideline matchups use held-out seeds (never used for tuning), and every seed was
 played from both seats. The width-48 official Cold Clear 2 match was played by the
 competition profile, **attax v2** (see [Profiles](#-profiles)), under an external TBP
 rig; Attax won on survival despite the lower attack rate. The width-96 matches
 (official and fork) were played by **attax v3** (current `main`) under the same
-external TBP rig. The Sold Slear row is the S2 profile's width-96 measurement from the
-item-101 paired fleet block, played by **attax v3** (pre-kick-fix tree, TS core) under
-the lab protocol detailed below; the earlier width-48 baseline is kept in that section.
+external TBP rig. The Sold Slear row is the S2 profile's width-96 baseline measurement
+of current `main` (`6655fd7`), played by **attax v3** with the Rust engine and config O
+under the lab protocol detailed below; the earlier width-48 baseline is kept in that
+section.
 The details, conditions and limits follow.
 
 ## 🥊 Result: Hoiko
@@ -184,29 +187,33 @@ Sold Slear is the champion of 61bi's s2-bot-lab, the lab for the TETR.IO S2 rule
 the latest S2 champion, and still under active development. It is the opponent the
 S2 profile exists to chase, and the first S2 opponent Attax has measured against.
 
-**Conditions.** The current record is the width-96 arm of the item-101 paired fleet
-block, played in the lab (s2-bot-lab) over 120 scheduled games: seeds **9801–9860**,
-every seed played from both seats, against the champion's pinned WASM build under
-the lab protocol (paced mode, 1 PPS amount-only, legacy-lcg queue, 1000-lock cap).
-Attax played the unified **v3** search in its S2 configuration — config O: seed
-weights, the Φ stock potential on, the solvency and root vetoes off — at beam width
-**96**, on the pre-kick-fix tree (`1f41806`) with the TS core. Of the 120 scheduled
-games, 116 finished: **50 wins, 66 losses**; the remaining 4 were non-decided
-(champion-side compat errors, scored as draws in the block tally — not tied games).
-Attax's pooled attack per piece was 1.245 to the champion's 1.326.
+**Conditions.** The current record is the baseline measurement of current `main`,
+taken on 2026-11-18 to pin where the S2 profile stands: played in the lab
+(s2-bot-lab) over 600 games, seeds **90001–90300**, every seed played from both
+seats, against the champion's pinned WASM build under the lab protocol. Attax
+played the unified **v3** search in its S2 configuration — config O as-is — at
+beam width **96**, on `main` at `6655fd7` with the Rust engine. All 600 games
+finished and none were excluded: **228 wins, 372 losses**, no draws. Attax's
+pooled attack per piece was 1.1390 to the champion's 1.2549.
 
-| Matchup | N | W–L–D | Win rate (decided games) |
+One disclosure on the headline rate: in 42 of the 600 games the champion could
+not return a move (a public compat error on the champion side); under the
+protocol those games are counted as Attax wins, and they are included in the
+38.0% above. Excluding them, the win rate is **33.3%** (186 of 558).
+
+| Matchup | N | W–L–D | Win rate |
 |---|---|---|---|
-| Attax (S2 profile, width 96, fleet block) vs Sold Slear | 120 | 50–66–4 | **43.1%** |
-| Attax (S2 profile, width 48, earlier baseline) vs Sold Slear | 400 | 64–318–18 | **16.75%** |
+| Attax (S2 profile, width 96, current main `6655fd7`, Rust engine, config O) vs Sold Slear | 600 | 228–372–0 | **38.0%** |
+| Attax (S2 profile, width 48, earlier baseline) vs Sold Slear | 400 | 64–318–18 | **16.75%** of decided games |
 
 The width-48 row is the earlier baseline measurement (seeds 9401–9600, both seats;
 fixed driver, Φ on, veto off, hand-set weights), recorded before the width study.
-Even at width 96 this is a foothold, not a win: the champion still takes the
-matchup. But the share of decided games rose from roughly one in six in the
-baseline to roughly three in seven. An SPSA tuning campaign against the same
-champion is now running on the current build (kick fixes landed, Rust core); no
-results from it are claimed yet.
+The previously listed width-96 figure (43.1% of decided games over 120 games) came
+from a different measurement — the item-101 fleet block on the pre-kick-fix tree
+(`1f41806`) with the TS core — and is not directly comparable with the baseline
+above. Even at width 96 this is a foothold, not a win: the champion still takes
+the matchup. The baseline above is the reference point for further S2 tuning; no
+newer result is claimed yet.
 
 ## 👤 Profiles
 
@@ -239,11 +246,10 @@ claim.
 The **S2 profile** is the S2 rules profile (`tetrio-s2` in `src/core/`, harness
 in `tools/s2-lab/`) for the S2 ruleset used by 61bi's bot lab, with its own weight
 group in the shared table (including a conversion-shaping term the guideline search
-never reads). Its latest measured result is the width-96 Sold Slear match above:
-**43.1% of decided games** over 120 games in the lab (seeds 9801–9860, both seats),
-played with hand-set weights on the pre-kick-fix tree — no learned weights are part
-of this build. The SPSA tuning campaign against the champion is now running on the
-current build.
+never reads). Its latest measured result is the width-96 Sold Slear baseline
+above: **38.0%** (228–372) over 600 games in the lab (seeds 90001–90300, both
+seats), played by the Rust engine on current `main` (`6655fd7`) with config O
+as-is. That baseline is the reference point for further S2 tuning.
 
 ## 🚀 Why it is strong
 
