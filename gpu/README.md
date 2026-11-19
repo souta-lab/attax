@@ -8,8 +8,11 @@ the adoption gate below passes from this tree.
 
 ## Configuration (the step-26 final configuration)
 
-- Host: `host/vkrunner_s26.c` (single-file C Vulkan host,
-  sha256 `836b189bfab149dee953e29b646dfbc978b7fb1d59e162f1183c6d6c91d7fb85`).
+- Host: `host/vkrunner_s26.c` (single-file C Vulkan host). Vendored
+  byte-identical from the spike at sha256 `836b189b…`; the repo copy has
+  since gained the `serve` mode (see below) and now hashes to
+  `30afb034…`. The spike original is unchanged and remains the reference
+  for the step-26 sessions.
 - Movegen SPV: `shaders/movegen_s24_fci.spv` (sha256 prefix `0066dccd…`).
 - Expand SPV: `shaders/expand_s25_noba.spv` (sha256 prefix `55fa3bef…`).
 - The other 39 SPVs in `shaders/` are loaded by the host from the expand
@@ -26,6 +29,31 @@ the adoption gate below passes from this tree.
   production Rust search (`rust/attax-search`). One decision = one submit;
   measured wall ≈4.53 ms/decision on an RX 6400 (sclk 2320) vs the Rust
   reference's 57.66 ms median (M0, PC).
+
+## Serve mode (product path)
+
+```bash
+./vkrunner_s26 serve shaders/movegen_s24_fci.spv shaders/expand_s25_noba.spv <tables.bin> [device]
+```
+
+A long-lived engine process: reads 108-word decision records from
+stdin, answers each with `u32 status, u32 block_bytes` followed by the
+exact per-decision block the `run` mode writes into a results file.
+Vulkan init is paid once per process. Verified 2026-11-19 on the
+reference device: all 180 gate decisions served with status 0 and the
+assembled output passed the full adoption gate below
+(`gpu/tests/serve_smoke.py` is the driver used).
+
+## Gate status
+
+2026-11-19, from this tree (host built from `gpu/host/`, shaders from
+`gpu/shaders/`), RX 6400, final configuration: **adoption gate passed**
+— `m4-harness check` all categories 0 over 180 decisions
+(229,063 beam nodes / 52,669 finished nodes), `cmp_results` IDENTICAL,
+bench wall median 4.180 ms/decision with no other GPU tenant.
+The same gate re-passed after the serve-mode addition, in both `run`
+and `serve` modes. Remaining before main hookup: the lab-side codec
+and driver (DESIGN.md §3.2–3.3) and the engine-selection switch.
 
 ## Build
 

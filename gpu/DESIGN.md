@@ -58,10 +58,13 @@ Formats (all pre-existing, gate-verified, magic-headed):
    `vkrunner.c` (the existing harness modes on top of the API). The
    split must be behavior-preserving: the adoption gate re-runs after
    the split and must stay all-zero / IDENTICAL.
-2. **Serve mode**: a long-lived process mode of the runner that reads
+2. **Serve mode** — **implemented 2026-11-19** (ahead of the §3.1
+   split; it needed no split, only a new `main` mode around the
+   existing core): a long-lived process mode of the runner that reads
    108-word decision records from stdin and writes wire records to
    stdout, flushing per decision. Vulkan init is paid once per match,
-   not once per decision. This is the form the S2 lab can drive:
+   not once per decision. Gate-verified over all 180 decisions
+   (README "Gate status"). This is the form the S2 lab can drive:
    `tools/s2-lab/run-match.mjs` currently calls the TS `search`
    (`attax-player.ts`), whose semantics `rust/attax-search` mirrors
    bit-for-bit; a GPU driver next to `attax-player.ts` selects the serve

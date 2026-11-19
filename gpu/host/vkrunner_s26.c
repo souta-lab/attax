@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <time.h>
 #include <math.h>
+#include <unistd.h>
 #include <vulkan/vulkan.h>
 
 static void die(const char *m, VkResult r) { fprintf(stderr, "FAIL %s (%d)\n", m, r); exit(1); }
@@ -2272,13 +2273,51 @@ static int cmd_dump(const char *mg_spv, const char *ex_spv, const char *tables_p
     return bad ? 1 : 0;
 }
 
+// ---- serve mode (product path): long-lived engine process ----
+// Protocol (binary, stdin -> stdout):
+//   request:  one decision record, DEC_WORDS u32 (432 bytes), no header.
+//   response: u32 status, u32 block_bytes, then the exact per-decision
+//             block run_decision_s2 appends in run mode (the same bytes
+//             that follow the RS_MAGIC + count header in a results
+//             file), so existing results parsers consume serve output
+//             unchanged.
+// EOF on stdin at a record boundary ends the process with status 0.
+// All diagnostics go to stderr: pipeline_init's stdout chatter is
+// redirected to stderr during setup so the protocol channel stays
+// clean. Vulkan init is paid once per process, not per decision.
+static int cmd_serve(const char *mg_spv, const char *ex_spv, const char *tables_path, const char *want) {
+    fflush(stdout);
+    int saved = dup(1);
+    if (saved < 0 || dup2(2, 1) < 0) { fprintf(stderr, "serve: cannot redirect stdout\n"); return 1; }
+    vk_setup(want);  // vk_setup also prints to stdout; keep it off the protocol channel
+    pipeline_init(mg_spv, ex_spv, tables_path, 1);
+    fflush(stdout);
+    if (dup2(saved, 1) < 0) { fprintf(stderr, "serve: cannot restore stdout\n"); return 1; }
+    close(saved);
+    static uint32_t dec[DEC_WORDS];
+    for (;;) {
+        size_t got = fread(dec, 4, DEC_WORDS, stdin);
+        if (got == 0) return 0;  // clean EOF at a record boundary
+        if (got != DEC_WORDS) { fprintf(stderr, "serve: truncated decision record\n"); return 1; }
+        Out out = {0};
+        double wall, gpu;
+        int st = run_decision_s2(dec, &out, &wall, &gpu);
+        uint32_t hdr[2] = { (uint32_t)st, (uint32_t)out.len };
+        fwrite(hdr, 4, 2, stdout);
+        if (out.len) fwrite(out.buf, 1, out.len, stdout);
+        fflush(stdout);
+        free(out.buf);
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage:\n"
                         "  vkrunner_s3 expandtime <expand.spv> <tables.bin> <cases.bin> [reps] [local_size] [device]\n"
                         "  vkrunner_s2 expandcheck <expand.spv> <tables.bin> <cases.bin> [device]\n"
                         "  vkrunner_s2 run <movegen.spv> <expand.spv> <tables.bin> <decisions.bin> <out.bin> [max_decisions] [device]\n"
-                        "  vkrunner_s2 bench <movegen.spv> <expand.spv> <tables.bin> <decisions.bin> <reps> [device]\n");
+                        "  vkrunner_s2 bench <movegen.spv> <expand.spv> <tables.bin> <decisions.bin> <reps> [device]\n"
+                        "  vkrunner_s2 serve <movegen.spv> <expand.spv> <tables.bin> [device]\n");
         return 64;
     }
     const char *mode = argv[1];
@@ -2294,6 +2333,10 @@ int main(int argc, char **argv) {
         if (argc > 5) want = argv[5];
         vk_setup(want);
         return cmd_expandcheck(argv[2], argv[3], argv[4]);
+    }
+    if (!strcmp(mode, "serve")) {
+        if (argc > 5) want = argv[5];
+        return cmd_serve(argv[2], argv[3], argv[4], want);
     }
     if (!strcmp(mode, "run")) {
         if (argc > 8) want = argv[8];
