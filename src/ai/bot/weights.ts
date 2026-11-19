@@ -20,6 +20,8 @@ export interface Weights {
   readonly board: Readonly<Record<BoardFeature, number>>;
   /** Reward per garbage line produced (before cancellation — cancelling is defence). */
   readonly attack: number;
+  /** S2 root reward per attack line left after cancelling known incoming garbage. */
+  readonly conversion: number;
   /** Extra shaping per clear type, on top of the attack it produced. */
   readonly clear: Readonly<Record<ClearKind, number>>;
   /** Penalty for ending a back-to-back chain with a plain clear. */
@@ -28,6 +30,28 @@ export interface Weights {
   readonly wastedT: number;
   /** Per-ply multiplier on later rewards (1 = undiscounted). */
   readonly discount: number;
+  /**
+   * Adopt C1: terminal state value of B2B being alive, added to the board evaluation of
+   * every node (so the leaf's terminal state carries it). 0 or absent = off, and the
+   * search skips the term entirely so off is bit-identical.
+   */
+  readonly b2bState?: number;
+  /** C2: value per donation clearing 0..3 lines; all zero/absent skips the scan. */
+  readonly tSlotChain0?: number;
+  readonly tSlotChain1?: number;
+  readonly tSlotChain2?: number;
+  readonly tSlotChain3?: number;
+  /** C4: terminal value of holding a T / an I; 0 or absent = off. */
+  readonly holdT?: number;
+  readonly holdI?: number;
+  /** S2 C3: terminal value per vertical run of holes; absent/zero skips the scan. */
+  readonly holeRuns?: number;
+  /** S2 C3: terminal value per change between consecutive hole-row masks. */
+  readonly holeShifts?: number;
+  /** S2 C5: additive mini-spin clear reward by cleared line count; absent/zero = off. */
+  readonly miniSingleDelta?: number;
+  readonly miniDoubleDelta?: number;
+  readonly miniTripleDelta?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {
@@ -45,6 +69,7 @@ export const DEFAULT_WEIGHTS: Weights = {
     tSlot: 60,
   },
   attack: 90,
+  conversion: 0,
   clear: {
     single: -60,
     double: -40,
@@ -59,4 +84,11 @@ export const DEFAULT_WEIGHTS: Weights = {
   b2bBreak: -90,
   wastedT: -50,
   discount: 0.97,
+  b2bState: 0,
+  tSlotChain0: 0,
+  tSlotChain1: 0,
+  tSlotChain2: 0,
+  tSlotChain3: 0,
+  holdT: 0,
+  holdI: 0,
 };

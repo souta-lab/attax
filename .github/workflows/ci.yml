@@ -16,11 +16,49 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - run: bun install --frozen-lockfile
+      # The S2 lab driver defaults to the Rust engine (see "Search engine rule"
+      # in AGENTS.md), so the test suite needs the release CLI built first.
+      - run: cargo build --release --manifest-path rust/Cargo.toml -p attax-search-cli
       - run: bunx tsc --noEmit
       - run: bun test
       - run: bun run build
       - run: bun run lint
+
+  agreement:
+    name: TS↔Rust agreement gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: bun install --frozen-lockfile
+      - run: cargo build --release --manifest-path rust/Cargo.toml -p attax-search-cli
+      # Expectations are recorded from the TS reference implementation only;
+      # the dumper itself refuses to run under any other engine.
+      - run: ATTAX_ENGINE=ts-reference bun tools/search-port/dump-s2-cases.ts /tmp/s2-cases.jsonl
+      - run: gzip -dc rust/search-port-evidence/cases.jsonl.gz > /tmp/guideline-cases.jsonl
+      # attax-agree exits non-zero unless decision AND full agreement are 100%.
+      - run: ./rust/target/release/attax-agree /tmp/guideline-cases.jsonl --show 0
+      - run: ./rust/target/release/attax-agree /tmp/s2-cases.jsonl --show 0
+      # The reference path itself stays green.
+      - run: ATTAX_ENGINE=ts-reference bun test tools/s2-lab/shared-parity.test.ts tools/s2-lab/contracts.test.ts
+      # Corpus digest pin (default engine = Rust): the identity proof for the
+      # fixed tree. The corpus surface runs at explicit width 96 (the shipped
+      # standard; decision-corpus.ts pins it), so this digest is the width-96
+      # identity. An intentional search-semantics change re-pins this digest
+      # in the same PR, after the agreement steps above pass.
+      - run: bun tools/s2-lab/decision-corpus.ts /tmp/corpus.tsv --profile default --profile tools/s2-lab/profiles/s2-tuned.json --profile tools/s2-lab/profiles/s2-ports.json --profile tools/s2-lab/profiles/league/snap-L60.json
+      - run: test "$(sha256sum /tmp/corpus.tsv | cut -d' ' -f1)" = "3c12446683c25d1af4366f8faa7526393b4ee175b802347b1a66f3830735b536"
 
   rust:
     name: Rust (test)

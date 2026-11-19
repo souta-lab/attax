@@ -5,7 +5,7 @@
  * placement and its line clears. The bot's score is a weighted sum (see `weights.ts`);
  * nothing here knows about weights.
  */
-import { type BitBoard, COLS, FULL_ROW, ROWS } from "./movegen.js";
+import { type BitBoard, COLS, FULL_ROW } from "./movegen.js";
 
 export const BOARD_FEATURES = [
   /** Height of the tallest column (0..20) plus garbage rows that will land under it. */
@@ -43,10 +43,10 @@ const heights = new Int32Array(COLS);
 export function columnHeights(board: BitBoard, out: Int32Array = heights): Int32Array {
   out.fill(0);
   let seen = 0;
-  for (let row = 0; row < ROWS && seen !== FULL_ROW; row += 1) {
+  for (let row = 0; row < board.length && seen !== FULL_ROW; row += 1) {
     const fresh = (board[row] as number) & ~seen;
     if (fresh === 0) continue;
-    for (let x = 0; x < COLS; x += 1) if ((fresh & (1 << x)) !== 0) out[x] = ROWS - row;
+    for (let x = 0; x < COLS; x += 1) if ((fresh & (1 << x)) !== 0) out[x] = board.length - row;
     seen |= fresh;
   }
   return out;
@@ -71,7 +71,7 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
   let rowTransitions = 0;
   let covered = 0;
   const blocksAbove = new Int32Array(COLS);
-  for (let row = 0; row < ROWS; row += 1) {
+  for (let row = 0; row < board.length; row += 1) {
     const bits = board[row] as number;
     const holeBits = covered & ~bits;
     if (holeBits !== 0) {
@@ -101,15 +101,15 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
     bumpiness += d;
     bumpinessSq += d * d;
   }
-  const left = well > 0 ? (h[well - 1] as number) : ROWS;
-  const right = well < COLS - 1 ? (h[well + 1] as number) : ROWS;
+  const left = well > 0 ? (h[well - 1] as number) : board.length;
+  const right = well < COLS - 1 ? (h[well + 1] as number) : board.length;
   const wellDepth = Math.min(4, Math.min(left, right) - (h[well] as number));
 
   let extraWells = 0;
   for (let x = 0; x < COLS; x += 1) {
     if (x === well) continue;
-    const l = x > 0 ? (h[x - 1] as number) : ROWS;
-    const r = x < COLS - 1 ? (h[x + 1] as number) : ROWS;
+    const l = x > 0 ? (h[x - 1] as number) : board.length;
+    const r = x < COLS - 1 ? (h[x + 1] as number) : board.length;
     if (Math.min(l, r) - (h[x] as number) >= 3) extraWells += 1;
   }
 
@@ -129,6 +129,120 @@ export function boardFeatures(board: BitBoard, lift: number): BoardFeatures {
   };
 }
 
+/** Cell at column x and height y (0 is the floor); below-floor cells are filled. */
+function cellUp(board: BitBoard, x: number, y: number): boolean {
+  if (y < 0) return true;
+  if (y >= board.length) return false;
+  return ((board[board.length - 1 - y] as number) & (1 << x)) !== 0;
+}
+
+function columnBits(board: BitBoard, x: number, y: number, n: number): number {
+  let bits = 0;
+  for (let i = 0; i < n; i += 1) if (cellUp(board, x, y + i)) bits |= 1 << i;
+  return bits;
+}
+
+const DONATION_CELLS = {
+  down: [
+    [-1, 0],
+    [0, 0],
+    [1, 0],
+    [0, -1],
+  ],
+  left: [
+    [0, -1],
+    [0, 0],
+    [0, 1],
+    [-1, 0],
+  ],
+  right: [
+    [0, -1],
+    [0, 0],
+    [0, 1],
+    [1, 0],
+  ],
+} as const;
+type DonationSlot = { x: number; y: number; shape: keyof typeof DONATION_CELLS };
+
+function findDonationSlot(board: BitBoard, h: Int32Array): DonationSlot | null {
+  for (let x = 0; x < COLS - 2; x += 1) {
+    const h0 = h[x] as number,
+      h1 = h[x + 1] as number,
+      h2 = h[x + 2] as number;
+    if (h0 > h1 && h0 + 1 < h2) {
+      const y = h0 - 1;
+      if (
+        columnBits(board, x, y, 3) === 1 &&
+        columnBits(board, x + 1, y, 3) === 0 &&
+        columnBits(board, x + 2, y, 3) === 5
+      )
+        return { x: x + 1, y: h0, shape: "down" };
+    }
+    if (h2 > h1 && h2 + 1 < h0) {
+      const y = h2 - 1;
+      if (
+        columnBits(board, x, y, 3) === 5 &&
+        columnBits(board, x + 1, y, 3) === 0 &&
+        columnBits(board, x + 2, y, 3) === 1
+      )
+        return { x: x + 1, y: h2, shape: "down" };
+    }
+    if (h1 >= h0 && h1 + 1 < h2) {
+      const y = h1 - 3;
+      if (
+        (columnBits(board, x, y, 5) & 24) === 0 &&
+        (columnBits(board, x + 1, y, 5) & 30) === 4 &&
+        columnBits(board, x + 2, y, 5) === 16 &&
+        (cellUp(board, x + 1, y) || cellUp(board, x + 2, y - 1))
+      )
+        return { x: x + 2, y: h1 - 2, shape: "left" };
+    }
+    if (h1 >= h2 && h1 + 1 < h0) {
+      const y = h1 - 3;
+      if (
+        columnBits(board, x, y, 5) === 16 &&
+        (columnBits(board, x + 1, y, 5) & 30) === 4 &&
+        (columnBits(board, x + 2, y, 5) & 24) === 0 &&
+        (cellUp(board, x + 1, y) || cellUp(board, x, y - 1))
+      )
+        return { x, y: h1 - 2, shape: "right" };
+    }
+  }
+  return null;
+}
+
+/** C2 T-spin donation counts indexed by lines cleared; scans a private board copy. */
+export function tSlotDonations(board: BitBoard, depth: number): [number, number, number, number] {
+  const counts: [number, number, number, number] = [0, 0, 0, 0];
+  let current = board;
+  for (let i = 0; i < depth; i += 1) {
+    const slot = findDonationSlot(current, columnHeights(current, new Int32Array(COLS)));
+    if (slot === null) break;
+    const next = current.slice(),
+      len = next.length;
+    for (const [dx, dy] of DONATION_CELLS[slot.shape]) {
+      const y = slot.y + dy;
+      if (y >= 0 && y < len)
+        next[len - 1 - y] = (next[len - 1 - y] as number) | (1 << (slot.x + dx));
+    }
+    let write = len - 1,
+      cleared = 0;
+    for (let read = len - 1; read >= 0; read -= 1) {
+      const row = next[read] as number;
+      if (row === FULL_ROW) {
+        cleared += 1;
+        continue;
+      }
+      next[write--] = row;
+    }
+    for (; write >= 0; write -= 1) next[write] = 0;
+    counts[cleared] = (counts[cleared] as number) + 1;
+    if (cleared < 2) break;
+    current = next;
+  }
+  return counts;
+}
+
 function popcount(v: number): number {
   let n = v - ((v >> 1) & 0x55555555);
   n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
@@ -136,7 +250,7 @@ function popcount(v: number): number {
 }
 
 function filled(board: BitBoard, x: number, row: number): boolean {
-  if (x < 0 || x >= COLS || row >= ROWS) return true;
+  if (x < 0 || x >= COLS || row >= board.length) return true;
   if (row < 0) return false;
   return ((board[row] as number) & (1 << x)) !== 0;
 }
@@ -152,8 +266,8 @@ function bestTSlot(board: BitBoard, h: Int32Array): number {
   let best = 0;
   for (let x = 1; x < COLS - 1; x += 1) {
     // The stem sits one row below the lowest of the slot's three surface columns.
-    const row = ROWS - (h[x] as number) - 1;
-    if (row < 2 || row >= ROWS) continue;
+    const row = board.length - (h[x] as number) - 1;
+    if (row < 2 || row >= board.length) continue;
     if (filled(board, x, row)) continue;
     if (!filled(board, x - 1, row) || !filled(board, x + 1, row)) continue;
     const flat = row - 1;
@@ -163,7 +277,7 @@ function bestTSlot(board: BitBoard, h: Int32Array): number {
     const rightRoof = filled(board, x + 1, flat - 1);
     if (leftRoof === rightRoof) continue; // need exactly one overhang: one side roofed, one open
     const openSide = leftRoof ? x + 1 : x - 1;
-    if ((h[openSide] as number) > ROWS - flat) continue;
+    if ((h[openSide] as number) > board.length - flat) continue;
     let lines = 0;
     if (((board[row] as number) | (1 << x)) === FULL_ROW) lines += 1;
     if (((board[flat] as number) | (7 << (x - 1))) === FULL_ROW) lines += 1;

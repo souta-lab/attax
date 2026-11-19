@@ -10,24 +10,28 @@ Every number comes from `~/workspace/tetris-speed/REPORT.md` (Hoiko) or
 The intetrigence matchup originally approved in these blocks has been withdrawn (the owner
 judged intetrigence not a valid benchmark opponent), and its copy is removed below.
 
-On 2026-11-15 the page was reframed around the Cold Clear 2 measurements: the official
-upstream Cold Clear 2 (79–21 over 100 games) is the headline, chouhy's fork (27–13 over
-40) runs alongside, and Hoiko and clys remain as listed results. Blocks A–E below are
-the current copy; the hero lede in Block B is new in this revision.
+On 2026-11-15 the page was reframed around the Cold Clear 2 measurements; the official
+headline is now the width-96 measurement (81–19 over 100 games), the fork's width-96
+record (79–16–5 over 100) runs alongside, the official width-48 record (79–21) stays
+listed as the earlier build (the fork's width-48 record was withdrawn from the published
+table on 2026-11-17 by the owner's decision as superseded by the width-96 100-game
+record, with its per-seed records retained under `bench-results/external/cc2-fork/`),
+and Hoiko and clys remain as listed results. Blocks A–E below are the current copy; the
+hero lede in Block B is updated for width 96.
 
 ---
 
 ## Block A: tagline (replaces `BRAND.tagline` in `src/brand.ts` and the meta description in `index.html`)
 
-> A versus AI for the falling-block game. It won 79 of 100 games against the official Cold Clear 2 and 27 of 40 against a Cold Clear 2 fork.
+> A versus AI for the falling-block game. It won 81 of 100 games against the official Cold Clear 2 and 79 of 100 against a Cold Clear 2 fork.
 
 ## Block B: hero (headline, lede and the line under the stat tiles)
 
-Headline: "Attax beats the official Cold Clear 2 in 79 of 100 games."
+Headline: "Attax beats the official Cold Clear 2 in 81 of 100 games."
 
 Lede:
 
-> Same pieces, both seats, guideline versus rules over the Tetris Bot Protocol. Cold Clear 2 had a 100 ms window per move at 5 PPS paired turns; Attax played its field-40 profile with exact bag speculation. Cold Clear 2 generated more attack per piece (0.9279 to 0.8951); Attax won on survival. Win rate 79.0% (95% interval 70.0%–85.8%) on seeds 13001–13050 — fresh seeds, never used for tuning.
+> Same pieces, both seats, guideline versus rules over the Tetris Bot Protocol. Cold Clear 2 had a 100 ms window per move at 5 PPS paired turns; Attax played its field-40 profile with exact bag speculation. Cold Clear 2 generated more attack per piece (0.8989 to 0.8844); Attax won on survival. Win rate 81.0% (95% interval 72.2%–87.5%) on seeds 34001–34050 — fresh seeds, never used for tuning.
 
 Line under the stat tiles:
 
@@ -39,13 +43,16 @@ Line under the stat tiles:
 
 | Opponent | Games | W–L | Win rate (95% Wilson CI) | Attack / piece (Attax vs opponent) |
 |---|---|---|---|---|
-| Cold Clear 2 (official upstream, by MinusKelvin) | 100 | 79–21 | 79.0% (70.0–85.8%) | 0.8951 vs 0.9279 |
-| Cold Clear 2 fork (by chouhy) | 40 | 27–13 | 67.5% (52.0–79.9%) | 0.9218 vs 0.8298 |
+| Cold Clear 2 (official upstream, by MinusKelvin), beam width 96 | 100 | 81–19 | 81.0% (72.2–87.5%) | 0.8844 vs 0.8989 |
+| Cold Clear 2 (official upstream, by MinusKelvin), earlier build at beam width 48 | 100 | 79–21 | 79.0% (70.0–85.8%) | 0.8951 vs 0.9279 |
+| Cold Clear 2 fork (by chouhy), beam width 96 | 100 | 79–16–5 | 79.0% (70.0–85.8%) | 0.9218 vs 0.8101 |
 | Hoiko (Rust/WASM replica of Hoiko.exe) | 200 | 195–5 | 97.5% (94.3–98.9%) | 0.70 vs 0.46 |
 | Hoiko, Attax limited to Hoiko's 2-piece preview | 100 | 89–11 | 89.0% (81.4–93.7%) | 0.58 vs 0.46 |
 | clys (by citrus610) | 100 | 88–12 | 88.0% (80.2%–93.0%) | 0.7346 vs 0.7791 |
 
-**Cold Clear 2.** The official upstream engine by MinusKelvin (commit ed8b193) played
+**Cold Clear 2, current build.** The official upstream engine by MinusKelvin (commit ed8b193), measured the same way on seeds 34001–34050, played from both seats, with Attax's beam at width 96; Attax won 41/40 by seat, with no draws. Cold Clear 2 generated more attack per piece (0.8989 to 0.8844); Attax won on survival, clearing 7,226 lines to Cold Clear 2's 6,229. All recorded games were replay-verified.
+
+**Cold Clear 2, earlier build at beam width 48.** The official upstream engine by MinusKelvin (commit ed8b193) played
 over the Tetris Bot Protocol under guideline rules, with a 100 ms window per move and
 5 PPS paired turns; the engine process is suspended while Attax searches, so both sides
 get the same wall-clock window. Attax played its field-40 profile with exact bag
@@ -54,10 +61,11 @@ with no draws. Cold Clear 2 generated more attack per piece (0.9279 to 0.8951); 
 won on survival, clearing 7,600 lines to Cold Clear 2's 6,528. All recorded games were
 replay-verified.
 
-**Cold Clear 2 fork.** chouhy's fork of Cold Clear 2, measured the same way on seeds
-2701–2720, played from both seats; Attax won 12/15 by seat, with no draws. Attax
-generated more attack per piece (0.9218 to 0.8298). The fork cleared more lines
-(11,512 to 10,639); Attax won more games. All recorded games were replay-verified.
+**Cold Clear 2 fork, current build.** chouhy's fork of Cold Clear 2, measured the same way on
+seeds 33001–33050, played from both seats, with Attax's beam at width 96; Attax won
+38/41 by seat, with 5 draws, all at the 1000-turn cap. Attax generated more attack per
+piece (0.9218 to 0.8101). The fork cleared more lines (26,080 to 23,961); Attax won
+more games. All recorded games were replay-verified.
 
 **Hoiko.** Hoiko used preset `we`, beam 150, depth 14 and a 2-piece preview, with
 adaptation off. Both sides got the same pieces and locked one piece per 120 ms. Seeds

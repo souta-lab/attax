@@ -1,0 +1,169 @@
+{
+  "label": "field40-aligned",
+  "pairs": 10,
+  "games": 20,
+  "wins": 17,
+  "losses": 1,
+  "draws": 2,
+  "win_rate": 0.85,
+  "attax_attack": 6894,
+  "attax_pieces": 7893,
+  "attax_app": 0.8734321550741163,
+  "cc2_attack": 5984,
+  "cc2_pieces": 7877,
+  "cc2_app": 0.7596800812492065,
+  "per_game": [
+    {
+      "seed": 2401,
+      "swapped": false,
+      "outcome": "L"
+    },
+    {
+      "seed": 2401,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2402,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2402,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2403,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2403,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2404,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2404,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2405,
+      "swapped": false,
+      "outcome": "D"
+    },
+    {
+      "seed": 2405,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2406,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2406,
+      "swapped": true,
+      "outcome": "D"
+    },
+    {
+      "seed": 2407,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2407,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2408,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2408,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2409,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2409,
+      "swapped": true,
+      "outcome": "W"
+    },
+    {
+      "seed": 2410,
+      "swapped": false,
+      "outcome": "W"
+    },
+    {
+      "seed": 2410,
+      "swapped": true,
+      "outcome": "W"
+    }
+  ],
+  "evidence": [
+    {
+      "seed": 2401,
+      "replay_sha256": "1eff6de8500c39d400b5c951080b075be7ec618edc0d5a14c407572abf30e658",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2402,
+      "replay_sha256": "d8167d21823bd780c162f95cc91eeddea72a45e31b29ba9d7f2af8d3de38a776",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2403,
+      "replay_sha256": "45f5534602a41ee43f9d8c4565f6ec202df4c7f168802bce95e778768c1965fd",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2404,
+      "replay_sha256": "f756e7a207df96311a4a31b9a763ca384116f3f17fc06e2bb214092bf7a248b7",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2405,
+      "replay_sha256": "3dd37ec9c7bc37069b7121671e17513c24ad23e18412ccae0e77b73eb1fe802e",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2406,
+      "replay_sha256": "1e3220ec055483c6d7740810724337efca3ffd3cd5c5f05fbec7e6ec8a04d001",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2407,
+      "replay_sha256": "cc66466de72721c60308833ee9af5224ce038b0f4ed51245ecedc9cc5edb744c",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2408,
+      "replay_sha256": "790d33366e97a248c713fc0311626145fe096ef0461b06b7372eb8a85305317d",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2409,
+      "replay_sha256": "40c1f4fab110b42bbd013b1395ee4ae18034d054eba54ff40d63e10f79be0a78",
+      "verification": "verified 2 complete matches"
+    },
+    {
+      "seed": 2410,
+      "replay_sha256": "6b18c9680862b38799c7da271a66da0908ca5b21cb25305f14b1cf0d50979164",
+      "verification": "verified 2 complete matches"
+    }
+  ]
+}

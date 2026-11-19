@@ -1,0 +1,3 @@
+cases 596  decision agreement 596/596 (100.00%)  full agreement 431/596 (72.32%)  both-null 0
+rust ms/decision: mean 35.12 p50 27.80 p95 68.67 max 86.73   (best of 1; 26222 nodes/decision, 0.75 Mnodes/s)
+ts   ms/decision: mean 133.85 p50 115.72 p95 236.99 max 422.48   speedup ts/rust: total 3.81x  per-case p50 4.72x

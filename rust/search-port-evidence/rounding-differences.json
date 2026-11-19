@@ -1,0 +1,1157 @@
+[
+  {
+    "id": "width96/2201.jsonl:0:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 97.67429729797455,
+    "rustValue": 97.67429729797453,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2201.jsonl:0:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 45.22344825429832,
+    "rustValue": 45.223448254298305,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2201.jsonl:0:t140:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 295.855769340068,
+    "rustValue": 295.855769340068,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2201.jsonl:0:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -11.446878125778753,
+    "rustValue": -11.446878125778738,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2201.jsonl:0:t300:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 910.459621089666,
+    "rustValue": 910.4596210896659,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2201.jsonl:0:t320:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 211.43677123708974,
+    "rustValue": 211.43677123708972,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 268.585595098214,
+    "rustValue": 268.58559509821396,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 359.22461075780143,
+    "rustValue": 359.22461075780143,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 27.98369450558976,
+    "rustValue": 27.983694505589746,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 0.41638957272847676,
+    "rustValue": 0.416389572728491,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t120:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 90.67355594140118,
+    "rustValue": 90.67355594140118,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t140:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -148.5318642332334,
+    "rustValue": -148.5318642332334,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t180:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -36.770351591799226,
+    "rustValue": -36.7703515917992,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2201.jsonl:1:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -395.3047412512713,
+    "rustValue": -395.3047412512715,
+    "maxCandidateAbsError": 1.7053025658242404e-13
+  },
+  {
+    "id": "width96/2202.jsonl:0:t20:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 385.76763784747556,
+    "rustValue": 385.7676378474756,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2202.jsonl:0:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 221.56142319509718,
+    "rustValue": 221.56142319509712,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2202.jsonl:1:t20:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 136.53444231783124,
+    "rustValue": 136.53444231783124,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2202.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 81.1421937890417,
+    "rustValue": 81.1421937890417,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2202.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 149.44486112886455,
+    "rustValue": 149.44486112886455,
+    "maxCandidateAbsError": 2.1316282072803006e-14
+  },
+  {
+    "id": "width96/2202.jsonl:1:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 295.5736471571121,
+    "rustValue": 295.5736471571121,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 251.62825826380578,
+    "rustValue": 251.6282582638058,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 66.60943934615243,
+    "rustValue": 66.60943934615241,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t120:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 229.9953819096506,
+    "rustValue": 229.9953819096506,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t140:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -23.984462687830106,
+    "rustValue": -23.984462687830103,
+    "maxCandidateAbsError": 3.552713678800501e-15
+  },
+  {
+    "id": "width96/2203.jsonl:0:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 394.6381079656894,
+    "rustValue": 394.6381079656894,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t220:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 104.13007277634831,
+    "rustValue": 104.13007277634833,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t240:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 385.758661334139,
+    "rustValue": 385.758661334139,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 534.0775450933966,
+    "rustValue": 534.0775450933966,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t280:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 428.296019140068,
+    "rustValue": 428.296019140068,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:0:t360:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 52.473071450502346,
+    "rustValue": 52.47307145050237,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t20:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 411.2894131147888,
+    "rustValue": 411.2894131147888,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 16.997080778788806,
+    "rustValue": 16.997080778788813,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 428.9560807787888,
+    "rustValue": 428.9560807787888,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t140:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 556.1278035435097,
+    "rustValue": 556.1278035435097,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 68.34823664141524,
+    "rustValue": 68.34823664141524,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t220:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 133.5777650555456,
+    "rustValue": 133.57776505554563,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t240:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 78.89077858682558,
+    "rustValue": 78.89077858682558,
+    "maxCandidateAbsError": 2.1316282072803006e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -32.992410068261,
+    "rustValue": -32.992410068260995,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t300:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 185.5932199176556,
+    "rustValue": 185.59321991765555,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t320:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 412.5979968380261,
+    "rustValue": 412.59799683802606,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t340:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -29.278942378796728,
+    "rustValue": -29.278942378796717,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t380:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 13.225654699374434,
+    "rustValue": 13.225654699374441,
+    "maxCandidateAbsError": 7.105427357601002e-15
+  },
+  {
+    "id": "width96/2203.jsonl:1:t400:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 769.4258434711431,
+    "rustValue": 769.4258434711431,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2203.jsonl:1:t440:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 350.48130079392604,
+    "rustValue": 350.481300793926,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t460:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 150.61153774141286,
+    "rustValue": 150.61153774141286,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t480:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 85.58509693310498,
+    "rustValue": 85.58509693310498,
+    "maxCandidateAbsError": 9.492406860545088e-15
+  },
+  {
+    "id": "width96/2203.jsonl:1:t520:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 439.8784495022348,
+    "rustValue": 439.87844950223473,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2203.jsonl:1:t580:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 264.11689207138124,
+    "rustValue": 264.11689207138124,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t600:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -59.79073051380362,
+    "rustValue": -59.7907305138036,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t620:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 200.1719998116731,
+    "rustValue": 200.1719998116731,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t640:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 86.18732982506708,
+    "rustValue": 86.18732982506714,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t680:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 395.9392451783812,
+    "rustValue": 395.9392451783812,
+    "maxCandidateAbsError": 7.105427357601002e-15
+  },
+  {
+    "id": "width96/2203.jsonl:1:t700:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 309.94237337624224,
+    "rustValue": 309.94237337624224,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t760:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 250.1916973876555,
+    "rustValue": 250.1916973876555,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2203.jsonl:1:t860:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -1.559500427271523,
+    "rustValue": -1.5595004272715087,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 113.68259638391282,
+    "rustValue": 113.68259638391281,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -6.615907295846402,
+    "rustValue": -6.615907295846401,
+    "maxCandidateAbsError": 2.1316282072803006e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 432.99599500269443,
+    "rustValue": 432.99599500269443,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 254.6598290304076,
+    "rustValue": 254.65982903040762,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t120:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 450.53542279812683,
+    "rustValue": 450.53542279812683,
+    "maxCandidateAbsError": 2.2737367544323206e-13
+  },
+  {
+    "id": "width96/2204.jsonl:0:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 355.85124327744154,
+    "rustValue": 355.8512432774416,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t180:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 460.6481044385025,
+    "rustValue": 460.6481044385024,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2204.jsonl:0:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 238.18556965926052,
+    "rustValue": 238.18556965926055,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t220:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 87.778589879418,
+    "rustValue": 87.778589879418,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2204.jsonl:0:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 15.35816099283648,
+    "rustValue": 15.358160992836469,
+    "maxCandidateAbsError": 1.0658141036401503e-14
+  },
+  {
+    "id": "width96/2204.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 221.36321236712126,
+    "rustValue": 221.3632123671212,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2204.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 279.21878329804167,
+    "rustValue": 279.21878329804167,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2204.jsonl:1:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 376.734294823031,
+    "rustValue": 376.734294823031,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2204.jsonl:1:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 919.3474323822585,
+    "rustValue": 919.3474323822584,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2204.jsonl:1:t180:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 193.19996482413165,
+    "rustValue": 193.19996482413165,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2205.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -94.5339928393922,
+    "rustValue": -94.53399283939218,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2206.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 565.0354868506231,
+    "rustValue": 565.0354868506232,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2206.jsonl:1:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 711.6170091552052,
+    "rustValue": 711.6170091552051,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2207.jsonl:0:t20:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 412.86142991775847,
+    "rustValue": 412.8614299177585,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 157.80780416978445,
+    "rustValue": 157.80780416978445,
+    "maxCandidateAbsError": 4.973799150320701e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 6.115405665300491,
+    "rustValue": 6.115405665300497,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t120:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 443.9539571730504,
+    "rustValue": 443.95395717305047,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 423.2290899177585,
+    "rustValue": 423.22908991775853,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 75.0424479240536,
+    "rustValue": 75.04244792405359,
+    "maxCandidateAbsError": 2.1316282072803006e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t220:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -208.44547354662114,
+    "rustValue": -208.4454735466211,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 170.78652674706595,
+    "rustValue": 170.786526747066,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t300:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 424.16058327744156,
+    "rustValue": 424.1605832774416,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t320:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 144.81818795964816,
+    "rustValue": 144.81818795964816,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2207.jsonl:0:t340:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 443.24663352517996,
+    "rustValue": 443.24663352517996,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2207.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 16.793223777441582,
+    "rustValue": 16.793223777441586,
+    "maxCandidateAbsError": 7.105427357601002e-15
+  },
+  {
+    "id": "width96/2208.jsonl:0:t20:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 388.99378010404166,
+    "rustValue": 388.99378010404166,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:0:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 795.3143179965613,
+    "rustValue": 795.3143179965613,
+    "maxCandidateAbsError": 8.526512829121202e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 399.798144235355,
+    "rustValue": 399.798144235355,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 359.0723623807223,
+    "rustValue": 359.07236238072227,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 295.20142967424414,
+    "rustValue": 295.20142967424414,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t180:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 393.7285596981491,
+    "rustValue": 393.7285596981492,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 345.7409974235163,
+    "rustValue": 345.7409974235164,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t320:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 135.18719153995204,
+    "rustValue": 135.18719153995204,
+    "maxCandidateAbsError": 7.105427357601002e-15
+  },
+  {
+    "id": "width96/2208.jsonl:1:t380:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -193.76456201731403,
+    "rustValue": -193.76456201731395,
+    "maxCandidateAbsError": 8.526512829121202e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t440:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 245.79958895573122,
+    "rustValue": 245.79958895573117,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t460:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 376.21971501310577,
+    "rustValue": 376.21971501310577,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t500:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 132.19225637388996,
+    "rustValue": 132.19225637389002,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t540:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 488.9919397445165,
+    "rustValue": 488.9919397445165,
+    "maxCandidateAbsError": 3.552713678800501e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t560:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 301.8250758953472,
+    "rustValue": 301.8250758953472,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2208.jsonl:1:t580:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 432.99599500269443,
+    "rustValue": 432.99599500269443,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 467.9160189190028,
+    "rustValue": 467.91601891900274,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 968.1203724175097,
+    "rustValue": 968.1203724175097,
+    "maxCandidateAbsError": 2.2737367544323206e-13
+  },
+  {
+    "id": "width96/2209.jsonl:0:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 516.2930365446945,
+    "rustValue": 516.2930365446945,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t120:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 347.31744508694396,
+    "rustValue": 347.31744508694396,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t140:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 510.692770038669,
+    "rustValue": 510.6927700386691,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:0:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 182.4197407787888,
+    "rustValue": 182.41974077878882,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t180:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 31.39471486577401,
+    "rustValue": 31.394714865774006,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 926.8642100875435,
+    "rustValue": 926.8642100875436,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:0:t220:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 42.53155057167474,
+    "rustValue": 42.53155057167474,
+    "maxCandidateAbsError": 1.0658141036401503e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 367.27753368162877,
+    "rustValue": 367.27753368162877,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t300:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -46.86300499730554,
+    "rustValue": -46.86300499730553,
+    "maxCandidateAbsError": 7.105427357601002e-15
+  },
+  {
+    "id": "width96/2209.jsonl:0:t360:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 361.71589119587657,
+    "rustValue": 361.71589119587657,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t380:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -12.40240060974576,
+    "rustValue": -12.402400609745772,
+    "maxCandidateAbsError": 8.526512829121202e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t420:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 4.896295864935981,
+    "rustValue": 4.896295864935988,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t440:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 243.012053113954,
+    "rustValue": 243.01205311395398,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t460:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 202.7394475131322,
+    "rustValue": 202.73944751313223,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t500:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 290.1722529271876,
+    "rustValue": 290.1722529271876,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:0:t540:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 396.89316224696836,
+    "rustValue": 396.89316224696836,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t560:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 85.23835977859633,
+    "rustValue": 85.23835977859633,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t660:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 517.9332551614798,
+    "rustValue": 517.9332551614797,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:0:t680:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 43.92667913247558,
+    "rustValue": 43.926679132475584,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t720:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 442.4084753654492,
+    "rustValue": 442.4084753654492,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t840:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 214.78636774826873,
+    "rustValue": 214.78636774826876,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t860:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 164.199994816484,
+    "rustValue": 164.19999481648398,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t880:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 115.67758826041663,
+    "rustValue": 115.67758826041664,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t900:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 81.30510164601644,
+    "rustValue": 81.30510164601645,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:0:t920:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -0.14342552838807876,
+    "rustValue": -0.1434255283880823,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 241.35563941809664,
+    "rustValue": 241.35563941809656,
+    "maxCandidateAbsError": 8.526512829121202e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 67.74260135634722,
+    "rustValue": 67.74260135634724,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t140:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 56.25430317856121,
+    "rustValue": 56.25430317856121,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -14.870683354198604,
+    "rustValue": -14.87068335419849,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:1:t180:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 552.0932024683443,
+    "rustValue": 552.0932024683442,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:1:t300:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 294.263329652876,
+    "rustValue": 294.26332965287605,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t320:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 355.63353320132086,
+    "rustValue": 355.63353320132086,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t340:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 644.5890363584839,
+    "rustValue": 644.589036358484,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:1:t360:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -91.08192942608858,
+    "rustValue": -91.08192942608858,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t380:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 178.17194796754274,
+    "rustValue": 178.17194796754274,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t400:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 744.8717484535655,
+    "rustValue": 744.8717484535655,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t440:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 433.14107396532086,
+    "rustValue": 433.14107396532086,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t460:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 831.8248335685304,
+    "rustValue": 831.8248335685305,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2209.jsonl:1:t480:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 430.5375142292946,
+    "rustValue": 430.53751422929463,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t520:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 65.8189395603172,
+    "rustValue": 65.8189395603172,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t580:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -18.262954144769616,
+    "rustValue": -18.2629541447696,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2209.jsonl:1:t600:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -21.676691121731764,
+    "rustValue": -21.67669112173175,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 12.615919191766409,
+    "rustValue": 12.61591919176641,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 825.9793840209793,
+    "rustValue": 825.9793840209793,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t120:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 364.33497522709285,
+    "rustValue": 364.33497522709285,
+    "maxCandidateAbsError": 8.526512829121202e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t160:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 251.57619028448696,
+    "rustValue": 251.57619028448698,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t200:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 86.73889934747558,
+    "rustValue": 86.73889934747558,
+    "maxCandidateAbsError": 7.105427357601002e-15
+  },
+  {
+    "id": "width96/2210.jsonl:0:t260:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 416.7959242155991,
+    "rustValue": 416.7959242155991,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t300:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 70.00296729423316,
+    "rustValue": 70.00296729423314,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t320:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -143.09577332625116,
+    "rustValue": -143.0957733262511,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t340:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 303.2565095573787,
+    "rustValue": 303.25650955737876,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t380:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -276.95210297625954,
+    "rustValue": -276.9521029762594,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t400:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 927.7294338857888,
+    "rustValue": 927.7294338857888,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t480:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 479.7277227614607,
+    "rustValue": 479.7277227614609,
+    "maxCandidateAbsError": 1.7053025658242404e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t500:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 74.90657235082006,
+    "rustValue": 74.90657235082007,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:0:t520:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 250.72860099595997,
+    "rustValue": 250.72860099596,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t620:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 454.77699957272847,
+    "rustValue": 454.7769995727285,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t640:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 71.57520195353663,
+    "rustValue": 71.57520195353662,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  },
+  {
+    "id": "width96/2210.jsonl:0:t680:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 647.662425780282,
+    "rustValue": 647.6624257802819,
+    "maxCandidateAbsError": 1.1368683772161603e-13
+  },
+  {
+    "id": "width96/2210.jsonl:1:t40:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 276.87270336397364,
+    "rustValue": 276.8727033639737,
+    "maxCandidateAbsError": 5.684341886080802e-14
+  },
+  {
+    "id": "width96/2210.jsonl:1:t60:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 750.2006145851714,
+    "rustValue": 750.2006145851711,
+    "maxCandidateAbsError": 2.2737367544323206e-13
+  },
+  {
+    "id": "width96/2210.jsonl:1:t80:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": 281.49993602848247,
+    "rustValue": 281.49993602848247,
+    "maxCandidateAbsError": 2.842170943040401e-14
+  },
+  {
+    "id": "width96/2210.jsonl:1:t100:spec",
+    "cause": "powf/JS exponentiation rounding at chance depth 6",
+    "tsValue": -41.84993637643006,
+    "rustValue": -41.84993637643005,
+    "maxCandidateAbsError": 1.4210854715202004e-14
+  }
+]

@@ -19,6 +19,11 @@ tools/hoiko-oracle/ScpDriverInterface.dll
 
 # Rust build artifacts (the built wasm is checked in: the app ships it)
 rust/target/
+rust/target-plain/
+rust/target-native/
 
 # Hoiko config-port raw per-node dumps (bulky; reports/READMEs are kept)
 evidence/hoiko-config/**/*-replica.txt
+
+# Raw rematch streams (summaries and compressed evidence are retained separately).
+/tools/cc2-rematch/runs/

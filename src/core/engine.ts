@@ -5,7 +5,6 @@
  */
 
 import {
-  attackForClear,
   cancelPending,
   genGarbageHoles,
   isDifficultClear,
@@ -15,6 +14,8 @@ import {
   tickPending,
 } from "./garbage.js";
 import { bottomCellsOf, cellsFor, type PieceKind, pieceCellValue } from "./pieces.js";
+import { awardLock, RULES_PROFILES, type RulesProfile } from "./rules.js";
+import { classifyS2Spin } from "./s2-spin.js";
 import { asRotation, kickTable, type Rotation } from "./srs.js";
 import { classifyTspin, type TspinKind } from "./tspin.js";
 import type {
@@ -26,7 +27,7 @@ import type {
   LockAction,
   LockTransition,
 } from "./types.js";
-import { COLS, ROWS } from "./types.js";
+import { COLS } from "./types.js";
 
 type Grid = CellValue[][];
 
@@ -73,6 +74,8 @@ interface SpawnState {
 }
 
 export interface EngineOptions {
+  /** S2 stage 1: lock awards/board only; input, spawn and delivery gates remain provisional. */
+  readonly rulesProfile?: RulesProfile;
   readonly random?: () => number;
   /** Locks a pending garbage chunk waits before spawning (default GARBAGE_DELAY). */
   readonly garbageDelay?: number | undefined;
@@ -94,8 +97,10 @@ function shuffledBag(rand: () => number): PieceKind[] {
 }
 
 export function createEngine(options: EngineOptions = {}): CorePort {
+  const profile = options.rulesProfile ?? "guideline";
+  const { rows: ROWS } = RULES_PROFILES[profile];
   const rand = options.random ?? Math.random;
-  let grid: Grid = emptyGrid();
+  let grid: Grid = emptyGrid(ROWS);
   let queue: PieceKind[] = [
     ...shuffledBag(rand),
     ...shuffledBag(rand),
@@ -115,6 +120,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   let lockId = 0;
   let lastAction: LockAction = "None";
   let lastRawAttack = 0;
+  let lastSurgeReleased = 0;
   let lastSentAttack = 0;
   let gameOver = false;
   let pending: PendingChunk[] = [];
@@ -156,16 +162,18 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     const cells = cellsFor(kind, 0);
     let minY = 0;
     for (const c of cells) if (c.y < minY) minY = c.y;
+    // TODO S2-SPEC Unpinned #6: pin S2 hidden spawn coordinates; retain legacy spawn for now.
     return -minY;
   }
 
   function applyClear(cleared: number, tspin: TspinKind, perfectClear: boolean): void {
+    lastSurgeReleased = 0;
     lastAction = actionForClear(cleared, tspin, perfectClear);
     if (cleared === 0) {
       // Binary `Others.CalcAtk` (Tetriz_Common.cpp 530): `if (combo > 0) combo *= -1;
       // else combo = 0` — the exe's `postCombo` is negative on a broken combo
       // (evidence/hoiko-fullgame/*.jsonl: -1/-2/-3).
-      nativeCombo = nativeCombo > 0 ? -nativeCombo : 0;
+      nativeCombo = profile === "tetrio-s2" ? 0 : nativeCombo > 0 ? -nativeCombo : 0;
       combo = -1;
       lastAttack = 0;
       lastBlocked = 0;
@@ -185,21 +193,26 @@ export function createEngine(options: EngineOptions = {}): CorePort {
     combo += 1;
     if (combo > 0) gained += 50 * combo * level;
     score += gained;
-    const attack = attackForClear({
+    const clearInfo = {
       lines: cleared,
       tspinLines,
       combo,
       b2bActive: b2bBefore,
       perfectClear,
       tspinKind: tspin,
-    });
+    };
+    const award = awardLock(profile, clearInfo, nativeBtb);
+    lastSurgeReleased = award.surgeReleased;
+    const attack = award.attack;
     const blocked = cancelPending(pending, attack);
     lastRawAttack = attack;
     lastBlocked = blocked;
     lastAttack = attack - blocked;
     lastSentAttack = attack - blocked;
     outbox += attack - blocked;
-    if (perfectClear) {
+    if (profile === "tetrio-s2") {
+      nativeBtb = award.difficultChain;
+    } else if (perfectClear) {
       nativeBtb = cleared >= 4 ? nativeBtb + 1 : 0;
     } else if (difficult) {
       nativeBtb += 1;
@@ -218,6 +231,14 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       gameOver = true;
       return;
     }
+    const s2Spin =
+      profile === "tetrio-s2"
+        ? classifyS2Spin(
+            a,
+            (x, y) => x < 0 || x >= COLS || y < 0 || y >= ROWS || (grid[y]?.[x] ?? 0) !== 0,
+            (dx, dy) => !collides(a.kind, a.rotation, a.x + dx, a.y + dy),
+          )
+        : "none";
     const value = pieceCellValue(a.kind);
     for (const c of cells) {
       const x = a.x + c.x;
@@ -227,7 +248,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         if (row !== undefined) row[x] = value;
       }
     }
-    const tspin = detectTspin(a);
+    const tspin = profile === "tetrio-s2" ? s2Spin : detectTspin(a);
     const kept: Grid = [];
     let cleared = 0;
     for (const row of grid) {
@@ -250,6 +271,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       nativeCombo,
       nativeBtb,
       rawAttack: lastRawAttack,
+      ...(profile === "tetrio-s2" ? { surgeReleased: lastSurgeReleased } : {}),
       sentAttack: lastSentAttack,
       lockId,
     };
@@ -525,7 +547,13 @@ export function createEngine(options: EngineOptions = {}): CorePort {
         const swapped = hold;
         hold = cur;
         canHold = false;
-        const s: SpawnState = { kind: swapped, rotation: 0, x: 3, y: 0, lastSrs: 0 };
+        const s: SpawnState = {
+          kind: swapped,
+          rotation: 0,
+          x: 3,
+          y: profile === "guideline" ? 0 : spawnY(swapped),
+          lastSrs: 0,
+        };
         if (collides(s.kind, s.rotation, s.x, s.y)) {
           gameOver = true;
           active = s;
@@ -556,7 +584,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       waitGarbage = wait;
     },
     reset(): void {
-      grid = emptyGrid();
+      grid = emptyGrid(ROWS);
       queue = [
         ...shuffledBag(rand),
         ...shuffledBag(rand),
@@ -575,6 +603,7 @@ export function createEngine(options: EngineOptions = {}): CorePort {
       lockId = 0;
       lastAction = "None";
       lastRawAttack = 0;
+      lastSurgeReleased = 0;
       lastSentAttack = 0;
       gameOver = false;
       active = null;
@@ -591,6 +620,6 @@ export function createEngine(options: EngineOptions = {}): CorePort {
   };
 }
 
-function emptyGrid(): Grid {
-  return Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => 0 as CellValue));
+function emptyGrid(rows: number): Grid {
+  return Array.from({ length: rows }, () => Array.from({ length: COLS }, () => 0 as CellValue));
 }

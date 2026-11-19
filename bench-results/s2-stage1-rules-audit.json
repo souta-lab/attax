@@ -1,0 +1,13 @@
+{
+  "seeds": "3001-3001",
+  "locks": 39,
+  "agree": 39,
+  "breakdown": {
+    "hoiko=0 engine=0 (None)": 32,
+    "hoiko=1 engine=1 (Single)": 2,
+    "hoiko=2 engine=2 (Double)": 2,
+    "hoiko=4 engine=4 (Quad)": 1,
+    "hoiko=5 engine=5 (Tss)": 1,
+    "hoiko=6 engine=6 (Tsd)": 1
+  }
+}

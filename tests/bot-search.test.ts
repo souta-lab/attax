@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { boardFeatures } from "../src/ai/bot/features.js";
 import { createBot } from "../src/ai/bot/fighter.js";
 import { spawnPosition } from "../src/ai/bot/movegen.js";
-import { search } from "../src/ai/bot/search.js";
+import { dedupe, search } from "../src/ai/bot/search.js";
 import { DEFAULT_WEIGHTS } from "../src/ai/bot/weights.js";
 import { resolveFaithfulHoikoOptions } from "../src/ai/hoiko/faithful.js";
 import { runMatch } from "../src/bench/match.js";
@@ -103,6 +103,152 @@ describe("search", () => {
     expect(r.candidates[0]?.value).toBe(r.value);
     for (let i = 1; i < r.candidates.length; i += 1) {
       expect((r.candidates[i - 1]?.value ?? 0) >= (r.candidates[i]?.value ?? 0)).toBe(true);
+    }
+  });
+});
+
+describe("beam dedupe key", () => {
+  // Two children that share board, queue index, hold and B2B. Sorted best-first.
+  const base = {
+    board: board(0x3f0, 0x3fe),
+    next: 2,
+    hold: "T" as PieceKind | null,
+    canHold: true,
+    b2b: false,
+    combo: -1,
+    lift: 0,
+  };
+
+  test("merges true duplicates under both profiles", () => {
+    for (const profile of ["guideline", "s2"] as const) {
+      const kept = dedupe(
+        [
+          { ...base, id: "a" },
+          { ...base, id: "b" },
+        ],
+        10,
+        false,
+        profile,
+      );
+      expect(kept.map((n) => n.id)).toEqual(["a"]);
+    }
+    const dflt = dedupe(
+      [
+        { ...base, id: "a" },
+        { ...base, id: "b" },
+      ],
+      10,
+    );
+    expect(dflt.map((n) => n.id)).toEqual(["a"]);
+  });
+
+  test("s2: keeps states that differ only in combo (combo feeds attack)", () => {
+    const kept = dedupe(
+      [
+        { ...base, combo: 3, id: "chain" },
+        { ...base, combo: -1, id: "cold" },
+      ],
+      10,
+      false,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["chain", "cold"]);
+  });
+
+  test("s2: keeps states that differ only in lift (garbage still to land)", () => {
+    for (const guideline of [false, true]) {
+      const kept = dedupe(
+        [
+          { ...base, lift: 0, id: "clean" },
+          { ...base, lift: 4, id: "lifted" },
+        ],
+        10,
+        guideline,
+        "s2",
+      );
+      expect(kept.map((n) => n.id)).toEqual(["clean", "lifted"]);
+    }
+  });
+
+  test("s2: merges states that differ only in hold availability (production lab key has no canHold segment)", () => {
+    // Inert in production: every expanded child has canHold true.
+    const kept = dedupe(
+      [
+        { ...base, canHold: true, id: "a" },
+        { ...base, canHold: false, id: "b" },
+      ],
+      10,
+      false,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["a"]);
+  });
+
+  test("s2: never folds combo, even with the guideline rig flag", () => {
+    const kept = dedupe(
+      [
+        { ...base, combo: 3, id: "chain" },
+        { ...base, combo: -1, id: "cold" },
+      ],
+      10,
+      true,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["chain", "cold"]);
+  });
+
+  test("s2: keeps states that differ only in residual pending", () => {
+    const kept = dedupe(
+      [
+        { ...base, pending: 0, id: "clear" },
+        { ...base, pending: 5, id: "pressured" },
+      ],
+      10,
+      false,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["clear", "pressured"]);
+  });
+
+  test("s2: keeps states that differ only in garbage flags", () => {
+    const clean = new Uint8Array(20);
+    const flagged = new Uint8Array(20);
+    flagged[19] = 1;
+    const kept = dedupe(
+      [
+        { ...base, garbageRows: clean, id: "clean" },
+        { ...base, garbageRows: flagged, id: "garbage" },
+      ],
+      10,
+      false,
+      "s2",
+    );
+    expect(kept.map((n) => n.id)).toEqual(["clean", "garbage"]);
+  });
+
+  test("guideline profile (and the default) keeps the legacy key: combo/lift/canHold merge", () => {
+    const variants = [{ combo: 3 }, { lift: 4 }, { canHold: false }];
+    for (const diff of variants) {
+      const nodes = [
+        { ...base, id: "a" },
+        { ...base, ...diff, id: "b" },
+      ];
+      expect(dedupe(nodes, 10, false, "guideline")).toHaveLength(1);
+      expect(dedupe(nodes, 10, true, "guideline")).toHaveLength(1);
+      expect(dedupe(nodes, 10)).toHaveLength(1);
+    }
+  });
+
+  test("guideline profile still separates b2b, hold and queue index", () => {
+    for (const diff of [{ b2b: true }, { hold: "I" as PieceKind }, { next: 3 }]) {
+      const kept = dedupe(
+        [
+          { ...base, id: "a" },
+          { ...base, ...diff, id: "b" },
+        ],
+        10,
+      );
+      expect(kept).toHaveLength(2);
     }
   });
 });

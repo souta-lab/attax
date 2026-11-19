@@ -1,0 +1,40 @@
+{
+  "matches": [
+    {
+      "seed": 34006,
+      "swapped": false,
+      "winner": 0,
+      "turns": 89,
+      "attack": [
+        89,
+        84
+      ],
+      "lines": [
+        83,
+        66
+      ],
+      "pieces": [
+        89,
+        88
+      ]
+    },
+    {
+      "seed": 34006,
+      "swapped": true,
+      "winner": 0,
+      "turns": 132,
+      "attack": [
+        131,
+        119
+      ],
+      "lines": [
+        106,
+        107
+      ],
+      "pieces": [
+        132,
+        131
+      ]
+    }
+  ]
+}

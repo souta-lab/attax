@@ -17,9 +17,16 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { MatchRecord, SideRecord } from "../src/bench/match.js";
-import { type Oriented, summarize } from "../src/bench/summary.js";
+import { type Oriented, summarize, wilson } from "../src/bench/summary.js";
 import type { GameRow, MatchupRow, Results } from "../src/data/results.js";
-import { cc2ForkGames, cc2Games, clysGames, externalText, pageCopy } from "./external-results.js";
+import {
+  cc2ForkW96Games,
+  cc2Games,
+  cc2W96Games,
+  clysGames,
+  externalText,
+  pageCopy,
+} from "./external-results.js";
 
 const DIR = new URL("../bench-results/", import.meta.url);
 
@@ -98,6 +105,23 @@ function row(id: string, label: string, detail: string, games: readonly Oriented
     rivalAttackPerPiece: s.b.attackPerPiece,
     linesPerGame: s.a.linesPerGame,
     rivalLinesPerGame: s.b.linesPerGame,
+  };
+}
+
+/** External matchup summaries compute winRate and Wilson CI over all games (including draws). */
+function externalRow(
+  id: string,
+  label: string,
+  detail: string,
+  games: readonly Oriented[],
+): MatchupRow {
+  const s = summarize(games);
+  const [low, high] = wilson(s.a.wins, s.games);
+  return {
+    ...row(id, label, detail, games),
+    winRate: s.games > 0 ? s.a.wins / s.games : 0,
+    low,
+    high,
   };
 }
 
@@ -189,6 +213,7 @@ interface ExternalSummary {
   readonly wins: number;
   readonly losses: number;
   readonly draws: number;
+  readonly win_rate: number;
   readonly totals: {
     readonly attax: { readonly attack_per_piece: number; readonly lines: number };
     readonly opponent: { readonly attack_per_piece: number; readonly lines: number };
@@ -203,10 +228,11 @@ function assertExternal(r: MatchupRow, summary: ExternalSummary): void {
     [r.wins, summary.wins],
     [r.losses, summary.losses],
     [r.draws, summary.draws],
+    [r.winRate, summary.win_rate],
     [r.attackPerPiece, summary.totals.attax.attack_per_piece],
     [r.rivalAttackPerPiece, summary.totals.opponent.attack_per_piece],
-    [r.linesPerGame * r.games, summary.totals.attax.lines],
-    [r.rivalLinesPerGame * r.games, summary.totals.opponent.lines],
+    [Math.round(r.linesPerGame * r.games), summary.totals.attax.lines],
+    [Math.round(r.rivalLinesPerGame * r.games), summary.totals.opponent.lines],
   ]) {
     if (actual !== expected)
       throw new Error(`External record/summary mismatch: ${actual} != ${expected}`);
@@ -214,7 +240,7 @@ function assertExternal(r: MatchupRow, summary: ExternalSummary): void {
 }
 
 const clysRecords = clysGames();
-const clys = row(
+const clys = externalRow(
   "clys",
   "clys (by citrus610)",
   "external referee; generated attack before cancellation; both seats counted",
@@ -224,29 +250,42 @@ const clysSummary = JSON.parse(externalText("clys/summary.json"));
 assertExternal(clys, clysSummary);
 rows.push(clys);
 
+const cc2Detail =
+  "external referee over TBP; generated attack before cancellation; both seats counted";
 const cc2Records = cc2Games();
-const cc2 = row(
+const cc2 = externalRow(
   "cc2",
   "Cold Clear 2 (official upstream, by MinusKelvin)",
-  "external referee over TBP; generated attack before cancellation; both seats counted",
+  `${cc2Detail}; earlier build at beam width 48`,
   cc2Records,
 );
 const cc2Summary = JSON.parse(externalText("cc2/summary.json"));
 assertExternal(cc2, cc2Summary);
 rows.push(cc2);
 
-const cc2ForkRecords = cc2ForkGames();
-const cc2Fork = row(
-  "cc2-fork",
+const cc2ForkW96Records = cc2ForkW96Games();
+const cc2ForkW96Summary = JSON.parse(externalText("cc2-fork-w96/summary.json"));
+const cc2ForkW96 = externalRow(
+  "cc2-fork-w96",
   "Cold Clear 2 fork (by chouhy)",
-  "external referee over TBP; generated attack before cancellation; both seats counted",
-  cc2ForkRecords,
+  `${cc2Detail}; beam width ${cc2ForkW96Summary.beam_width}`,
+  cc2ForkW96Records,
 );
-const cc2ForkSummary = JSON.parse(externalText("cc2-fork/summary.json"));
-assertExternal(cc2Fork, cc2ForkSummary);
-rows.push(cc2Fork);
+assertExternal(cc2ForkW96, cc2ForkW96Summary);
+rows.push(cc2ForkW96);
 
-const tagline = `A versus AI for the falling-block game. It won ${cc2.wins} of ${cc2.games} games against the official Cold Clear 2 and ${cc2Fork.wins} of ${cc2Fork.games} against a Cold Clear 2 fork.`;
+const cc2W96Records = cc2W96Games();
+const cc2W96Summary = JSON.parse(externalText("cc2-w96/summary.json"));
+const cc2W96 = externalRow(
+  "cc2-w96",
+  "Cold Clear 2 (official upstream, by MinusKelvin)",
+  `${cc2Detail}; beam width ${cc2W96Summary.beam_width}`,
+  cc2W96Records,
+);
+assertExternal(cc2W96, cc2W96Summary);
+rows.push(cc2W96);
+
+const tagline = `A versus AI for the falling-block game — the strongest measured in guideline rules. It won ${cc2W96.wins} of ${cc2W96.games} games against the official Cold Clear 2 and ${cc2ForkW96.wins} of ${cc2ForkW96.games} against a Cold Clear 2 fork.`;
 const conditions = JSON.parse(externalText("conditions.json")).values;
 const clysSettings = JSON.parse(externalText("clys/clys-7001.json"));
 const parity = (name: string) =>
@@ -270,7 +309,8 @@ if (
   throw new Error("Seat summary mismatch");
 for (const [records, summary] of [
   [cc2Records, cc2Summary],
-  [cc2ForkRecords, cc2ForkSummary],
+  [cc2W96Records, cc2W96Summary],
+  [cc2ForkW96Records, cc2ForkW96Summary],
 ] as const) {
   const wins = seatWinsOf(records);
   if (wins("left") !== summary.seat_wins["0"] || wins("right") !== summary.seat_wins["1"])
@@ -305,12 +345,27 @@ const copy = pageCopy({
   cc2WinRate: `${(cc2.winRate * 100).toFixed(1)}%`,
   cc2Low: `${(cc2.low * 100).toFixed(1)}%`,
   cc2High: `${(cc2.high * 100).toFixed(1)}%`,
-  forkSeeds: seedRange(cc2ForkRecords),
-  forkSeats: `${seatWinsOf(cc2ForkRecords)("left")}/${seatWinsOf(cc2ForkRecords)("right")}`,
-  forkLines: (cc2Fork.linesPerGame * cc2Fork.games).toLocaleString("en-US"),
-  forkRivalLines: (cc2Fork.rivalLinesPerGame * cc2Fork.games).toLocaleString("en-US"),
-  forkApp: cc2Fork.attackPerPiece.toFixed(4),
-  forkRivalApp: cc2Fork.rivalAttackPerPiece.toFixed(4),
+  cc2W96Seeds: seedRange(cc2W96Records),
+  cc2W96Seats: `${seatWinsOf(cc2W96Records)("left")}/${seatWinsOf(cc2W96Records)("right")}`,
+  cc2W96Lines: Math.round(cc2W96.linesPerGame * cc2W96.games).toLocaleString("en-US"),
+  cc2W96RivalLines: Math.round(cc2W96.rivalLinesPerGame * cc2W96.games).toLocaleString("en-US"),
+  cc2W96App: cc2W96.attackPerPiece.toFixed(4),
+  cc2W96RivalApp: cc2W96.rivalAttackPerPiece.toFixed(4),
+  cc2W96Ms: cc2W96Summary.ms,
+  cc2W96Pps: cc2W96Summary.pps,
+  cc2W96Upstream: String(cc2W96Summary.upstream).slice(0, 7),
+  cc2W96WinRate: `${(cc2W96.winRate * 100).toFixed(1)}%`,
+  cc2W96Low: `${(cc2W96.low * 100).toFixed(1)}%`,
+  cc2W96High: `${(cc2W96.high * 100).toFixed(1)}%`,
+  cc2W96Width: cc2W96Summary.beam_width,
+  forkW96Seeds: seedRange(cc2ForkW96Records),
+  forkW96Seats: `${seatWinsOf(cc2ForkW96Records)("left")}/${seatWinsOf(cc2ForkW96Records)("right")}`,
+  forkW96Lines: (cc2ForkW96.linesPerGame * cc2ForkW96.games).toLocaleString("en-US"),
+  forkW96RivalLines: (cc2ForkW96.rivalLinesPerGame * cc2ForkW96.games).toLocaleString("en-US"),
+  forkW96App: cc2ForkW96.attackPerPiece.toFixed(4),
+  forkW96RivalApp: cc2ForkW96.rivalAttackPerPiece.toFixed(4),
+  forkW96Draws: cc2ForkW96.draws,
+  forkW96Width: cc2ForkW96Summary.beam_width,
 });
 const indexUrl = new URL("../index.html", import.meta.url);
 writeFileSync(
@@ -355,6 +410,9 @@ writeFileSync(new URL("../src/data/results.json", import.meta.url), `${JSON.stri
 console.log(
   JSON.stringify({
     seeds: seedText,
-    rows: rows.map((r) => `${r.id}: ${r.wins}-${r.losses} ${(r.winRate * 100).toFixed(1)}%`),
+    rows: rows.map(
+      (r) =>
+        `${r.id}: ${r.wins}-${r.losses}${r.draws > 0 ? `-${r.draws}` : ""} ${(r.winRate * 100).toFixed(1)}%`,
+    ),
   }),
 );
