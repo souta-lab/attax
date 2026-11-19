@@ -101,6 +101,18 @@ The same gate re-passed after the serve-mode addition, in both `run`
 and `serve` modes. Remaining before main hookup: the lab-side codec
 and driver (DESIGN.md §3.2–3.3) and the engine-selection switch.
 
+2026-11-19 (stage 1C, BP movegen), same tree and device, sclk 2320
+under load, no other GPU tenant: **stage-1C gate passed** — with
+`bpmg_b1.spv` as the s2 movegen, `m4-harness check` all categories 0
+over 180 decisions (229,063 beam / 52,669 finished), `cmp_results`
+IDENTICAL, in both `run` and `serve` modes. Same-session bench
+(180 decisions × 5 reps, wall median): BP host 3.426 ms/decision vs
+the profile-port host with the fci movegen at 3.631 ms/decision in
+the same session (−5.6%). The guideline profile re-passed its
+dedicated corpus with the stage-1C host (all categories 0 over
+232,763 beam / 17,280 finished nodes). Full record:
+`attax-gpu-spike/STAGE1C-B1-INTEGRATION-2026-11-19.md`.
+
 ## Build
 
 ```bash
