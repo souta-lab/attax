@@ -20,7 +20,7 @@ DC_MAGIC = 0x4D344443
 
 dec_path, out_path = sys.argv[1], sys.argv[2]
 workdir = sys.argv[3] if len(sys.argv) > 3 else "/tmp/s9work/gpu-integ"
-mg = sys.argv[4] if len(sys.argv) > 4 else "../gpu-vendor/movegen_s24_fci.spv"
+mg = sys.argv[4] if len(sys.argv) > 4 else "../gpu-vendor/bpmg_b1.spv"
 exp = sys.argv[5] if len(sys.argv) > 5 else "../gpu-vendor/expand_s25_noba.spv"
 tables = sys.argv[6] if len(sys.argv) > 6 else "../gate-data/tables.bin"
 

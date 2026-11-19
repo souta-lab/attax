@@ -11,14 +11,27 @@ and landed on main** (see "Gate status"). The S2 lab driver lives in
 
 - Host: `host/vkrunner_s26.c` (single-file C Vulkan host). Vendored
   byte-identical from the spike at sha256 `836b189b…`; the repo copy has
-  since gained the `serve` mode (see below) and now hashes to
-  `30afb034…`. The spike original is unchanged and remains the reference
+  since gained the `serve` mode (see below), the rules-profile switch
+  and the stage-1C movegen selection, and now hashes to
+  `59a0a578…`. The spike original is unchanged and remains the reference
   for the step-26 sessions.
-- Movegen SPV: `shaders/movegen_s24_fci.spv` (sha256 prefix `0066dccd…`).
+- Movegen SPV (s2 profile): `shaders/bpmg_b1.spv` (sha256 prefix
+  `6c2142f2…`) — the BP (bit-parallel) movegen, variant B1, integrated
+  2026-11-19 (stage 1C). It reads `mg_in` directly and writes the
+  production `mg_out` format; the host pushes `{0, 0}` at its dispatch.
+  Source is vendored in-tree at `shaders/src/bpmg_b1.comp`
+  (+ `shaders/src/tables.glsl`); rebuild with
+  `glslangValidator --target-env vulkan1.2 -V bpmg_b1.comp -o bpmg_b1.spv`
+  from that directory. The previous movegen,
+  `shaders/movegen_s24_fci.spv` (sha256 prefix `0066dccd…`), remains
+  the guideline profile's movegen (see Rules profiles) and the s2
+  A/B rollback: passing its path in s2 mode restores the legacy
+  `{1, serial}` pushes automatically (the host resolves the push
+  contract from the loaded kernel's name).
 - Expand SPV: `shaders/expand_s25_noba.spv` (sha256 prefix `55fa3bef…`).
-- The other 39 SPVs in `shaders/` are loaded by the host from the expand
+- The other 46 SPVs in `shaders/` are loaded by the host from the expand
   SPV's directory (every name is a string literal in the host source;
-  the set is machine-checked against it). All 41 SPVs are pinned in
+  the set is machine-checked against it). All 48 SPVs are pinned in
   `shaders/MANIFEST.sha256`. Note `sel_passA22.spv` is loaded
   unconditionally at pipeline init even though the final configuration
   (S22_PASSA=off) never dispatches it — the file must be present.
@@ -39,16 +52,22 @@ The engine runs either rules profile of the unified core, selected by
 one setting: the environment variable **`ATTAX_GPU_PROFILE`**
 (`s2`, the default, or `guideline`). The host resolves it once at
 process start — never per decision — and it changes exactly two
-things: which SPVs `pipeline_init` loads for five pipeline slots
+things: which SPVs `pipeline_init` loads for six pipeline slots
 (mg_build, ex_build, expand, htlook, leaf_prep26 — the guideline
-variants carry the `_gl` suffix) and the movegen opts word the host
-writes into params word 22 (s2 = 7: spin evidence + 180 inputs + S2
-180 kicks; guideline = 0). The movegen SPV itself is shared: it is
-opts-driven and already implements both option sets, including the
-engine T-spin classifier the guideline profile needs.
+variants carry the `_gl` suffix — and movegen) and the movegen opts
+word the host writes into params word 22 (s2 = 7: spin evidence +
+180 inputs + S2 180 kicks; guideline = 0). The movegen slot differs
+by design: the s2 movegen is the BP kernel (`bpmg_b1.spv`), which
+has the S2 options baked in and ignores the opts word, while the
+guideline movegen is the legacy `movegen_s24_fci.spv`, which is
+opts-driven and implements both option sets, including the engine
+T-spin classifier the guideline profile needs. In guideline mode
+the host loads the fci kernel from the expand SPV's directory,
+ignoring the movegen path argument.
 
-Under `s2` the loaded SPV set and the dispatch stream are exactly
-the step-26 configuration above, so S2 results stay bit-identical.
+Under `s2` the pipeline is the step-26 configuration above with
+the movegen slot running the BP kernel; the stage-1C adoption gate
+keeps S2 results bit-identical.
 Under `guideline`, the variant kernels implement the root-lift
 garbage semantics, the guideline attack table, the legacy dedupe
 key and expand-returns-null death (encoded as dead = 2: neither
@@ -62,7 +81,7 @@ and config O are the same numbers.
 ## Serve mode (product path)
 
 ```bash
-./vkrunner_s26 serve shaders/movegen_s24_fci.spv shaders/expand_s25_noba.spv <tables.bin> [device]
+./vkrunner_s26 serve shaders/bpmg_b1.spv shaders/expand_s25_noba.spv <tables.bin> [device]
 ```
 
 A long-lived engine process: reads 108-word decision records from
@@ -84,6 +103,18 @@ The same gate re-passed after the serve-mode addition, in both `run`
 and `serve` modes. Remaining before main hookup: the lab-side codec
 and driver (DESIGN.md §3.2–3.3) and the engine-selection switch.
 
+2026-11-19 (stage 1C, BP movegen), same tree and device, sclk 2320
+under load, no other GPU tenant: **stage-1C gate passed** — with
+`bpmg_b1.spv` as the s2 movegen, `m4-harness check` all categories 0
+over 180 decisions (229,063 beam / 52,669 finished), `cmp_results`
+IDENTICAL, in both `run` and `serve` modes. Same-session bench
+(180 decisions × 5 reps, wall median): BP host 3.426 ms/decision vs
+the profile-port host with the fci movegen at 3.631 ms/decision in
+the same session (−5.6%). The guideline profile re-passed its
+dedicated corpus with the stage-1C host (all categories 0 over
+232,763 beam / 17,280 finished nodes). Full record:
+`attax-gpu-spike/STAGE1C-B1-INTEGRATION-2026-11-19.md`.
+
 ## Build
 
 ```bash
@@ -97,7 +128,7 @@ llvmpipe is **not** an adoption target — see DESIGN.md):
 
 ```bash
 S22_PASSA=off S23_SOA=1 S26_PFUSE=on S26_LFUSE=on S26_FILL=on \
-  ./vkrunner_s26 run shaders/movegen_s24_fci.spv shaders/expand_s25_noba.spv \
+  ./vkrunner_s26 run shaders/bpmg_b1.spv shaders/expand_s25_noba.spv \
   <tables.bin> <decisions.bin> res.bin 180
 m4-harness check <expect.bin> res.bin        # every category must be 0
 cmp_results.py res.bin <results-s2.bin>      # must print IDENTICAL
@@ -117,7 +148,13 @@ is not vendored; it lives in the PC gate-data set and the spike tree
 
 ## Provenance
 
-- Host and SPVs were copied on 2026-11-19 from the spike workspaces
+- `bpmg_b1.spv` was compiled 2026-11-19 from the in-tree source
+  `shaders/src/bpmg_b1.comp`, itself derived from the spike's adopted
+  B1 kernel (`attax-gpu-spike/stage1-work/varB1.comp`, sha256
+  `7ecdd848…`) with only the input/output stages adapted to the
+  production contract (see the source header and
+  `attax-gpu-spike/STAGE1C-B1-INTEGRATION-2026-11-19.md`).
+- Host and the other SPVs were copied on 2026-11-19 from the spike workspaces
   (PC `/tmp/s9work/opt26`, `/tmp/s9work/opt24/mg24`,
   `/tmp/s9work/opt26/build-scr26`) with sha256 verification at every hop.
 - Shader `.comp` sources live in the spike tree, one generation pipeline
