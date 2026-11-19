@@ -50,8 +50,12 @@ the step-26 configuration above, so S2 results stay bit-identical.
 Under `guideline`, the variant kernels implement the root-lift
 garbage semantics, the guideline attack table, the legacy dedupe
 key and expand-returns-null death (encoded as dead = 2: neither
-beam nor leaf). Both profiles use the same pinned tables file —
-the shipping guideline weights and config O are the same numbers.
+beam nor leaf). One extra pass runs in this profile only:
+`rootfix_gl.spv` re-ranks the ply-0 arena records' root labels —
+the reference numbers depth-0 children by rank among surviving
+children, and a death does not consume an index. Both profiles
+use the same pinned tables file — the shipping guideline weights
+and config O are the same numbers.
 
 ## Serve mode (product path)
 
