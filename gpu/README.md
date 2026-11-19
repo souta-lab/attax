@@ -30,6 +30,28 @@ the adoption gate below passes from this tree.
   measured wall ≈4.53 ms/decision on an RX 6400 (sclk 2320) vs the Rust
   reference's 57.66 ms median (M0, PC).
 
+## Rules profiles (guideline / s2)
+
+The engine runs either rules profile of the unified core, selected by
+one setting: the environment variable **`ATTAX_GPU_PROFILE`**
+(`s2`, the default, or `guideline`). The host resolves it once at
+process start — never per decision — and it changes exactly two
+things: which SPVs `pipeline_init` loads for five pipeline slots
+(mg_build, ex_build, expand, htlook, leaf_prep26 — the guideline
+variants carry the `_gl` suffix) and the movegen opts word the host
+writes into params word 22 (s2 = 7: spin evidence + 180 inputs + S2
+180 kicks; guideline = 0). The movegen SPV itself is shared: it is
+opts-driven and already implements both option sets, including the
+engine T-spin classifier the guideline profile needs.
+
+Under `s2` the loaded SPV set and the dispatch stream are exactly
+the step-26 configuration above, so S2 results stay bit-identical.
+Under `guideline`, the variant kernels implement the root-lift
+garbage semantics, the guideline attack table, the legacy dedupe
+key and expand-returns-null death (encoded as dead = 2: neither
+beam nor leaf). Both profiles use the same pinned tables file —
+the shipping guideline weights and config O are the same numbers.
+
 ## Serve mode (product path)
 
 ```bash

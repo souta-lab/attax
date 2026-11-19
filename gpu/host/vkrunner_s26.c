@@ -91,7 +91,32 @@ static uint32_t rd32(const uint8_t **p) { uint32_t v; memcpy(&v, *p, 4); *p += 4
 #define PM_ROOT_CAN_HOLD 6u
 #define PM_ROOT_DUE 7u
 #define PM_SEQ 8u
-#define PM_WORDS 22u
+#define PM_WORDS 23u
+#define PM_OPTS 22u
+
+// ---- rules profile selection (one setting, resolved once) ----
+// ATTAX_GPU_PROFILE=s2 (default) keeps the step-26 S2 pipeline
+// byte-identical: the same SPV names, the same dispatch stream, and
+// params words 0..21 unchanged. ATTAX_GPU_PROFILE=guideline swaps
+// five pipelines for their guideline variants at pipeline_init and
+// writes movegen opts 0 (no spin evidence, no 180 inputs) into
+// params word 22, which only the guideline mg_build reads; the S2
+// mg_build hardcodes opts 7 and never reads word 22. The switch is
+// resolved here, once per process, never per decision or per child.
+static int g_profile_guideline = 0;
+static uint32_t g_profile_opts = 7u;
+static void profile_resolve(void) {
+    const char *p = getenv("ATTAX_GPU_PROFILE");
+    if (p && !strcmp(p, "guideline")) {
+        g_profile_guideline = 1;
+        g_profile_opts = 0u;
+    } else {
+        g_profile_guideline = 0;
+        g_profile_opts = 7u;
+    }
+    fprintf(stderr, "profile: %s (movegen opts %u)\n",
+            g_profile_guideline ? "guideline" : "s2", g_profile_opts);
+}
 
 #define ARG_MG 0u
 #define ARG_EXB 1u
@@ -402,6 +427,13 @@ static VkDescriptorSet g_snap_set;
 static VkDescriptorSet g_binhist_set, g_thresh_set, g_bitonic_set, g_compact5_set, g_clear_set;
 static uint32_t g_serial_base = 1;
 
+static char *spv_join(const char *ex_spv, const char *name);  // defined below
+
+// Profile-dependent SPV name in the expand SPV's directory.
+static char *prof_spv(const char *ex_spv, const char *s2_name, const char *gl_name) {
+    return spv_join(ex_spv, g_profile_guideline ? gl_name : s2_name);
+}
+
 static char *spv_join(const char *ex_spv, const char *name) {
     const char *slash = strrchr(ex_spv, '/');
     size_t dlen = slash ? (size_t)(slash - ex_spv + 1) : 0;
@@ -477,7 +509,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
             g_params.type, (unsigned)memprops.memoryTypes[g_params.type].propertyFlags,
             (unsigned)memprops.memoryTypes[g_params.type].heapIndex);
 
-    g_ex_pipe = make_pipe(ex_spv, 5, 4);
+    g_ex_pipe = make_pipe(g_profile_guideline ? spv_join(ex_spv, "expand_gl.spv") : (char *)ex_spv, 5, 4);
     {
         Buf *exbufs[5] = { &g_ex_in_d, &g_arena, &g_tables, &g_keys_arena, &g_state };
         g_ex_set = make_set(&g_ex_pipe, exbufs, 5);
@@ -503,7 +535,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
         Buf *b[3] = { &g_mg_in_d, &g_mg_scratch, &g_mg_out_d };
         g_mg_set = make_set(&g_mg_pipe, b, 3);
     }
-    g_mgb_pipe = make_pipe(spv_join(ex_spv, "mg_build.spv"), 9, 4);
+    g_mgb_pipe = make_pipe(prof_spv(ex_spv, "mg_build.spv", "mg_build_gl.spv"), 9, 4);
     {
         Buf *b[9] = { &g_params, &g_arena, &g_beam_idx, &g_state, &g_mg_in_d, &g_inst_meta, &g_node_first_inst, &g_self_leaf, &g_args };
         g_mgb_set = make_set(&g_mgb_pipe, b, 9);
@@ -518,7 +550,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
         Buf *b[10] = { &g_state, &g_mg_out_d, &g_node_first_inst, &g_self_leaf, &g_inst_child_base, &g_child_inst, &g_child_local, &g_node_arrays, &g_args, &g_leaf_tsum };
         g_exs26_set = make_set(&g_exs26_pipe, b, 10);
     }
-    g_exb_pipe = make_pipe(spv_join(ex_spv, "ex_build.spv"), 9, 4);
+    g_exb_pipe = make_pipe(prof_spv(ex_spv, "ex_build.spv", "ex_build_gl.spv"), 9, 4);
     {
         Buf *b[9] = { &g_state, &g_params, &g_arena, &g_beam_idx, &g_inst_meta, &g_child_inst, &g_child_local, &g_mg_out_d, &g_ex_in_d };
         g_exb_set = make_set(&g_exb_pipe, b, 9);
@@ -587,7 +619,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
         Buf *b[6] = { &g_idxB, &g_selkeys, &g_arena, &g_surv, &g_state, &g_htable };
         g_htins_set = make_set(&g_htins_pipe, b, 6);
     }
-    g_htlook_pipe = make_pipe(spv_join(ex_spv, "sel_htlook19f.spv"), 6, 4);
+    g_htlook_pipe = make_pipe(prof_spv(ex_spv, "sel_htlook19f.spv", "sel_htlook19f_gl.spv"), 6, 4);
     {
         Buf *b[6] = { &g_idxB, &g_selkeys, &g_arena, &g_surv, &g_state, &g_htable };
         g_htlook_set = make_set(&g_htlook_pipe, b, 6);
@@ -707,7 +739,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
         Buf *b[5] = { &g_leaf_flag, &g_leaf_src, &g_leaf_toff, &g_leaf_idx, &g_state };
         g_leafscatter_set = make_set(&g_leafscatter_pipe, b, 5);
     }
-    g_leafprep26_pipe = make_pipe(spv_join(ex_spv, "leaf_prep26.spv"), 10, 4);
+    g_leafprep26_pipe = make_pipe(prof_spv(ex_spv, "leaf_prep26.spv", "leaf_prep26_gl.spv"), 10, 4);
     {
         Buf *b[10] = { &g_state, &g_arena, &g_beam_idx, &g_self_leaf, &g_node_arrays, &g_child_inst, &g_inst_meta, &g_leaf_flag, &g_leaf_src, &g_leaf_tsum };
         g_leafprep26_set = make_set(&g_leafprep26_pipe, b, 10);
@@ -1048,6 +1080,7 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
     pm[PM_ROOT_CAN_HOLD] = dec[100];
     pm[PM_ROOT_DUE] = dec[104];
     for (int i = 0; i < 14; i++) pm[PM_SEQ + i] = dec[82 + i];
+    pm[PM_OPTS] = g_profile_opts;
 
     uint32_t *rs = g_root_stage.ptr;
     memset(rs, 0, EX_OUT_STRIDE * 4);
@@ -1470,6 +1503,7 @@ static int run_decision_prof(const uint32_t *dec, double *wall_ms, double *gpu_m
     pm[PM_ROOT_CAN_HOLD] = dec[100];
     pm[PM_ROOT_DUE] = dec[104];
     for (int i = 0; i < 14; i++) pm[PM_SEQ + i] = dec[82 + i];
+    pm[PM_OPTS] = g_profile_opts;
 
     uint32_t *rs = g_root_stage.ptr;
     memset(rs, 0, EX_OUT_STRIDE * 4);
@@ -1979,6 +2013,7 @@ static int run_decision_dump(const uint32_t *dec, Out *out, double *wall_ms, dou
     pm[PM_ROOT_CAN_HOLD] = dec[100];
     pm[PM_ROOT_DUE] = dec[104];
     for (int i = 0; i < 14; i++) pm[PM_SEQ + i] = dec[82 + i];
+    pm[PM_OPTS] = g_profile_opts;
 
     uint32_t *rs = g_root_stage.ptr;
     memset(rs, 0, EX_OUT_STRIDE * 4);
@@ -2311,6 +2346,7 @@ static int cmd_serve(const char *mg_spv, const char *ex_spv, const char *tables_
 }
 
 int main(int argc, char **argv) {
+    profile_resolve();
     if (argc < 2) {
         fprintf(stderr, "usage:\n"
                         "  vkrunner_s3 expandtime <expand.spv> <tables.bin> <cases.bin> [reps] [local_size] [device]\n"
