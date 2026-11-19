@@ -371,7 +371,7 @@ void main() {
       if (pos < 64u) {
         // unpack the BP record into the production 5-word placement
         uint o = ob + 4u + 5u * pos;
-        outp[o] = orec & 0xFFu;
+        outp[o] = orec & 3u;
         outp[o + 1u] = uint(bitfieldExtract(int(orec), 4, 8));
         outp[o + 2u] = uint(bitfieldExtract(int(orec), 12, 8));
         outp[o + 3u] = (orec >> 20) & 7u;

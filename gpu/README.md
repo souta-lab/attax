@@ -14,7 +14,7 @@ and landed on main** (see "Gate status"). The S2 lab driver lives in
   since gained the `serve` mode (see below) and now hashes to
   `30afb034…`. The spike original is unchanged and remains the reference
   for the step-26 sessions.
-- Movegen SPV: `shaders/bpmg_b1.spv` (sha256 prefix `5b419ab7…`) — the
+- Movegen SPV: `shaders/bpmg_b1.spv` (sha256 prefix `6c2142f2…`) — the
   BP (bit-parallel) movegen, variant B1, integrated 2026-11-19
   (stage 1C). It reads `mg_in` directly and writes the production
   `mg_out` format; the host pushes `{0, 0}` at the movegen dispatch.
