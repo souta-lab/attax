@@ -12,8 +12,12 @@ the adoption gate below passes from this tree.
   sha256 `836b189bfab149dee953e29b646dfbc978b7fb1d59e162f1183c6d6c91d7fb85`).
 - Movegen SPV: `shaders/movegen_s24_fci.spv` (sha256 prefix `0066dccd…`).
 - Expand SPV: `shaders/expand_s25_noba.spv` (sha256 prefix `55fa3bef…`).
-- The other 38 SPVs in `shaders/` are loaded by the host from the expand
-  SPV's directory; all 40 are pinned in `shaders/MANIFEST.sha256`.
+- The other 39 SPVs in `shaders/` are loaded by the host from the expand
+  SPV's directory (every name is a string literal in the host source;
+  the set is machine-checked against it). All 41 SPVs are pinned in
+  `shaders/MANIFEST.sha256`. Note `sel_passA22.spv` is loaded
+  unconditionally at pipeline init even though the final configuration
+  (S22_PASSA=off) never dispatches it — the file must be present.
 - Environment toggles for the final configuration:
   `S22_PASSA=off`, `S23_SOA=1`, `S26_PFUSE=on`, `S26_LFUSE=on`,
   `S26_FILL=on`. Setting the S26 toggles off reverts to the step-23
