@@ -15,14 +15,15 @@
 </div>
 
 Attax is a beam-search versus bot (no neural network, no opening book). The deliverable is
-a static web page that shows the measured head-to-head result, every benchmark game as a
-clickable square, and a live arena where Attax and a Rust/WASM replica of the Hoiko AI play
-the same seed in your browser. Any benchmark game can be replayed move for move.
+a static web page that shows the measured head-to-head result and every benchmark game as a
+clickable square. (The live browser arena is unavailable for now: the engine moved to a
+native GPU search in 2026-11 and a browser front-end for it does not exist yet.)
 
-Essentials in this repo: the bot is in [`src/ai/bot/`](src/ai/bot/), raw benchmark records
+Essentials in this repo: the bot is the GPU search in [`gpu/`](gpu/) (lab driver in
+[`tools/s2-lab/`](tools/s2-lab/)), raw benchmark records
 are in [`bench-results/`](bench-results/), the Hoiko-replica fidelity evidence is in
-[`evidence/hoiko-fullgame/`](evidence/hoiko-fullgame/), and the benchmark and audit scripts
-are in [`scripts/`](scripts/).
+[`evidence/hoiko-fullgame/`](evidence/hoiko-fullgame/), and the results builder
+is in [`scripts/`](scripts/).
 
 > **The world's strongest in guideline versus.** Across every matchup measured so far,
 > Attax has won each matchup it has played: the official Cold Clear 2 **81–19** (measured
@@ -236,7 +237,9 @@ instead of a single guessed piece. It is env-gated in the rig adapter
 (below) played the width-96 matches under the same profile settings.
 
 **Attax v3** is the state `main` now carries: the unified tree. The guideline and
-S2 rulesets share one search core in `src/ai/bot/`, and the rules differences are
+S2 rulesets share one search core (developed as the unified TS core; since
+2026-11-19 it runs as the GPU engine in `gpu/`, and the TS implementation was
+removed from the repo), and the rules differences are
 carried as profile data — board size, attack table, garbage semantics — rather
 than as separate code paths. Guideline play is unchanged from v2, so every
 guideline result above stands as measured; what v3 changes is the architecture,
@@ -342,6 +345,14 @@ a fresh full benchmark supports a new headline.
 
 ## 🤖 The bot (`src/ai/bot/`)
 
+> Dated note (2026-11-19): this section describes the unified TS core that
+> produced the measured records above. That implementation was removed from
+> the repo when the engine went GPU-only; the same semantics — movegen,
+> features, weights, beam search — now run as the Vulkan search in `gpu/`,
+> with the evaluation tables vendored in `tools/s2-lab/`. The TBP adapter
+> described below was removed at the same time (GPU front-end pending); its
+> section is kept as the record of the intetrigence match setup.
+
 - `movegen.ts` — breadth-first search over the engine's own inputs (shift, soft drop,
   rotate with first-fit SRS kicks) from the current position; returns every distinct
   resting placement and whether it can be entered by a rotation (T-spins classified with
@@ -408,9 +419,9 @@ carve-out.
 ```
 src/core      rules engine (pure)          src/sim      live arena (same tick loop as bench)
 src/versus    2-player controller          src/ui       DOM + canvas; arena runs in a Worker
-src/ai/bot    the bot                      scripts      benchmark, audit, tune, build-results
+gpu/          the bot (Vulkan search)      scripts      build-results
 src/ai/hoiko  Hoiko adapter + wasm         rust/        Hoiko replica source (wasm)
-src/bench     headless match + summary     tools/       Hoiko oracle (needs Wine + the exe)
+src/bench     match records + summary      tools/       Hoiko oracle; S2 lab (GPU driver)
 ```
 
 ## 🛠️ Develop
