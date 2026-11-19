@@ -24,14 +24,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { BOARD_FEATURES, boardFeatures } from "./features.js";
-import type { SearchInput } from "./state.js";
-import { DEFAULT_WEIGHTS } from "./weights.js";
 import {
   DECISION_BYTES,
   decodeServeBlock,
   encodeDecisionRecordBytes,
   kindByIndex,
 } from "./gpu-codec.js";
+import type { SearchInput } from "./state.js";
+import { DEFAULT_WEIGHTS } from "./weights.js";
 
 const gateDir = process.argv[2] ?? process.env.ATTAX_GPU_GATE_DIR ?? "/tmp/gpu-gate";
 const obs = readFileSync(path.join(gateDir, "obs.bin"));

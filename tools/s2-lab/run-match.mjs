@@ -8,7 +8,6 @@ import {
   gpuEngineInfo,
   gpuEngineTimingSummary,
 } from "./gpu-player.js";
-import { cellKey, placementCells, wrapGpuDecider } from "./lab-decision.js";
 import {
   applyTransition,
   controller,
@@ -20,7 +19,7 @@ import {
   profile,
   resolvePlacementRules,
 } from "./lab.mjs";
-
+import { cellKey, placementCells, wrapGpuDecider } from "./lab-decision.js";
 
 const { createGame, extendSeededQueue, toS2GuiState } = await lab("cc2-gui/game.mjs");
 const { guiStateToCanonical } = await lab("src-js/gui-state.mjs");

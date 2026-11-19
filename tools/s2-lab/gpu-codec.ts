@@ -14,13 +14,14 @@
  * `line` contains only the root step (the format has no parent links),
  * and `lineStates` is never produced.
  */
-import { BOARD_FEATURES, boardFeatures } from "./features.js";
+
+import type { PieceKind } from "../../src/core/pieces.js";
+import type { TspinKind } from "../../src/core/tspin.js";
 import type { Placement } from "./board.js";
+import { BOARD_FEATURES, boardFeatures } from "./features.js";
 import type { SearchResult, Step } from "./search-types.js";
 import type { SearchInput } from "./state.js";
 import type { Weights } from "./weights.js";
-import type { PieceKind } from "../../src/core/pieces.js";
-import type { TspinKind } from "../../src/core/tspin.js";
 
 export const DECISION_WORDS = 108;
 export const DECISION_BYTES = DECISION_WORDS * 4;

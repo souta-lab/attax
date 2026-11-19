@@ -5,10 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { boardFeatures } from "./features.js";
-import type { SearchInput } from "./state.js";
-import { DEFAULT_WEIGHTS } from "./weights.js";
 import { decodeServeBlock, encodeDecisionRecord, parseServeBlock } from "./gpu-codec.js";
 import { createGpuAttaxDecider, gpuEngineInfo } from "./gpu-player.js";
+import type { SearchInput } from "./state.js";
+import { DEFAULT_WEIGHTS } from "./weights.js";
 
 function baseInput(over: Partial<SearchInput> = {}): SearchInput {
   const board = new Uint16Array(40);

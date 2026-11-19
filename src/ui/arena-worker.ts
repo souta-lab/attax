@@ -87,12 +87,7 @@ function schedule(): void {
 self.onmessage = (event: MessageEvent<ArenaCommand>) => {
   const command = event.data;
   if (command.type === "start") {
-    arena = createArena(
-      createBot(),
-      createHoiko(hoikoOptions),
-      command.seed,
-      command.botSide,
-    );
+    arena = createArena(createBot(), createHoiko(hoikoOptions), command.seed, command.botSide);
     speed = command.speed;
     paused = false;
     simulated = 0;

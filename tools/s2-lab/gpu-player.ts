@@ -32,17 +32,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { BOT_DEFAULTS } from "./defaults.js";
-import type { DeciderOptions, SearchResult } from "./search-types.js";
-import type { SearchInput } from "./state.js";
-import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 import {
   encodeDecisionRecordBytes,
   type ParsedBlock,
   parseServeBlock,
   resultForRootStep,
 } from "./gpu-codec.js";
+import type { DeciderOptions, SearchResult } from "./search-types.js";
 import { DEFAULT_SOLVENCY_PARAMS, type SolvencyParams } from "./solvency.js";
+import type { SearchInput } from "./state.js";
 import { DEFAULT_STOCK_PARAMS, type StockParams } from "./stock.js";
+import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../..");

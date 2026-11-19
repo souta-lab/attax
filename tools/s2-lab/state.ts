@@ -10,8 +10,8 @@
  * that used to sit in search.ts are vendored alongside in search-types.ts).
  */
 import type { PieceKind } from "../../src/core/pieces.js";
-import type { BoardFeatures } from "./features.js";
 import type { BitBoard, Placement } from "./board.js";
+import type { BoardFeatures } from "./features.js";
 
 export interface SearchInput {
   readonly board: BitBoard;

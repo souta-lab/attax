@@ -14,8 +14,8 @@ import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import type { Placement } from "./board.js";
 import { spawnPosition } from "./board.js";
 import type { GpuDecider } from "./gpu-player.js";
-import type { SearchResult } from "./search-types.js";
 import { type SearchInput, toSharedInput } from "./s2-input.js";
+import type { SearchResult } from "./search-types.js";
 
 export interface PublicDecision {
   lockTime?: { logicalFrame: number };
