@@ -3,8 +3,6 @@
  * tick so a game watched in the browser is move-for-move the game the benchmark recorded.
  * Pure — no DOM; the web worker drives it and posts `ArenaFrame`s to the page.
  */
-import type { BotFighter } from "../ai/bot/fighter.js";
-import type { Placement } from "../ai/bot/movegen.js";
 import { cellsFor, type PieceKind } from "../core/pieces.js";
 import type { CellValue, LockAction } from "../core/types.js";
 import { resolveVersusConfig } from "../versus/config.js";
@@ -15,6 +13,32 @@ import {
   type VersusController,
   type VersusFighter,
 } from "../versus/controller.js";
+
+/** A placement as the arena's ghost rendering needs it (cells via src/core). */
+export interface ArenaPlacement {
+  readonly kind: PieceKind;
+  readonly rotation: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The thinking view's window into one completed search. */
+export interface ArenaSearch {
+  readonly candidates: readonly { readonly placement: ArenaPlacement; readonly value: number }[];
+  readonly breakdown: Readonly<Record<string, number>>;
+  readonly nodes: number;
+  readonly depth: number;
+}
+
+/**
+ * The attax side of the arena: any versus fighter that can show its last
+ * search. The in-browser engine that implemented this (the TS search,
+ * src/ai/bot) was removed in Phase C (2026-11-19); a GPU front-end is
+ * pending, and until one exists the arena worker refuses to start a game.
+ */
+export interface ArenaBot extends VersusFighter {
+  lastSearch(): ArenaSearch | null;
+}
 
 export const TICK_MS = 16;
 
@@ -64,11 +88,11 @@ export interface ArenaFrame {
   readonly winner: Side | "draw" | null;
 }
 
-function placementCells(p: Placement): [number, number][] {
+function placementCells(p: ArenaPlacement): [number, number][] {
   return cellsFor(p.kind, p.rotation).map((c) => [p.x + c.x, p.y + c.y]);
 }
 
-function sideFrame(side: SideState, bot: BotFighter | null): SideFrame {
+function sideFrame(side: SideState, bot: ArenaBot | null): SideFrame {
   const s = side.core.getSnapshot();
   const search = bot?.lastSearch() ?? null;
   const active = s.active;
@@ -120,7 +144,7 @@ export interface Arena {
  * and replaying a recorded game needs the same seating.
  */
 export function createArena(
-  bot: BotFighter,
+  bot: ArenaBot,
   hoiko: VersusFighter,
   seed: number,
   botSide: Side = "left",

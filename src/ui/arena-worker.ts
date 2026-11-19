@@ -7,11 +7,22 @@
  *      the module's top-level await delays installing the handler), then
  *      { type: "frame", frame } several times per second and once more when the game ends.
  */
-import { createBot } from "../ai/bot/fighter.js";
 import { createHoiko } from "../ai/hoiko/browser.js";
 import { resolveFaithfulHoikoOptions } from "../ai/hoiko/faithful.js";
-import { BRAND } from "../brand.js";
 import { type Arena, createArena, type Side, TICK_MS } from "../sim/arena.js";
+
+/**
+ * The attax side ran on the TS search (src/ai/bot), removed in Phase C
+ * (2026-11-19) when the engine went GPU-only. No browser GPU front-end
+ * exists yet, so starting a live game stops here with the reason instead
+ * of silently substituting another engine.
+ */
+function createBot(): never {
+  throw new Error(
+    "live arena unavailable: the in-browser attax engine was removed with the TS search " +
+      "(2026-11-19); a GPU front-end is pending",
+  );
+}
 
 export type ArenaCommand =
   | {
@@ -77,7 +88,7 @@ self.onmessage = (event: MessageEvent<ArenaCommand>) => {
   const command = event.data;
   if (command.type === "start") {
     arena = createArena(
-      createBot({ name: BRAND.botName }),
+      createBot(),
       createHoiko(hoikoOptions),
       command.seed,
       command.botSide,

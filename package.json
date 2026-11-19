@@ -11,10 +11,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "test": "bun test",
-    "bench": "bun scripts/benchmark.ts",
-    "bench:cross-seed": "bun scripts/cross-seed.ts",
-    "audit": "bun scripts/audit-rules.ts",
-    "tune": "bun scripts/tune.ts",
     "results": "bun scripts/build-results.ts",
     "test:rust": "cargo test --manifest-path rust/Cargo.toml",
     "build:wasm": "bash rust/build.sh"
