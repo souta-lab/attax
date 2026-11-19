@@ -44,6 +44,7 @@
 #include <time.h>
 #include <math.h>
 #include <unistd.h>
+#include <sched.h>
 #include <vulkan/vulkan.h>
 
 static void die(const char *m, VkResult r) { fprintf(stderr, "FAIL %s (%d)\n", m, r); exit(1); }
@@ -1102,38 +1103,20 @@ static void write_wire_record(Out *o, const uint32_t *r, int32_t root_due) {
     ow32(o, r[94] == 0 ? (uint32_t)root_due : 0u);
 }
 
-// Run one decision in a single submit. Writes the wire result record
-// to `out` unless out==NULL (bench mode: status mirror only).
-// Returns status (0 ok, 1 no result, 2 kernel error).
-static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, double *gpu_ms) {
-    double t_start = now_s();
-    int32_t root_due = (int32_t)dec[104];
-
-    uint32_t *pm = g_params.ptr;
-    pm[PM_SEQ_LEN] = dec[81];
-    pm[PM_BOARD_LEN] = dec[80];
-    pm[PM_ACTIVE_ROT] = dec[96];
-    pm[PM_ACTIVE_X] = dec[97];
-    pm[PM_ACTIVE_Y] = dec[98];
-    pm[PM_ROOT_HOLD] = dec[99];
-    pm[PM_ROOT_CAN_HOLD] = dec[100];
-    pm[PM_ROOT_DUE] = dec[104];
-    for (int i = 0; i < 14; i++) pm[PM_SEQ + i] = dec[82 + i];
-    pm[PM_OPTS] = g_profile_opts;
-
-    uint32_t *rs = g_root_stage.ptr;
-    memset(rs, 0, EX_OUT_STRIDE * 4);
-    for (int i = 0; i < 40; i++) { rs[i] = dec[i] & 0xFFFFu; rs[40 + i] = dec[40 + i] & 0xFFu; }
-    rs[80] = dec[80]; rs[81] = dec[99]; rs[82] = 0; rs[83] = dec[103]; rs[84] = dec[101];
-    rs[85] = dec[102]; rs[86] = 0; rs[87] = dec[105]; rs[93] = 0xFFFFFFFFu;
-
-    VkCommandBuffer cmd = begin_cmd();
+// The decision dispatch stream, recorded verbatim from the
+// pre-stage-4 run_decision_s2 body. The stream depends only on
+// process-fixed state (profile, env toggles) and on the two
+// parameters below: the movegen serial base (legacy fci pushes
+// only; the BP movegen pushes {0, 0}) and whether the serial
+// wrap fill of mg_scratch precedes the stream. Everything else
+// the stream reads (indirect args, state counters, conditional
+// rendering predicate, params) is buffer-resident and resolved
+// at execution time, so one recording serves every decision
+// with the same (serial_base, with_fill).
+static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, int with_fill) {
     vkCmdResetQueryPool(cmd, tpool, 0, 2);
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, tpool, 0);
-    if (g_serial_base + MAXPLY - 1 > 240) {
-        vkCmdFillBuffer(cmd, g_mg_scratch.buf, 0, VK_WHOLE_SIZE, 0);
-        g_serial_base = 1;
-    }
+    if (with_fill) vkCmdFillBuffer(cmd, g_mg_scratch.buf, 0, VK_WHOLE_SIZE, 0);
     {
         VkBufferCopy rc = { 0, 0, (VkDeviceSize)EX_OUT_STRIDE * 4 };
         vkCmdCopyBuffer(cmd, g_root_stage.buf, g_arena.buf, 1, &rc);
@@ -1148,7 +1131,7 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         barrier_rw(cmd);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.layout, 0, 1, &g_mg_set, 0, NULL);
-        uint32_t mgpc[2] = { g_mg_legacy ? 1u : 0u, g_mg_legacy ? g_serial_base + ply : 0u };
+        uint32_t mgpc[2] = { g_mg_legacy ? 1u : 0u, g_mg_legacy ? serial_base + ply : 0u };
         vkCmdPushConstants(cmd, g_mg_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 8, mgpc);
         vkCmdDispatchIndirect(cmd, g_args.buf, (VkDeviceSize)(ply * ARG_KINDS + ARG_MG) * 12);
         barrier_rw(cmd);
@@ -1260,14 +1243,125 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         vkCmdCopyBuffer(cmd, g_state.buf, g_state_mirror.buf, 1, &sc);
     }
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, tpool, 1);
+}
 
-    double t0 = now_ms();
-    CK(vkEndCommandBuffer(cmd));
-    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &cmd, 0, NULL };
-    CK(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE));
-    CK(vkQueueWaitIdle(queue));
-    vkFreeCommandBuffers(dev, pool, 1, &cmd);
-    g_submit_ms += now_ms() - t0;
+// ---- OPT-STAGE4: pre-recorded decision CBs + fence spin-wait ----
+// Stage 4 of the OPUS-PHASE2 section-6 plan (host finish): instead
+// of recording the ~600-command decision stream and waiting with
+// vkQueueWaitIdle on every decision, record the stream once per
+// serial base (16 bases: 1 + 15k, k = 0..15) plus one wrap variant
+// (mg_scratch fill + base-1 stream), then resubmit the recording
+// and host-poll on a fence. The legacy movegen is the only stream
+// element that varies per decision (its serial push); the BP
+// movegen's pushes are constant, so it uses slot 0 and the wrap
+// variant only. A completed command buffer may be resubmitted
+// without re-recording; the fence wait below guarantees the
+// previous submission of the same buffer has finished before the
+// next one. S4_PRERECORD=off restores the per-decision recording
+// path exactly (also the fallback for any serial base outside the
+// recorded set). Timing-only separation probes (S14_SEP) are baked
+// into the recordings at first use; use S4_PRERECORD=off for them.
+static int s4_prerecord(void) { const char *e = getenv("S4_PRERECORD"); return !(e && !strcmp(e, "off")); }
+#define S4_NBASE 16
+static VkCommandBuffer g_s4_cb[S4_NBASE];
+static VkCommandBuffer g_s4_cb_wrap = VK_NULL_HANDLE;
+static VkFence g_s4_fence = VK_NULL_HANDLE;
+static int g_s4_ready = 0;
+
+static VkCommandBuffer s4_alloc_cb(void) {
+    VkCommandBufferAllocateInfo ai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
+    VkCommandBuffer cmd; CK(vkAllocateCommandBuffers(dev, &ai, &cmd));
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL, 0, NULL };
+    CK(vkBeginCommandBuffer(cmd, &bi));
+    return cmd;
+}
+static void s4_ensure(void) {
+    if (g_s4_ready) return;
+    if (g_mg_legacy) {
+        for (int k = 0; k < S4_NBASE; k++) {
+            g_s4_cb[k] = s4_alloc_cb();
+            record_decision_stream(g_s4_cb[k], 1u + (uint32_t)k * MAXPLY, 0);
+            CK(vkEndCommandBuffer(g_s4_cb[k]));
+        }
+    } else {
+        g_s4_cb[0] = s4_alloc_cb();
+        record_decision_stream(g_s4_cb[0], 1u, 0);
+        CK(vkEndCommandBuffer(g_s4_cb[0]));
+    }
+    g_s4_cb_wrap = s4_alloc_cb();
+    record_decision_stream(g_s4_cb_wrap, 1u, 1);
+    CK(vkEndCommandBuffer(g_s4_cb_wrap));
+    VkFenceCreateInfo fi = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, NULL, 0 };
+    CK(vkCreateFence(dev, &fi, NULL, &g_s4_fence));
+    g_s4_ready = 1;
+}
+static void s4_spin_wait(void) {
+    // Host-poll (OPUS-PHASE section 4, S3): the decision span is
+    // ~ms, so spin on the fence status; block only if the spin
+    // budget expires (a pathological case, not the steady state).
+    for (int i = 0; i < 200000; i++) {
+        if (vkGetFenceStatus(dev, g_s4_fence) == VK_SUCCESS) return;
+        if ((i & 1023) == 1023) sched_yield();
+    }
+    CK(vkWaitForFences(dev, 1, &g_s4_fence, VK_TRUE, UINT64_MAX));
+}
+
+// Run one decision in a single submit. Writes the wire result record
+// to `out` unless out==NULL (bench mode: status mirror only).
+// Returns status (0 ok, 1 no result, 2 kernel error).
+static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, double *gpu_ms) {
+    double t_start = now_s();
+    int32_t root_due = (int32_t)dec[104];
+
+    uint32_t *pm = g_params.ptr;
+    pm[PM_SEQ_LEN] = dec[81];
+    pm[PM_BOARD_LEN] = dec[80];
+    pm[PM_ACTIVE_ROT] = dec[96];
+    pm[PM_ACTIVE_X] = dec[97];
+    pm[PM_ACTIVE_Y] = dec[98];
+    pm[PM_ROOT_HOLD] = dec[99];
+    pm[PM_ROOT_CAN_HOLD] = dec[100];
+    pm[PM_ROOT_DUE] = dec[104];
+    for (int i = 0; i < 14; i++) pm[PM_SEQ + i] = dec[82 + i];
+    pm[PM_OPTS] = g_profile_opts;
+
+    uint32_t *rs = g_root_stage.ptr;
+    memset(rs, 0, EX_OUT_STRIDE * 4);
+    for (int i = 0; i < 40; i++) { rs[i] = dec[i] & 0xFFFFu; rs[40 + i] = dec[40 + i] & 0xFFu; }
+    rs[80] = dec[80]; rs[81] = dec[99]; rs[82] = 0; rs[83] = dec[103]; rs[84] = dec[101];
+    rs[85] = dec[102]; rs[86] = 0; rs[87] = dec[105]; rs[93] = 0xFFFFFFFFu;
+
+    int wrap = (g_serial_base + MAXPLY - 1 > 240);
+    VkCommandBuffer pre = VK_NULL_HANDLE;
+    if (s4_prerecord()) {
+        s4_ensure();
+        if (wrap) pre = g_s4_cb_wrap;
+        else if (!g_mg_legacy) pre = g_s4_cb[0];
+        else if ((g_serial_base - 1) % MAXPLY == 0) {
+            uint32_t slot = (g_serial_base - 1) / MAXPLY;
+            if (slot < S4_NBASE) pre = g_s4_cb[slot];
+        }
+    }
+    if (pre != VK_NULL_HANDLE) {
+        if (wrap) g_serial_base = 1;
+        double t0 = now_ms();
+        CK(vkResetFences(dev, 1, &g_s4_fence));
+        VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &pre, 0, NULL };
+        CK(vkQueueSubmit(queue, 1, &si, g_s4_fence));
+        s4_spin_wait();
+        g_submit_ms += now_ms() - t0;
+    } else {
+        VkCommandBuffer cmd = begin_cmd();
+        if (wrap) g_serial_base = 1;
+        record_decision_stream(cmd, g_serial_base, wrap);
+        double t0 = now_ms();
+        CK(vkEndCommandBuffer(cmd));
+        VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &cmd, 0, NULL };
+        CK(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE));
+        CK(vkQueueWaitIdle(queue));
+        vkFreeCommandBuffers(dev, pool, 1, &cmd);
+        g_submit_ms += now_ms() - t0;
+    }
     uint64_t ts[2] = {0, 0};
     CK(vkGetQueryPoolResults(dev, tpool, 0, 2, sizeof ts, ts, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     double gpu_span = (double)(ts[1] - ts[0]) * ts_period_ns * 1e-6;
