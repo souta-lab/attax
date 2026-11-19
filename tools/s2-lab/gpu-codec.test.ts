@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { boardFeatures } from "../../src/ai/bot/features.js";
-import type { SearchInput } from "../../src/ai/bot/state.js";
-import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
+import { boardFeatures } from "./features.js";
+import type { SearchInput } from "./state.js";
+import { DEFAULT_WEIGHTS } from "./weights.js";
 import { decodeServeBlock, encodeDecisionRecord, parseServeBlock } from "./gpu-codec.js";
 import { createGpuAttaxDecider, gpuEngineInfo } from "./gpu-player.js";
 

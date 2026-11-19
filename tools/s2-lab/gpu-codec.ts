@@ -14,10 +14,11 @@
  * `line` contains only the root step (the format has no parent links),
  * and `lineStates` is never produced.
  */
-import { BOARD_FEATURES, boardFeatures } from "../../src/ai/bot/features.js";
-import type { Placement } from "../../src/ai/bot/movegen.js";
-import type { SearchInput, SearchResult, Step } from "../../src/ai/bot/search.js";
-import type { Weights } from "../../src/ai/bot/weights.js";
+import { BOARD_FEATURES, boardFeatures } from "./features.js";
+import type { Placement } from "./board.js";
+import type { SearchResult, Step } from "./search-types.js";
+import type { SearchInput } from "./state.js";
+import type { Weights } from "./weights.js";
 import type { PieceKind } from "../../src/core/pieces.js";
 import type { TspinKind } from "../../src/core/tspin.js";
 

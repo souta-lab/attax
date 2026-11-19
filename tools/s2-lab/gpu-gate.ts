@@ -23,9 +23,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { BOARD_FEATURES, boardFeatures } from "../../src/ai/bot/features.js";
-import type { SearchInput } from "../../src/ai/bot/state.js";
-import { DEFAULT_WEIGHTS } from "../../src/ai/bot/weights.js";
+import { BOARD_FEATURES, boardFeatures } from "./features.js";
+import type { SearchInput } from "./state.js";
+import { DEFAULT_WEIGHTS } from "./weights.js";
 import {
   DECISION_BYTES,
   decodeServeBlock,

@@ -1,24 +1,26 @@
 /**
- * The S2 lab's search-input shape and its single mapping onto the shared core.
+ * The S2 lab's search-input shape and its single mapping onto the engine's
+ * input shape.
  *
- * The former private lab search (tools/s2-lab/search.ts) is gone: the lab now
- * runs the shared src search under rules profile "s2" (src/ai/bot/search.ts).
  * The lab keeps its own input shape because its public-state projection
- * (projectAttax) and the imitation variants carry the exact difficult-clear
- * chain in a numeric `b2b` and always know `dueThisLock`. The shared input keeps
- * `b2b` boolean and carries the exact chain in `b2bChain`; `toSharedInput` is
- * the one place that converts between them (same conversion as the chunk-3b
- * parity test). Every other field is shared verbatim.
+ * (projectAttax, in lab-decision.ts) carries the exact difficult-clear
+ * chain in a numeric `b2b` and always knows `dueThisLock`. The engine input
+ * keeps `b2b` boolean and carries the exact chain in `b2bChain`;
+ * `toSharedInput` is the one place that converts between them. Every other
+ * field is shared verbatim.
+ *
+ * The shapes on the engine side used to be defined by the shared TS core
+ * (src/ai/bot), removed in Phase C (2026-11-19); they are vendored in
+ * ./state.ts and ./search-types.ts, and the only engine consuming them is
+ * the GPU driver (gpu-player.ts / gpu-codec.ts).
  */
 
-import type { Placement } from "../../src/ai/bot/movegen.js";
-import type {
-  SearchOptions as SharedSearchOptions,
-  SearchInput as SrcSearchInput,
-} from "../../src/ai/bot/search.js";
 import type { PieceKind } from "../../src/core/pieces.js";
+import type { Placement } from "./board.js";
+import type { SearchOptions as SharedSearchOptions } from "./search-types.js";
+import type { SearchInput as SrcSearchInput } from "./state.js";
 
-export type { Candidate, SearchResult, Step } from "../../src/ai/bot/search.js";
+export type { Candidate, SearchResult, Step } from "./search-types.js";
 
 /** Lab search input: the shared input with the exact chain as a numeric `b2b`. */
 export interface SearchInput {

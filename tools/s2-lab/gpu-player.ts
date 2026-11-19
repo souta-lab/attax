@@ -31,10 +31,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BOT_DEFAULTS } from "../../src/ai/bot/fighter.js";
-import type { DeciderOptions, SearchResult } from "../../src/ai/bot/search.js";
-import type { SearchInput } from "../../src/ai/bot/state.js";
-import { DEFAULT_WEIGHTS, type Weights } from "../../src/ai/bot/weights.js";
+import { BOT_DEFAULTS } from "./defaults.js";
+import type { DeciderOptions, SearchResult } from "./search-types.js";
+import type { SearchInput } from "./state.js";
+import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 import {
   encodeDecisionRecordBytes,
   type ParsedBlock,
@@ -331,8 +331,9 @@ export function closeGpuEngine(): void {
 
 // ---------------------------------------------------------------------------
 // Config-O validation. The resolution mirrors createAttaxDecider
-// (attax-player.ts) field for field; anything that does not resolve to
-// the GPU engine's one fixed configuration is refused, loudly, in full.
+// (attax-player.ts, removed in Phase C) field for field; anything that does
+// not resolve to the GPU engine's one fixed configuration is refused,
+// loudly, in full.
 // ---------------------------------------------------------------------------
 
 interface MechanismSettings {
@@ -511,7 +512,7 @@ export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDe
   const weights = profile.weights;
   const mechanisms = profile.mechanisms;
 
-  // Resolution mirrors createAttaxDecider (attax-player.ts) exactly.
+  // Resolution mirrors createAttaxDecider (attax-player.ts, removed in Phase C) exactly.
   const stock = envMechanism(
     process.env.ATTAX_S2_STOCK_POTENTIAL,
     mechanisms.stock,
