@@ -1268,13 +1268,18 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         int deepest_slice = 0;
         for (int s = 1; s <= MAXPLY; s++) if (st[ST_BEAM_COUNT + s] > 0) deepest_slice = s;
 
-        // first moves from the ply-0 children (fm index = child index)
+        // first moves from the ply-0 children (fm index = root label;
+        // in s2 the root label equals the child index)
         uint32_t nc0 = st[ST_N_CHILD + 0];
         uint32_t ab0 = st[ST_ARENA_BASE + 0];
         FirstMove *fms = malloc((size_t)(nc0 ? nc0 : 1) * sizeof(FirstMove));
         for (uint32_t c = 0; c < nc0; c++) {
             const uint32_t *r = recs + (size_t)(ab0 + c) * EX_OUT_STRIDE;
-            FirstMove *fm = &fms[c];
+            // Profile port (guideline): root labels are survivor ranks
+            // (rootfix_gl), not child indices — key the table by the
+            // record's root field and skip death-vanished children.
+            if (g_profile_guideline && r[92] == 2) continue;
+            FirstMove *fm = &fms[g_profile_guideline ? r[93] : c];
             memset(fm, 0, sizeof *fm);
             fm->s_kind = (int32_t)r[95]; fm->s_rot = (int32_t)r[96]; fm->s_x = (int32_t)r[97];
             fm->s_y = (int32_t)r[98]; fm->s_srs = (int32_t)r[99]; fm->s_tspin = (int32_t)r[100];
@@ -1708,13 +1713,18 @@ static int run_decision_prof(const uint32_t *dec, double *wall_ms, double *gpu_m
         int deepest_slice = 0;
         for (int s = 1; s <= MAXPLY; s++) if (st[ST_BEAM_COUNT + s] > 0) deepest_slice = s;
 
-        // first moves from the ply-0 children (fm index = child index)
+        // first moves from the ply-0 children (fm index = root label;
+        // in s2 the root label equals the child index)
         uint32_t nc0 = st[ST_N_CHILD + 0];
         uint32_t ab0 = st[ST_ARENA_BASE + 0];
         FirstMove *fms = malloc((size_t)(nc0 ? nc0 : 1) * sizeof(FirstMove));
         for (uint32_t c = 0; c < nc0; c++) {
             const uint32_t *r = recs + (size_t)(ab0 + c) * EX_OUT_STRIDE;
-            FirstMove *fm = &fms[c];
+            // Profile port (guideline): root labels are survivor ranks
+            // (rootfix_gl), not child indices — key the table by the
+            // record's root field and skip death-vanished children.
+            if (g_profile_guideline && r[92] == 2) continue;
+            FirstMove *fm = &fms[g_profile_guideline ? r[93] : c];
             memset(fm, 0, sizeof *fm);
             fm->s_kind = (int32_t)r[95]; fm->s_rot = (int32_t)r[96]; fm->s_x = (int32_t)r[97];
             fm->s_y = (int32_t)r[98]; fm->s_srs = (int32_t)r[99]; fm->s_tspin = (int32_t)r[100];
@@ -2197,13 +2207,18 @@ static int run_decision_dump(const uint32_t *dec, Out *out, double *wall_ms, dou
         int deepest_slice = 0;
         for (int s = 1; s <= MAXPLY; s++) if (st[ST_BEAM_COUNT + s] > 0) deepest_slice = s;
 
-        // first moves from the ply-0 children (fm index = child index)
+        // first moves from the ply-0 children (fm index = root label;
+        // in s2 the root label equals the child index)
         uint32_t nc0 = st[ST_N_CHILD + 0];
         uint32_t ab0 = st[ST_ARENA_BASE + 0];
         FirstMove *fms = malloc((size_t)(nc0 ? nc0 : 1) * sizeof(FirstMove));
         for (uint32_t c = 0; c < nc0; c++) {
             const uint32_t *r = recs + (size_t)(ab0 + c) * EX_OUT_STRIDE;
-            FirstMove *fm = &fms[c];
+            // Profile port (guideline): root labels are survivor ranks
+            // (rootfix_gl), not child indices — key the table by the
+            // record's root field and skip death-vanished children.
+            if (g_profile_guideline && r[92] == 2) continue;
+            FirstMove *fm = &fms[g_profile_guideline ? r[93] : c];
             memset(fm, 0, sizeof *fm);
             fm->s_kind = (int32_t)r[95]; fm->s_rot = (int32_t)r[96]; fm->s_x = (int32_t)r[97];
             fm->s_y = (int32_t)r[98]; fm->s_srs = (int32_t)r[99]; fm->s_tspin = (int32_t)r[100];
