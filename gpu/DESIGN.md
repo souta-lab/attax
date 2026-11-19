@@ -107,9 +107,15 @@ some toolchains produces different bits. Consequences for productization:
 3. Wall measured in the same session with the GPU clock state recorded
    (sclk sampler; boost 2320 MHz dominant) and no other GPU tenant
    running — bench numbers taken under contention are not evidence.
-4. Only after 1–3: hook the serve mode into the lab behind an explicit
-   engine switch, default off; main's default engine stays Rust until
-   Souta flips it.
+4. Only after 1–3: hook the serve mode into the lab.
+   **Superseded by Souta's rulings of 2026-11-19:** there is no engine
+   switch and no default-off period. The lab driver is GPU-only
+   (`tools/s2-lab/gpu-player.ts` + `gpu-codec.ts`, branch
+   `gpu/lab-driver`): with no usable Vulkan device it stops with a clear
+   error — a silent fallback to a path tens of times slower would
+   contaminate measurements. The Rust/TS engine paths are being removed
+   from the repo by a separate lane; the Rust search survives only as
+   the gate harnesses' archived reference on the PC.
 
 ## 6. Non-goals for this branch
 
