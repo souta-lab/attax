@@ -1,17 +1,14 @@
 import { createHash } from "node:crypto";
 import { appendFile, open, readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import {
-  cellKey,
-  createAttaxDecider,
-  createDefaultAttaxDecider,
-  engineIdentity,
-  engineTimingSummary,
-  loadS2Weights,
-  placementCells,
-  tripwireWarningText,
-} from "./attax-player.js";
 import { createChampionDriver } from "./champion-driver.mjs";
+import {
+  createDefaultGpuDecider,
+  createGpuAttaxDecider,
+  gpuEngineInfo,
+  gpuEngineTimingSummary,
+} from "./gpu-player.js";
+import { cellKey, placementCells, wrapGpuDecider } from "./lab-decision.js";
 import {
   applyTransition,
   controller,
@@ -23,7 +20,7 @@ import {
   profile,
   resolvePlacementRules,
 } from "./lab.mjs";
-import { createPlanCarryoverDecider } from "./plan-carryover.js";
+
 
 const { createGame, extendSeededQueue, toS2GuiState } = await lab("cc2-gui/game.mjs");
 const { guiStateToCanonical } = await lab("src-js/gui-state.mjs");
@@ -62,18 +59,27 @@ if (!!values["opponent-profile"] !== !!values["opponent-id"])
   throw new Error("opponent profile and id must be supplied together");
 if (values["champion-vs-champion"] && values["opponent-profile"])
   throw new Error("opponent profile conflicts with champion-vs-champion");
-// Plan carry-over (item 100, default off): ATTAX_S2_PLAN_CARRYOVER=1 wraps
-// both attax-side deciders per game; the search then also returns its best
-// line's predicted states (TS engine; on Rust the wrapper is a pass-through).
+// Plan carry-over (item 100) needs SearchResult.lineStates, which the GPU
+// engine's wire format does not carry. Since the TS engine's removal
+// (Phase C, 2026-11-19) no path can produce it, so the request is refused
+// loudly instead of being silently dropped.
 const carryEnv = process.env.ATTAX_S2_PLAN_CARRYOVER;
 if (carryEnv !== undefined && carryEnv !== "0" && carryEnv !== "1")
   throw new Error(`expected "0" or "1" in ATTAX_S2_PLAN_CARRYOVER, got ${carryEnv}`);
-const planCarryover = carryEnv === "1";
-const deciderOpts = planCarryover ? { lineStates: true } : undefined;
+if (carryEnv === "1")
+  throw new Error(
+    "ATTAX_S2_PLAN_CARRYOVER=1 is unavailable: plan carry-over needs lineStates, " +
+      "which the GPU engine's wire format does not carry (GPU front-end pending)",
+  );
+const planCarryover = false;
+// GPU engine startup probe: verifies the pinned assets and the device
+// before the first game. There is no fallback — a machine without a usable
+// Vulkan device stops here (Souta's ruling, 2026-11-19).
+const engineInfo = await gpuEngineInfo();
 const opponent = values["opponent-profile"]
-  ? createAttaxDecider(values["opponent-profile"], deciderOpts)
+  ? wrapGpuDecider(await createGpuAttaxDecider(values["opponent-profile"]))
   : null;
-const attax = createDefaultAttaxDecider(deciderOpts);
+const attax = wrapGpuDecider(await createDefaultGpuDecider());
 const pps = ppsForCc2Parameters(parameters);
 const digest = createHash("sha256").update(canonicalize(profile)).digest("hex");
 const wasmPath =
@@ -115,10 +121,8 @@ async function play(gameIndex) {
     match.bots.map((b) => [b.id, structuredClone(b.state)]),
   );
   const drivers = new Map();
-  // The plan is per-player state: one carry-over wrapper per game per side
-  // (games may run concurrently on the shared deciders).
-  const attaxGame = planCarryover ? createPlanCarryoverDecider(attax) : attax;
-  const opponentGame = planCarryover && opponent ? createPlanCarryoverDecider(opponent) : opponent;
+  const attaxGame = attax;
+  const opponentGame = opponent;
   const receipts = { left: null, right: null };
   const lastTankTopout = { left: false, right: false };
   let outcome = null;
@@ -291,16 +295,8 @@ async function play(gameIndex) {
     error,
     rejectedRoots,
     protocolErrors: error ? 1 : 0,
-    ...(planCarryover
-      ? {
-          planCarryoverStats: {
-            attax: attaxGame.stats,
-            opponent: opponentGame?.stats ?? null,
-          },
-        }
-      : {}),
     settings: {
-      opponentProfileId: opponent?.profileId ?? null,
+      opponentProfileId: values["opponent-id"] ?? null,
       mode: "paced",
       pps,
       garbageDelayFrames: 0,
@@ -313,9 +309,13 @@ async function play(gameIndex) {
       wasmSha256,
       attaxWidth: 96,
       planCarryover,
-      attaxEngine: engineIdentity(),
-      attaxWeights: loadS2Weights().profileId,
-      attaxWeightsSource: loadS2Weights().source,
+      attaxEngine: {
+        id: "gpu",
+        device: engineInfo.device,
+        tablesSha256: engineInfo.tablesSha256,
+      },
+      attaxWeights: "config-o",
+      attaxWeightsSource: "gpu-engine-fixed",
       labRoot,
     },
   };
@@ -352,11 +352,8 @@ await Promise.all(Array.from({ length: concurrency }, () => worker()));
 attax.close();
 opponent?.close();
 {
-  const engine = engineIdentity();
-  const timing = engineTimingSummary();
+  const timing = gpuEngineTimingSummary();
   console.error(
-    `engine: ${engine.id} (build ${engine.build}); median ${timing.medianMs?.toFixed(1)} ms/decision over ${timing.decisions} attax decisions`,
+    `engine: gpu (${engineInfo.device}); host-reported mean ${timing.meanMs.toFixed(2)} ms/decision over ${timing.count} attax decisions (max ${timing.maxMs.toFixed(2)} ms)`,
   );
-  const tripwire = tripwireWarningText();
-  if (tripwire) console.error(tripwire);
 }
