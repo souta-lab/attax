@@ -17,6 +17,16 @@
 // Scratch that must be device-local is asserted at startup
 // (mkbuf_dev), as in step 1.
 //
+// STAGE1C (2026-11-19): the movegen slot now runs the BP B1 kernel
+// (shaders/bpmg_b1.spv; source in shaders/src/bpmg_b1.comp). It reads
+// mg_in directly (binding 0), writes the production mg_out format
+// (binding 2), does not use mg_scratch (binding 1, still bound), and
+// takes push {base=0, flags=0} -- hence the {0, 0} pushes at every
+// movegen dispatch site below. The legacy serial-stamp machinery is
+// retained but inert. movegen_s24_fci.spv remains in the tree for
+// A/B rollback (pass its path as <movegen.spv> and restore the
+// {1, serial} pushes to use it).
+//
 // Modes:
 //   expandcheck <expand.spv> <tables.bin> <cases.bin> [device]
 //   run <movegen.spv> <expand.spv> <tables.bin> <decisions.bin> <out.bin> [max_decisions] [device]
@@ -1076,7 +1086,7 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         barrier_rw(cmd);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.layout, 0, 1, &g_mg_set, 0, NULL);
-        uint32_t mgpc[2] = { 1, g_serial_base + ply };
+        uint32_t mgpc[2] = { 0, 0 };  /* BP movegen push: {base=0, flags=0} */
         vkCmdPushConstants(cmd, g_mg_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 8, mgpc);
         vkCmdDispatchIndirect(cmd, g_args.buf, (VkDeviceSize)(ply * ARG_KINDS + ARG_MG) * 12);
         barrier_rw(cmd);
@@ -1505,7 +1515,7 @@ static int run_decision_prof(const uint32_t *dec, double *wall_ms, double *gpu_m
         if ((int)ply == g_stop_ply) { stopped = 1; break; }
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.layout, 0, 1, &g_mg_set, 0, NULL);
-        uint32_t mgpc[2] = { 1, g_serial_base + ply };
+        uint32_t mgpc[2] = { 0, 0 };  /* BP movegen push: {base=0, flags=0} */
         vkCmdPushConstants(cmd, g_mg_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 8, mgpc);
         vkCmdDispatchIndirect(cmd, g_args.buf, (VkDeviceSize)(ply * ARG_KINDS + ARG_MG) * 12);
         barrier_rw(cmd);
@@ -1873,7 +1883,7 @@ static int cmd_mgreplay(const char *mg_spv, const char *ex_spv, const char *tabl
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, rpool, (uint32_t)k);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.layout, 0, 1, &g_mg_set, 0, NULL);
-        uint32_t mgpc[2] = { 1, sbase + (uint32_t)k };
+        uint32_t mgpc[2] = { 0, 0 };  /* BP movegen push: {base=0, flags=0} */
         vkCmdPushConstants(cmd, g_mg_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 8, mgpc);
         vkCmdDispatchIndirect(cmd, g_args.buf, (VkDeviceSize)(ply * ARG_KINDS + ARG_MG) * 12);
         barrier_rw(cmd);
@@ -1940,7 +1950,7 @@ static int cmd_mgreplay2(const char *mg_spv, const char *replay_mg_spv, const ch
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, rpool, (uint32_t)k);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, rp.pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, rp.layout, 0, 1, &rset, 0, NULL);
-        uint32_t mgpc[2] = { 1, sbase + (uint32_t)k };
+        uint32_t mgpc[2] = { 0, 0 };  /* BP movegen push: {base=0, flags=0} */
         vkCmdPushConstants(cmd, rp.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 8, mgpc);
         vkCmdDispatchIndirect(cmd, g_args.buf, (VkDeviceSize)(ply * ARG_KINDS + ARG_MG) * 12);
         barrier_rw(cmd);
@@ -2007,7 +2017,7 @@ static int run_decision_dump(const uint32_t *dec, Out *out, double *wall_ms, dou
         barrier_rw(cmd);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.pipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_mg_pipe.layout, 0, 1, &g_mg_set, 0, NULL);
-        uint32_t mgpc[2] = { 1, g_serial_base + ply };
+        uint32_t mgpc[2] = { 0, 0 };  /* BP movegen push: {base=0, flags=0} */
         vkCmdPushConstants(cmd, g_mg_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 8, mgpc);
         vkCmdDispatchIndirect(cmd, g_args.buf, (VkDeviceSize)(ply * ARG_KINDS + ARG_MG) * 12);
         barrier_rw(cmd);

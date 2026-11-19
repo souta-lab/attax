@@ -14,11 +14,20 @@ and landed on main** (see "Gate status"). The S2 lab driver lives in
   since gained the `serve` mode (see below) and now hashes to
   `30afb034…`. The spike original is unchanged and remains the reference
   for the step-26 sessions.
-- Movegen SPV: `shaders/movegen_s24_fci.spv` (sha256 prefix `0066dccd…`).
+- Movegen SPV: `shaders/bpmg_b1.spv` (sha256 prefix `5b419ab7…`) — the
+  BP (bit-parallel) movegen, variant B1, integrated 2026-11-19
+  (stage 1C). It reads `mg_in` directly and writes the production
+  `mg_out` format; the host pushes `{0, 0}` at the movegen dispatch.
+  Source is vendored in-tree at `shaders/src/bpmg_b1.comp`
+  (+ `shaders/src/tables.glsl`); rebuild with
+  `glslangValidator --target-env vulkan1.2 -V bpmg_b1.comp -o bpmg_b1.spv`
+  from that directory. The previous movegen,
+  `shaders/movegen_s24_fci.spv` (sha256 prefix `0066dccd…`), is retained
+  for A/B rollback (it needs the legacy `{1, serial}` pushes).
 - Expand SPV: `shaders/expand_s25_noba.spv` (sha256 prefix `55fa3bef…`).
-- The other 39 SPVs in `shaders/` are loaded by the host from the expand
+- The other 40 SPVs in `shaders/` are loaded by the host from the expand
   SPV's directory (every name is a string literal in the host source;
-  the set is machine-checked against it). All 41 SPVs are pinned in
+  the set is machine-checked against it). All 42 SPVs are pinned in
   `shaders/MANIFEST.sha256`. Note `sel_passA22.spv` is loaded
   unconditionally at pipeline init even though the final configuration
   (S22_PASSA=off) never dispatches it — the file must be present.
@@ -34,7 +43,7 @@ and landed on main** (see "Gate status"). The S2 lab driver lives in
 ## Serve mode (product path)
 
 ```bash
-./vkrunner_s26 serve shaders/movegen_s24_fci.spv shaders/expand_s25_noba.spv <tables.bin> [device]
+./vkrunner_s26 serve shaders/bpmg_b1.spv shaders/expand_s25_noba.spv <tables.bin> [device]
 ```
 
 A long-lived engine process: reads 108-word decision records from
@@ -69,7 +78,7 @@ llvmpipe is **not** an adoption target — see DESIGN.md):
 
 ```bash
 S22_PASSA=off S23_SOA=1 S26_PFUSE=on S26_LFUSE=on S26_FILL=on \
-  ./vkrunner_s26 run shaders/movegen_s24_fci.spv shaders/expand_s25_noba.spv \
+  ./vkrunner_s26 run shaders/bpmg_b1.spv shaders/expand_s25_noba.spv \
   <tables.bin> <decisions.bin> res.bin 180
 m4-harness check <expect.bin> res.bin        # every category must be 0
 cmp_results.py res.bin <results-s2.bin>      # must print IDENTICAL
@@ -89,7 +98,13 @@ is not vendored; it lives in the PC gate-data set and the spike tree
 
 ## Provenance
 
-- Host and SPVs were copied on 2026-11-19 from the spike workspaces
+- `bpmg_b1.spv` was compiled 2026-11-19 from the in-tree source
+  `shaders/src/bpmg_b1.comp`, itself derived from the spike's adopted
+  B1 kernel (`attax-gpu-spike/stage1-work/varB1.comp`, sha256
+  `7ecdd848…`) with only the input/output stages adapted to the
+  production contract (see the source header and
+  `attax-gpu-spike/STAGE1C-B1-INTEGRATION-2026-11-19.md`).
+- Host and the other SPVs were copied on 2026-11-19 from the spike workspaces
   (PC `/tmp/s9work/opt26`, `/tmp/s9work/opt24/mg24`,
   `/tmp/s9work/opt26/build-scr26`) with sha256 verification at every hop.
 - Shader `.comp` sources live in the spike tree, one generation pipeline

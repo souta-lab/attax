@@ -76,7 +76,10 @@ function tablesPath(): string {
   return process.env.ATTAX_GPU_TABLES ?? path.join(GPU_DIR, "tables.bin");
 }
 function movegenPath(): string {
-  return path.join(GPU_DIR, "shaders", "movegen_s24_fci.spv");
+  // BP B1 movegen (stage 1C). The host's movegen push contract is
+  // {base=0, flags=0} for this kernel; the legacy fci kernel is not
+  // compatible with the current host pushes.
+  return path.join(GPU_DIR, "shaders", "bpmg_b1.spv");
 }
 function expandPath(): string {
   return path.join(GPU_DIR, "shaders", "expand_s25_noba.spv");
