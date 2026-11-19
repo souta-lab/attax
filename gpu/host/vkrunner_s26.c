@@ -399,6 +399,7 @@ static Pipe g_h6x_pipe, g_h7f_pipe;  // S22: byte-7 hist byproduct pair
 static Pipe g_phx_pipe;  // S26: prep fused into byte-6 histogram
 static Pipe g_exs26_pipe;  // S26: ex_scan + leaf tsum zeroing/base snapshot
 static Pipe g_leafprep26_pipe, g_leafscatter26_pipe;  // S26: leaf fusion pair
+static Pipe g_rootfix_pipe; static VkDescriptorSet g_rootfix_set;  // profile port: guideline ply-0 root re-rank
 static Pipe g_ext_pipe;  // S23: AoS->SoA transpose
 static Pipe g_leafprep_pipe, g_leafsum_pipe, g_leafscan_pipe, g_leafscatter_pipe;
 static Pipe g_resolve_pipe;
@@ -748,6 +749,13 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
     {
         Buf *b[5] = { &g_leaf_flag, &g_leaf_src, &g_leaf_tsum, &g_leaf_idx, &g_state };
         g_leafscatter26_set = make_set(&g_leafscatter26_pipe, b, 5);
+    }
+    // Profile port: guideline-only ply-0 root re-ranking (never dispatched
+    // in s2 mode; the s2 command stream is unchanged).
+    g_rootfix_pipe = make_pipe(spv_join(ex_spv, "rootfix_gl.spv"), 2, 4);
+    {
+        Buf *b[2] = { &g_state, &g_arena };
+        g_rootfix_set = make_set(&g_rootfix_pipe, b, 2);
     }
     // zero the movegen scratch once (stamps start clean)
     VkCommandBuffer cmd = begin_cmd();
@@ -1121,6 +1129,13 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         if (s23_soa() == 2) { reci(cmd, &g_ext_pipe, g_ext_set, &ply, 4, ply, ARG_EXB); barrier_rw(cmd); }  // S23 transpose
         reci(cmd, &g_ex_pipe, s23_soa() ? g_ex_set_soa : g_ex_set, &ply, 4, ply, ARG_EXP);
         barrier_rw(cmd);
+        if (g_profile_guideline && ply == 0) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_rootfix_pipe.pipe);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_rootfix_pipe.layout, 0, 1, &g_rootfix_set, 0, NULL);
+            vkCmdPushConstants(cmd, g_rootfix_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 4, &ply);
+            vkCmdDispatch(cmd, 1, 1, 1);
+            barrier_rw(cmd);
+        }
         if (!s26_pfuse() || s22_passA()) { reci(cmd, &g_prep_pipe, g_prep_set, &ply, 4, ply, ARG_TILE); barrier_rw(cmd); }
         {   // OPT-STEP4 sortless dedupe: one stable radix pass on hash
             // bits 48..55 groups equal-hash children in index order;
@@ -1553,6 +1568,16 @@ static int run_decision_prof(const uint32_t *dec, double *wall_ms, double *gpu_m
         stamp2(cmd, PST_EXB * 15 + (int)ply);
         reci(cmd, &g_ex_pipe, s23_soa() ? g_ex_set_soa : g_ex_set, &ply, 4, ply, ARG_EXP);
         barrier_rw(cmd);
+        if (g_profile_guideline && ply == 0) {
+            // Guideline root labels count surviving depth-0 children only;
+            // expand wrote raw generation ordinals. Re-rank before any
+            // consumer reads the arena records.
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_rootfix_pipe.pipe);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_rootfix_pipe.layout, 0, 1, &g_rootfix_set, 0, NULL);
+            vkCmdPushConstants(cmd, g_rootfix_pipe.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 4, &ply);
+            vkCmdDispatch(cmd, 1, 1, 1);
+            barrier_rw(cmd);
+        }
         stamp2(cmd, PST_EXP * 15 + (int)ply);
         reci(cmd, &g_prep_pipe, g_prep_set, &ply, 4, ply, ARG_TILE);
         barrier_rw(cmd);
