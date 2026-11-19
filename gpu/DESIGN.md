@@ -18,6 +18,12 @@ target is this productized path (same host boundary, new kernels).
 - Engine selection is therefore: Vulkan device present and gate-clean →
   GPU path; otherwise → Rust. Selection happens once at engine start,
   never per decision.
+  **Superseded by Souta's rulings of 2026-11-19 and executed as Phase C
+  the same day:** there is no engine selection and no Rust fallback. The
+  Rust/TS engine paths are removed from the repo; the GPU path is the
+  only engine, and an environment without a usable Vulkan device stops.
+  The Rust search survives only as the identity-verification reference
+  in the PC archive.
 
 ## 2. The engine boundary (what already exists)
 
@@ -123,3 +129,6 @@ some toolchains produces different bits. Consequences for productization:
 - No search-semantics changes of any kind: width, ply count, selection,
   and the f64 evaluation graph are bit-frozen by the gate.
 - No removal of the Rust engine or of the TS search.
+  (Branch-scoped at the time; a separate lane — Phase C, 2026-11-19 —
+  removed both after the profile port landed and the guideline profile
+  passed its GPU gate.)

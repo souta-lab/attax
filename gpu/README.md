@@ -27,9 +27,11 @@ and landed on main** (see "Gate status"). The S2 lab driver lives in
   `S26_FILL=on`. Setting the S26 toggles off reverts to the step-23
   dispatch stream inside the same host.
 - Search semantics: width 96, max 15 ply, config O — identical to the
-  production Rust search (`rust/attax-search`). One decision = one submit;
+  Rust search it was gated against. One decision = one submit;
   measured wall ≈4.53 ms/decision on an RX 6400 (sclk 2320) vs the Rust
-  reference's 57.66 ms median (M0, PC).
+  reference's 57.66 ms median (M0, PC). The Rust/TS engine paths were
+  removed from the repo in Phase C (2026-11-19); the Rust search survives
+  only as the identity-verification reference in the PC archive.
 
 ## Rules profiles (guideline / s2)
 
