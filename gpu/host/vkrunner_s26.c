@@ -1162,7 +1162,6 @@ static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, in
         reci(cmd, &g_htins_pipe, g_htins_set, &ply, 4, ply, ARG_TILE);
         barrier_rw(cmd);
         reci(cmd, &g_htlook_pipe, g_htlook_set, &ply, 4, ply, ARG_TILE);
-        barrier_rw(cmd);
         {   // OPT-STEP5 partial selection: two stable radix passes
             // (K byte 6, then byte 7) group children by the top 16
             // bits of K into scratch buffer idxE, leaving idxA's
