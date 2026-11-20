@@ -399,6 +399,7 @@ static Buf g_ex_in_d, g_selkeys, g_idxA, g_idxB, g_idxC, g_tilehist, g_tileoff, 
 static Buf g_tilehist2;  // S18: pass-A first histogram (fused hist output)
 static Buf g_ex_soa_d;  // S23: SoA-transposed expand input
 static Buf g_htable;  // S19: dedupe hash table (HT_WORDS words)
+static Buf g_touch;  // B3: binall first-touch list (count + bin ids)
 static Buf g_leaf_flag, g_leaf_src, g_leaf_tsum, g_leaf_toff, g_leaf_idx;
 static Buf g_snap;
 static Buf g_binall, g_blk, g_selctl, g_bitargs, g_idxD, g_idxE, g_scanargs;
@@ -520,6 +521,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
     g_surv = mkbuf_dev((VkDeviceSize)MAX_CHILD * 4, "surv");
     g_snap = mkbuf((VkDeviceSize)MAXPLY * MAX_CHILD * 4 * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     g_binall = mkbuf_dev(131072 * 4, "binall");
+    g_touch = mkbuf_dev((1 + 65536) * 4, "touch");
     g_blk = mkbuf_dev(512 * 4, "blk");
     g_selctl = mkbuf_dev((VkDeviceSize)MAXPLY * 4, "selctl");
     g_bitargs = mkbuf((VkDeviceSize)MAXPLY * 12, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT);
@@ -691,20 +693,20 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
         Buf *bk1[5] = { &g_selkeys, &g_idxB, &g_idxA, &g_tilehist, &g_state };
         g_fscatK_set[1] = make_set(&g_fscatK_pipe, bk1, 5);
     }
-    g_binhist_pipe = make_pipe(spv_join(ex_spv, "sel_binhist16_s5.spv"), 6, 4);
+    g_binhist_pipe = make_pipe(spv_join(ex_spv, "sel_binhist16_s5.spv"), 7, 4);
     {
-        Buf *b[6] = { &g_selkeys, &g_surv, &g_arena, &g_state, &g_binall, &g_blk };
-        g_binhist_set = make_set(&g_binhist_pipe, b, 6);
+        Buf *b[7] = { &g_selkeys, &g_surv, &g_arena, &g_state, &g_binall, &g_blk, &g_touch };
+        g_binhist_set = make_set(&g_binhist_pipe, b, 7);
     }
     g_clear_pipe = make_pipe(spv_join(ex_spv, "sel_clear_s5.spv"), 1, 0);
     {
         Buf *b[1] = { &g_binall };
         g_clear_set = make_set(&g_clear_pipe, b, 1);
     }
-    g_thresh_pipe = make_pipe(spv_join(ex_spv, "sel_thresh16_s5.spv"), 7, 4);
+    g_thresh_pipe = make_pipe(spv_join(ex_spv, "sel_thresh16_s5.spv"), 8, 4);
     {
-        Buf *b[7] = { &g_binall, &g_state, &g_args, &g_selctl, &g_bitargs, &g_blk, &g_scanargs };
-        g_thresh_set = make_set(&g_thresh_pipe, b, 7);
+        Buf *b[8] = { &g_binall, &g_state, &g_args, &g_selctl, &g_bitargs, &g_blk, &g_scanargs, &g_touch };
+        g_thresh_set = make_set(&g_thresh_pipe, b, 8);
     }
     g_bitonic_pipe = make_pipe(spv_join(ex_spv, "sel_bitonic_s5.spv"), 5, 4);
     {
@@ -794,6 +796,7 @@ static void pipeline_init(const char *mg_spv, const char *ex_spv, const char *ta
     vkCmdFillBuffer(cmd, g_mg_scratch.buf, 0, VK_WHOLE_SIZE, 0);
     vkCmdFillBuffer(cmd, g_binall.buf, 0, VK_WHOLE_SIZE, 0);
     vkCmdFillBuffer(cmd, g_blk.buf, 0, VK_WHOLE_SIZE, 0);
+    vkCmdFillBuffer(cmd, g_touch.buf, 0, VK_WHOLE_SIZE, 0);  // B3
     submit_wait(cmd);
     g_serial_base = 1;
 }
@@ -1192,13 +1195,6 @@ static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, in
             barrier_rw(cmd);
             rec1(cmd, &g_thresh_pipe, g_thresh_set, &ply, 4);
             barrier_rw(cmd);
-            if (s26_fill()) { vkCmdFillBuffer(cmd, g_binall.buf, 0, VK_WHOLE_SIZE, 0); barrier_transfer_to_compute(cmd); }
-            else {
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_clear_pipe.pipe);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_clear_pipe.layout, 0, 1, &g_clear_set, 0, NULL);
-                vkCmdDispatch(cmd, 512, 1, 1);
-                barrier_rw(cmd);
-            }
         }
         s21_pred_begin(cmd, ply);
         if (s21_mega()) {

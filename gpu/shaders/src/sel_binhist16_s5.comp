@@ -1,0 +1,51 @@
+// B3 variant F1 of sel_binhist16_s15_priv (production, byte-matched
+// base): record every bin whose total count leaves zero this ply
+// into the touch list (word 0 = count, words 1.. = bin ids), so
+// thresh can zero exactly the touched bins instead of the host
+// refilling all 512 KiB after every ply. The selected half needs
+// no separate record: a selected increment always pairs with a
+// total increment of the same bin by the same child.
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "s2_common.glsl"
+
+layout(std430, set = 0, binding = 0) readonly buffer SelKeys { uint w[]; } selk;
+layout(std430, set = 0, binding = 1) readonly buffer SurvFlag { uint w[]; } surv;
+layout(std430, set = 0, binding = 2) readonly buffer ExOut { uint w[]; } exout;
+layout(std430, set = 0, binding = 3) readonly buffer StateBuf { uint w[]; } state;
+layout(std430, set = 0, binding = 4) buffer BinAll { uint w[]; } binall;
+layout(std430, set = 0, binding = 5) buffer Blk { uint w[]; } blk;
+layout(std430, set = 0, binding = 6) buffer Touch { uint w[]; } touch;
+layout(push_constant) uniform Push { uint ply; } pc;
+
+shared uint s_blk[512];
+
+void main() {
+    uint t = gl_LocalInvocationID.x;
+    s_blk[t] = 0u;
+    s_blk[t + 256u] = 0u;
+    barrier();
+    uint i = gl_GlobalInvocationID.x;
+    uint n = state.w[ST_N_CHILD + pc.ply];
+    if (i < n) {
+        uint base = state.w[ST_ARENA_BASE + pc.ply];
+        uint bin = selk.w[i * 4u + 1u] >> 16u;
+        uint old = atomicAdd(binall.w[bin], 1u);
+        if (old == 0u) {
+            uint slot = atomicAdd(touch.w[0], 1u);
+            touch.w[1u + slot] = bin;
+        }
+        atomicAdd(s_blk[bin >> 8u], 1u);
+        if (surv.w[i] != 0u && exout.w[(base + i) * S2_OUT_STRIDE + 92u] == 0u) {
+            atomicAdd(binall.w[65536u + bin], 1u);
+            atomicAdd(s_blk[256u + (bin >> 8u)], 1u);
+        }
+    }
+    barrier();
+    uint v0 = s_blk[t];
+    if (v0 != 0u) atomicAdd(blk.w[t], v0);
+    uint v1 = s_blk[t + 256u];
+    if (v1 != 0u) atomicAdd(blk.w[256u + t], v1);
+}
