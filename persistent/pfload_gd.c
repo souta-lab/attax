@@ -833,7 +833,7 @@ static uint64_t fnv1a(const uint8_t *p, size_t n) {
     return h;
 }
 int main(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: pfload <gate|drill|bench|dump> <spv> [G=72] [out.bin]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: pfload <gate|drill|bench|dump|dumpsel> <spv> [G=72] [out.bin]\n"); return 1; }
     const char *mode = argv[1], *spvp = argv[2];
     uint32_t G = (argc >= 4) ? (uint32_t)atoi(argv[3]) : 72u;
     if (G == 0 || G % 12) { fprintf(stderr, "G must be a multiple of 12\n"); return 1; }
@@ -864,6 +864,28 @@ int main(int argc, char **argv) {
     buffers_setup(inst52, inst48, plcin, tabD, gout);
     pipeline_setup(spvp);
     printf("setup done, G=%u\n", G);
+
+    if (!strcmp(mode, "dumpsel")) {
+        if (argc < 5) { fprintf(stderr, "usage: pfload dumpsel <spv> <G> <out.bin>\n"); return 1; }
+        FILE *of = fopen(argv[4], "wb");
+        if (!of) { perror(argv[4]); return 1; }
+        double tot = 0;
+        for (uint32_t d = 0; d < NDEC; d++) {
+            double sp, wa;
+            if (run_decision(d, G, 0, &sp, &wa)) { printf("FAULT dec %u\n", d); fclose(of); return 1; }
+            tot += sp;
+            const uint32_t *out = (const uint32_t *)bout.ptr;
+            for (uint32_t k = 0; k < decPlyN[d]; k++) {
+                uint32_t nSel = out[k * 16 + 2];
+                fwrite(&nSel, 4, 1, of);
+                fwrite(out + 524800 + k * 96, 4, nSel, of);
+                fwrite(out + 527872 + k * 4224, 4, nSel * 44, of);
+            }
+        }
+        fclose(of);
+        printf("DUMPSEL ok: %u decisions, mean span %.1f us/dec -> %s\n", NDEC, tot / NDEC, argv[4]);
+        return 0;
+    }
 
     if (!strcmp(mode, "drill")) {
         double sp, wa;
