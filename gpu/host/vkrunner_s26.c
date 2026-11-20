@@ -1121,11 +1121,10 @@ static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, in
         VkBufferCopy rc = { 0, 0, (VkDeviceSize)EX_OUT_STRIDE * 4 };
         vkCmdCopyBuffer(cmd, g_root_stage.buf, g_arena.buf, 1, &rc);
     }
+    vkCmdFillBuffer(cmd, g_htable.buf, 0, VK_WHOLE_SIZE, 0);  // S19
     barrier_transfer_to_compute(cmd);
     rec1(cmd, &g_init_pipe, g_init_set, NULL, 0);
     barrier_rw(cmd);
-    vkCmdFillBuffer(cmd, g_htable.buf, 0, VK_WHOLE_SIZE, 0);  // S19
-    barrier_transfer_to_compute(cmd);
     for (uint32_t ply = 0; ply < MAXPLY; ply++) {
         rec1(cmd, &g_mgb_pipe, g_mgb_set, &ply, 4);
         barrier_rw(cmd);
@@ -1179,7 +1178,6 @@ static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, in
             uint32_t apush2[3] = { ply, 56u, 0u };
             // S18: pass-A first histogram is computed by the fused
             // hist dispatch at the dedupe position (into tilehist2).
-            barrier_rw(cmd);
             if (s22_passA()) {
                 rec1(cmd, &g_passA_pipe, g_passA_set, &ply, 4);  // S22: fused pass A
                 barrier_rw(cmd);
@@ -1225,7 +1223,6 @@ static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, in
             reci(cmd, &g_leafprep26_pipe, g_leafprep26_set, &ply, 4, ply, ARG_LEAFP);
             barrier_rw(cmd);
             reci(cmd, &g_leafscatter26_pipe, g_leafscatter26_set, &ply, 4, ply, ARG_LEAFS);
-            barrier_rw(cmd);
         } else {
             reci(cmd, &g_leafprep_pipe, g_leafprep_set, &ply, 4, ply, ARG_LEAFP);
             barrier_rw(cmd);
@@ -1234,7 +1231,6 @@ static void record_decision_stream(VkCommandBuffer cmd, uint32_t serial_base, in
             rec1(cmd, &g_leafscan_pipe, g_leafscan_set, &ply, 4);
             barrier_rw(cmd);
             reci(cmd, &g_leafscatter_pipe, g_leafscatter_set, &ply, 4, ply, ARG_LEAFS);
-            barrier_rw(cmd);
         }
     }
     barrier_compute_to_transfer(cmd);
@@ -1289,7 +1285,7 @@ static void s4_ensure(void) {
         CK(vkEndCommandBuffer(g_s4_cb[0]));
     }
     g_s4_cb_wrap = s4_alloc_cb();
-    record_decision_stream(g_s4_cb_wrap, 1u, 1);
+    record_decision_stream(g_s4_cb_wrap, 1u, g_mg_legacy ? 1 : 0);
     CK(vkEndCommandBuffer(g_s4_cb_wrap));
     VkFenceCreateInfo fi = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, NULL, 0 };
     CK(vkCreateFence(dev, &fi, NULL, &g_s4_fence));
@@ -1353,7 +1349,7 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
     } else {
         VkCommandBuffer cmd = begin_cmd();
         if (wrap) g_serial_base = 1;
-        record_decision_stream(cmd, g_serial_base, wrap);
+        record_decision_stream(cmd, g_serial_base, wrap && g_mg_legacy);
         double t0 = now_ms();
         CK(vkEndCommandBuffer(cmd));
         VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &cmd, 0, NULL };
