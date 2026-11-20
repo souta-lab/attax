@@ -50,7 +50,8 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
     - `-DPROD_MODE=0`: **925.1–934.3 µs/判断**（中央値 **933.8–941.0 µs/判断**）
     - `-DPROD_MODE=1`: **887.2–896.5 µs/判断**（中央値 **898.6–903.4 µs/判断**、`pfl_r7c1` 比 **4.38×**、`pfl_r11` 比 **2.19×**）
   - NVIDIA NVVM 互換修正: `r11` で NVVM クラッシュ (`NVVM compilation failed: 1`) の原因となっていた `subgroupBroadcast(v, idx)`（非定数/63）および `subgroupShuffleXor(..., 32u|63u)` を `r13_sub1ms` から完全撤廃（`J==32u` を専用 LDS マクロ `BT2_STEP32` に分離し、全 `subgroupShuffleXor` マスクを `1..16` のみに限定）。
-  - **実 wave32 機での監査（NVIDIA L4、2026-11-21）**: 実機で `vkCreateComputePipelines` を通過し 180 判断を完走した。**NVVM-safe はコンパイルの意味では実証済み**。ただし実 wave32 での `pfload drill` verify は dec7 から大量不一致（hash/U/feat/q1 各 ≈55,302 件）となり **FAIL**（土台 `r7c1` と同型の乖離）。RDNA2 上の強制 wave32 の dumpsel 一致は実 wave32 機の正しさを保証しない。**wave32 対応は後回し（未対応）**とし、検証済みの範囲は wave64 のみ。
+  - **実 wave32 機での監査（NVIDIA L4、2026-11-21）**: 実機で `vkCreateComputePipelines` を通過し 180 判断を完走した。**NVVM-safe はコンパイルの意味では実証済み**。実 wave32 での `pfload drill` verify は dec7 から大量不一致（hash/U/feat/q1 各 ≈55,302 件）となり **FAIL**。ただしこの drill verify は B&B 時代の記録意味論に校正された物差しで、r13 では RX 6400 の wave64 でも設計どおり通らない（下記）。選択手粒度では、L4 実機で生成した `dumpsel` が RX 6400 (wave64) の `dumpsel` とバイト一致した。**wave32 対応は後回し（未対応）**とし、検証済みの範囲は wave64 のみ。
+  - `pfload drill` / `pfload_gd gate` の記録レベル verify は r13 には適用できない: verify は旧ハッシュの再計算・FP64 の U 照合・B&B の生存/評価集合を前提にしており、r13 の内部変更（列直接 FNV-1a ハッシュ・FP32 評価・全子評価）と衝突する。r13 の検証契約は `dumpsel` による選択手粒度の照合である。統合後ホストでの再演（2026-11-21）でも上記の数値を再現した（親インスタンス一致 2,494/2,495、値の最大差 3.9e-4、PROD_MODE=0/1 はバイト一致）。
 
 詳細な測定記録は同梱の `PERSISTENT-R6-2026-11-20.md`（r6g1 の
 フルゲート詳細は同記録 §6 が引く `PERSISTENT-R6-GCEIL-2026-11-20.md`、
