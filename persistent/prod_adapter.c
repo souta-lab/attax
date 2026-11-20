@@ -813,12 +813,15 @@ static int run_xverify(void) {
     if (g_ok != g_tot || g_pend_bad || h_cnt_ok != h_tot) bad = 1;
     // Check I: all-ply pack streams + uni descriptors with the child
     // base accumulated from movegen counts (serve path), vs the stored
-    // corpus accumulation. Any count error shifts every later base in
-    // the decision and fails loudly here.
+    // corpus accumulation. The corpus lays children out across decision
+    // boundaries, so the accumulation runs over the whole instance list
+    // in stored order (serve re-bases per ply at dispatch time; what is
+    // verified here is the accumulation arithmetic itself). Any count
+    // error shifts every later base and fails loudly here.
     uint32_t gi = 0;
+    uint32_t run_base = 0;
     while (gi < g_ninst) {
         uint32_t dec = g_inst[gi].dec;
-        uint32_t run_base = 0;
         while (gi < g_ninst && g_inst[gi].dec == dec) {
             uint32_t ply_first = gi, depth = g_inst[gi].depth;
             uint32_t ply_base = run_base, nch_sum = 0;
