@@ -1,0 +1,102 @@
+// STAGE 3C — dedupe, merged single-dispatch form.
+// Same semantics as rec_dedup.comp's 4-dispatch form (representative =
+// argmax (ordU desc, generation asc) per fingerprint group), with the
+// four phases folded into one dispatch separated by grid barriers:
+//   A: hash insert (splitmix64 home, linear probe, CAS claim) and, in
+//      the same pass, per-slot atomicMax of ordU. Merging insert+max
+//      is safe: every thread of a fingerprint group locates the group's
+//      slot exactly once and atomicMax is order-independent, so the
+//      slot holds the group max once all threads pass barrier 1.
+//   B: children whose ord == slot max atomicMin their generation index.
+//   C: the unique child with (ord == max && gen == min) marks isrep.
+// fp / ord / slot / slot-max live in registers across the barriers;
+// the table is probed once and the record read once (vs 4x each).
+// Grid barrier: centralized form of the pfx grid3 pattern (monotonic
+// release word, spin-capped; on timeout a fault flag is set and the
+// stage produces garbage the host gate rejects loudly). The grid is
+// ceil(n/256) <= 27 workgroups — co-residency on the RX 6400 is not
+// in question, and the spin cap bounds any pathology.
+// LSZ is a compile-time variant knob (default 256).
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_atomic_int64 : require
+#ifndef LSZ
+#define LSZ 256
+#endif
+layout(local_size_x = LSZ) in;
+
+layout(std430, binding = 0) readonly buffer Rec { uint w[]; } rec;   // 16 words / child
+layout(std430, binding = 1) readonly buffer List { uint v[]; } lst;  // global child indices
+layout(std430, binding = 2) buffer TabFp { uint64_t v[]; } tabfp;
+layout(std430, binding = 3) buffer TabOrd { uint64_t v[]; } tabord;
+layout(std430, binding = 4) buffer TabMeta { uint v[]; } tabmeta;
+layout(std430, binding = 5) buffer IsRep { uint v[]; } isrep;
+layout(std430, binding = 6) buffer Cnt { uint v[]; } cnt;
+layout(std430, binding = 7) buffer Bar { uint v[]; } bar; // [0] arrivals [1] releases [2] fault
+layout(push_constant) uniform PC { uint n; uint mask; uint nwg; } pc;
+
+#define EMPTY 0xFFFFFFFFFFFFFFFFul
+#define SPIN 200000u
+
+uint64_t sm64(uint64_t x) {
+    x ^= x >> 30; x *= 0xBF58476D1CE4E5B9ul;
+    x ^= x >> 27; x *= 0x94D049BB133111EBul;
+    x ^= x >> 31; return x;
+}
+uint64_t fp_of(uint child) {
+    return (uint64_t(rec.w[child * 16u + 1u]) << 32) | uint64_t(rec.w[child * 16u + 0u]);
+}
+uint64_t ord_of(uint child) {
+    uint64_t bits = (uint64_t(rec.w[child * 16u + 3u]) << 32) | uint64_t(rec.w[child * 16u + 2u]);
+    return (bits >> 63) != 0ul ? ~bits : (bits | 0x8000000000000000ul);
+}
+
+// Grid barrier number k (0-based within this dispatch). All threads of
+// all workgroups must call it. Returns true on timeout/fault.
+bool gbar(uint k) {
+    memoryBarrierBuffer(); barrier();
+    if (gl_LocalInvocationIndex == 0u) {
+        uint v = atomicAdd(bar.v[0], 1u);
+        if ((v + 1u) % pc.nwg == 0u) atomicAdd(bar.v[1], 1u);
+        uint s = 0u;
+        while (bar.v[1] <= k) {
+            if (atomicOr(bar.v[2], 0u) != 0u) break;
+            if (++s > SPIN) { atomicOr(bar.v[2], 1u); break; }
+        }
+    }
+    barrier(); memoryBarrierBuffer(); barrier();
+    return atomicOr(bar.v[2], 0u) != 0u;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    bool live = i < pc.n;
+    uint64_t ord = 0ul, tmax = 0ul;
+    uint slot = 0u;
+    if (live) {
+        uint child = lst.v[i];
+        uint64_t fp = fp_of(child);
+        ord = ord_of(child);
+        slot = uint(sm64(fp)) & pc.mask;
+        bool found = false;
+        for (uint it = 0u; it <= pc.mask; it++) {
+            uint64_t cur = atomicCompSwap(tabfp.v[slot], EMPTY, fp);
+            if (cur == EMPTY || cur == fp) { found = true; break; }
+            slot = (slot + 1u) & pc.mask;
+        }
+        if (found) atomicMax(tabord.v[slot], ord);
+        else live = false;
+    }
+    if (gbar(0u)) return;
+    if (live) {
+        tmax = tabord.v[slot];
+        if (ord == tmax) atomicMin(tabmeta.v[2u * slot], i);
+    }
+    if (gbar(1u)) return;
+    if (live) {
+        if (ord == tmax && i == tabmeta.v[2u * slot]) {
+            isrep.v[i] = 1u;
+            atomicAdd(cnt.v[0], 1u);
+        }
+    }
+}

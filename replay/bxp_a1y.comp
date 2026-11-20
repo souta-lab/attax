@@ -1,0 +1,660 @@
+// VARIANT bxp_a1y (BASIC-CEILING lane A2, 2026-11-20, v2 of bxp_a1x):
+// same row-mapping design as bxp_a1x, but all mapping state is plain
+// scalars (v1's int/uint arrays are indexed by runtime loop variables
+// and spill to scratch; v1 measured +4% on WHOLE-CB despite being
+// bit-exact). Production
+// bxp_a1 (PC stage2c source) with row-mask production replaced by a
+// placement/compression/garbage row mapping. The child's board rows
+// are the parent's rows (sRows) with at most 4 touched rows OR-ed with
+// placement bits, followed by exactly one of: nothing, line-clear
+// compression (cleared rows deleted, empty rows enter at the top), or
+// garbage insertion (content shifts up by `landed`, garbage rows enter
+// at the bottom). rt / best_tslot / the dedupe hash take row masks
+// from prow_of()/final_row_mask() instead of transposing col[10] via
+// row_mask10 per row. Also removed: the rt full-level subtraction
+// loop, whose every term is rt_of(0x3FF) == 0 (a full level's row mask
+// is 0x3FF by definition) — a proven no-op. Bit-identical by
+// construction; the lines>4 case (unreachable: a placement touches at
+// most 4 rows and parent boards contain no full rows) keeps the
+// original row_mask10 path as a fallback.
+// STAGE 2C — BX production form, Pass A1 (construction pass).
+// One wave64 per instance, lane = child. Per child: column-algebra
+// construction, exact 11 features, the dedupe hash, and a 16-word
+// contiguous record (features + scalars + hash + parent index; the U
+// words are zero here). NO f64 in this pass: the all-exact bound lives in
+// Pass A2 (bxp_a2.comp), which reads only this record, and the f64
+// evaluation graph (value / K) lives in Pass B (bxp_b.comp), which runs
+// on survivors only. The split exists to cut VGPR: the monolithic Pass A
+// measured VGPR 128 (pre-sched 99), same as the stage-2B prototype.
+// Record layout (16 words / child, see STAGE2C record doc section 1.1):
+//   0-1 hash, 2-3 U, 4-5 value (B), 6-7 accumulated (B), 8-9 K (B),
+//   10-11 features packed lo64, 12 features packed hi,
+//   13 scalars A, 14 scalars B, 15 parent instance index.
+// GATE_OUT variant (-DGATE_OUT): additionally writes the stage-2B mode-0
+// board+flags words (30 words, 64-word stride) to binding 6, with the
+// child's row masks transposed ONCE into LDS and shared between the hash
+// and the board write-out (stage-2B section 6 item 2). The production
+// build has a single row-mask consumer (the hash), which computes each
+// level exactly once inside the FNV loop.
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 64) in;
+
+#include "bx_shapes.glsl"
+
+// Instance input (binding 0), 48 words / instance (host-packed).
+layout(std430, binding = 0) readonly buffer Inst { uint w[]; } inst;
+// Child placements (binding 1), 2 words / child.
+layout(std430, binding = 1) readonly buffer Place { uint w[]; } plc;
+// Tables (binding 2): 180 doubles, gentables layout.
+layout(std430, binding = 2) readonly buffer Tables { double t[]; } tab;
+// Production record (binding 3), 4 uvec4 / child (global child index).
+layout(std430, binding = 3) buffer Rec { uvec4 q[]; } rec;
+// Survivor list (binding 4): global child indices, group region at survBase.
+layout(std430, binding = 4) buffer Surv { uint w[]; } surv;
+// Survivor counter (binding 5): one word, host-zeroed per group dispatch.
+layout(std430, binding = 5) buffer SurvCnt { uint w[]; } survCnt;
+#ifdef GATE_OUT
+// Gate output (binding 6), 64 words / child (group-local), words 0..29 used.
+layout(std430, binding = 6) buffer GateOut { uint w[]; } gout;
+#endif
+layout(push_constant) uniform PC { uint base; uint n; uint childBase; uint tauLo; uint tauHi; uint tauPos; uint survBase; } pc;
+
+double ln1p125(int c) { return tab.t[c]; }
+double clip6(int n) { return tab.t[129 + clamp(n, 0, 6)]; }
+double clip8(int n) { return tab.t[136 + clamp(n, 0, 8)]; }
+
+int s2surge(int d) { return d >= 5 ? d - 1 : 0; }
+double combo_raw(double base, int combo) {
+    int c = max(combo, 0);
+    precise double g1 = 1.0lf + 0.25lf * double(c);
+    precise double grown = base * g1;
+    double ft = c >= 2 ? ln1p125(c) : 0.0lf;
+    return max(grown, ft);
+}
+
+// ---- small helpers (verbatim from bx.comp) ----
+uint64_t below64(uint k) { return k >= 64u ? ~0ul : ((1ul << k) - 1ul); }
+int lsb64(uint64_t m) {
+    uint lo = uint(m);
+    if (lo != 0u) return findLSB(lo);
+    return 32 + findLSB(uint(m >> 32));
+}
+int pop64(uint64_t m) { return bitCount(uint(m)) + bitCount(uint(m >> 32)); }
+int height_of(uint64_t c) {
+    if (c == 0ul) return 0;
+    uint hi = uint(c >> 32);
+    if (hi != 0u) return 32 + findMSB(hi) + 1;
+    return findMSB(uint(c)) + 1;
+}
+uint64_t delete_level(uint64_t m, uint p) {
+    uint64_t b = below64(p);
+    return (m & b) | ((m >> 1) & ~b);
+}
+int rt_of(uint bits) {
+    if (bits == 0u) return 0;
+    uint w = ((bits << 1) | 1u | (1u << 11));
+    return bitCount((w ^ (w >> 1)) & 2047u);
+}
+uint row_mask10(uint64_t c0, uint64_t c1, uint64_t c2, uint64_t c3, uint64_t c4,
+                uint64_t c5, uint64_t c6, uint64_t c7, uint64_t c8, uint64_t c9, uint level) {
+    uint m = 0u;
+    m |= uint((c0 >> level) & 1ul);
+    m |= uint((c1 >> level) & 1ul) << 1;
+    m |= uint((c2 >> level) & 1ul) << 2;
+    m |= uint((c3 >> level) & 1ul) << 3;
+    m |= uint((c4 >> level) & 1ul) << 4;
+    m |= uint((c5 >> level) & 1ul) << 5;
+    m |= uint((c6 >> level) & 1ul) << 6;
+    m |= uint((c7 >> level) & 1ul) << 7;
+    m |= uint((c8 >> level) & 1ul) << 8;
+    m |= uint((c9 >> level) & 1ul) << 9;
+    return m;
+}
+
+// ---- shared per-instance state ----
+shared uint sRows[40];
+shared uint sFlags[40];
+shared uint64_t sColP[10];
+shared uint sRtPart[40];
+shared int sRtP;
+shared uint64_t sFlagBits;
+shared int sLen;
+shared int sCombo, sChain, sPending, sDue, sTslot;
+shared int sDepth;
+shared uint sNChild, sChildOff, sNextIdx, sHoldWord;
+shared double sReward, sMult, sScale;
+#ifdef GATE_OUT
+shared uint sRowM[64 * 40];
+#endif
+
+// ---- bxp_a1y row-mapping state (per invocation, set in main) ----
+// Scalars only: arrays indexed by runtime values spill to scratch.
+int g_trow0, g_trow1, g_trow2, g_trow3; // touched rows; -1 = unused
+uint g_tbits0, g_tbits1, g_tbits2, g_tbits3; // placement bits per row
+int g_crow0, g_crow1, g_crow2, g_crow3; // cleared rows ascending; 100 = unused
+int g_lines;     // lines cleared by this child
+int g_landed;    // garbage rows landed for this child
+int g_gwell;     // garbage well column (valid when g_landed > 0)
+int g_len;       // board length (== len in main)
+
+// Post-placement row mask of board row r (parent row | placement bits).
+uint prow_of(int r) {
+    uint m = sRows[r];
+    if (r == g_trow0) m |= g_tbits0;
+    if (r == g_trow1) m |= g_tbits1;
+    if (r == g_trow2) m |= g_tbits2;
+    if (r == g_trow3) m |= g_tbits3;
+    return m;
+}
+
+// Final board row mask of board row r (0 <= r < g_len), after
+// compression / garbage. Requires g_lines <= 4 when g_lines > 0.
+// The compression source adjustment is the sequential fixed point
+// over the ascending cleared rows (unused entries are 100 > any src).
+uint final_row_mask(int r) {
+    if (g_lines > 0) {
+        if (r < g_lines) return 0u;
+        int src = r - g_lines;
+        if (g_crow0 <= src) src++;
+        if (g_crow1 <= src) src++;
+        if (g_crow2 <= src) src++;
+        if (g_crow3 <= src) src++;
+        return prow_of(src);
+    }
+    if (g_landed > 0) {
+        if (r + g_landed >= g_len) return 0x3FFu ^ (1u << uint(g_gwell));
+        return prow_of(r + g_landed);
+    }
+    return prow_of(r);
+}
+
+uint vget4(uvec4 v, int i) { return i == 0 ? v.x : (i == 1 ? v.y : (i == 2 ? v.z : v.w)); }
+
+bool occ_p(int x, int y) {
+    if (x < 0 || x >= 10 || y >= sLen) return true;
+    if (y >= 0 && (sRows[y] & (1u << uint(x))) != 0u) return true;
+    return false;
+}
+bool collides_p(int kind, int rot, int x, int y) {
+    uint si = uint(kind) * 4u + uint(rot & 3);
+    ivec4 hd = SHAPE_HDR[si];
+    uvec4 rw = SHAPE_ROWS[si];
+    if (x + hd.x < 0 || x + hd.y >= 10) return true;
+    uint shift = uint(x + hd.x);
+    for (int i = 0; i < hd.w; i++) {
+        int row = y + hd.z + i;
+        if (row >= sLen) return true;
+        if (row >= 0 && (sRows[row] & (vget4(rw, i) << shift)) != 0u) return true;
+    }
+    return false;
+}
+int classify_spin(int kind, int rot, int px, int py, int srs) {
+    if (srs == 0) return 0;
+    if (kind == 2) {
+        bool f0 = occ_p(px, py);
+        bool f1 = occ_p(px + 2, py);
+        bool f2 = occ_p(px + 2, py + 2);
+        bool f3 = occ_p(px, py + 2);
+        int cnt = (f0 ? 1 : 0) + (f1 ? 1 : 0) + (f2 ? 1 : 0) + (f3 ? 1 : 0);
+        if (cnt >= 3) {
+            int r = rot & 3;
+            bool a = r == 0 ? f0 : (r == 1 ? f1 : (r == 2 ? f2 : f3));
+            int r1 = (r + 1) & 3;
+            bool b = r1 == 0 ? f0 : (r1 == 1 ? f1 : (r1 == 2 ? f2 : f3));
+            return (a && b) || srs == 5 ? 2 : 1;
+        }
+    }
+    bool imm = collides_p(kind, rot, px - 1, py) && collides_p(kind, rot, px + 1, py)
+        && collides_p(kind, rot, px, py - 1) && collides_p(kind, rot, px, py + 1);
+    return imm ? 1 : 0;
+}
+
+int hole_cover_col(uint64_t c) {
+    int m = pop64(c);
+    if (m == 0) return 0;
+    int t0 = 0, t1 = 0, t2 = 0, t3 = 0;
+    uint64_t tmp = c;
+    for (int j = 0; j < 4; j++) {
+        if (tmp == 0ul) break;
+        int top = height_of(tmp) - 1;
+        if (j == 0) t0 = top; else if (j == 1) t1 = top; else if (j == 2) t2 = top; else t3 = top;
+        tmp &= ~(1ul << uint(top));
+    }
+    int tm = lsb64(c);
+    int cover = 0;
+    int gaps = min(3, m - 1);
+    if (gaps >= 1) cover += (t0 - t1 - 1) * 1;
+    if (gaps >= 2) cover += (t1 - t2 - 1) * 2;
+    if (gaps >= 3) cover += (t2 - t3 - 1) * 3;
+    if (m >= 4) cover += 4 * (t3 - m + 4);
+    else cover += tm * m;
+    return cover;
+}
+
+int best_tslot(uint64_t c[10], int h[10], int len) {
+    int best = 0;
+    for (int x = 1; x < 9; x++) {
+        int hx = h[x];
+        if (hx > len - 3) continue;
+        if (((c[x] >> hx) & 1ul) != 0ul) continue;
+        if (((c[x - 1] >> hx) & 1ul) == 0ul || ((c[x + 1] >> hx) & 1ul) == 0ul) continue;
+        int f = hx + 1;
+        if (((c[x - 1] >> f) & 1ul) != 0ul || ((c[x] >> f) & 1ul) != 0ul || ((c[x + 1] >> f) & 1ul) != 0ul) continue;
+        bool lr = ((c[x - 1] >> (hx + 2)) & 1ul) != 0ul;
+        bool rr = ((c[x + 1] >> (hx + 2)) & 1ul) != 0ul;
+        if (lr == rr) continue;
+        int open_side = lr ? x + 1 : x - 1;
+        if (h[open_side] > hx + 2) continue;
+        int lines = 0;
+        uint rmA, rmB;
+        if (g_lines <= 4) {
+            rmA = final_row_mask(len - 1 - hx);
+            rmB = final_row_mask(len - 2 - hx);
+        } else {
+            rmA = row_mask10(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], uint(hx));
+            rmB = row_mask10(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], uint(f));
+        }
+        if ((rmA | (1u << uint(x))) == 0x3FFu) lines += 1;
+        if ((rmB | (7u << uint(x - 1))) == 0x3FFu) lines += 1;
+        if (lines > best) best = lines;
+    }
+    return best;
+}
+
+// stock.rs stock_potential; hi=true fixes opportunity at 1.0 (prune phi_hi).
+double stock_phi(int chain, int combo, int pending, int maxh, int tslot, int wellDepth, double m, bool hi) {
+    precise double cashable = double(s2surge(chain)) * m;
+    int effH = maxh + pending;
+    double qB = clip8(18 - effH);
+    precise double g = clip6(14 - maxh) * clip6(20 - effH);
+    precise double ubase = max(double(s2surge(chain + 1)) * m - cashable, 0.0lf);
+    precise double uB = ubase;
+    if (!hi) {
+        double opp = tslot > 0 ? 1.0lf : (wellDepth >= 4 ? 0.7lf : 0.35lf);
+        uB = opp * ubase;
+    }
+    precise double uR = 0.0lf;
+    if (combo >= 0) {
+        for (int j = 1; j <= 3; j++) {
+            precise double term = tab.t[65 + (j - 1)] * (combo_raw(1.0lf, combo + j) - combo_raw(1.0lf, j - 1));
+            uR += term;
+        }
+        uR *= m;
+    }
+    precise double inner = qB * cashable + g * (tab.t[178] * uB + tab.t[179] * uR);
+    precise double r = tab.t[177] * tab.t[165] * inner;
+    return r;
+}
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    uint ii = pc.base + gl_WorkGroupID.x;
+    if (ii >= pc.base + pc.n) return;
+    uint ib = ii * 48u;
+    // ---- cooperative instance load (verbatim from bx.comp) ----
+    if (lane == 0u) {
+        sLen = int(inst.w[ib + 2u]);
+        sNChild = inst.w[ib + 3u];
+        sChildOff = inst.w[ib + 4u];
+        sNextIdx = inst.w[ib + 5u];
+        sHoldWord = inst.w[ib + 6u];
+        sCombo = int(inst.w[ib + 37u]);
+        sChain = int(inst.w[ib + 38u]);
+        sPending = int(inst.w[ib + 39u]);
+        sDue = int(inst.w[ib + 40u]);
+        sTslot = int(inst.w[ib + 41u]);
+        sDepth = int(inst.w[ib + 1u]);
+        sReward = packDouble2x32(uvec2(inst.w[ib + 42u], inst.w[ib + 43u]));
+        sMult = packDouble2x32(uvec2(inst.w[ib + 44u], inst.w[ib + 45u]));
+        sScale = packDouble2x32(uvec2(inst.w[ib + 46u], inst.w[ib + 47u]));
+    }
+    barrier();
+    int len = sLen;
+    if (lane < 40u) {
+        uint pw = inst.w[ib + 7u + (lane >> 1u)];
+        sRows[lane] = (lane & 1u) == 0u ? (pw & 0xFFFFu) : (pw >> 16);
+        uint fw = inst.w[ib + 27u + (lane >> 2u)];
+        sFlags[lane] = (fw >> ((lane & 3u) * 8u)) & 0xFFu;
+        sRtPart[lane] = lane < uint(len) ? uint(rt_of(sRows[lane])) : 0u;
+    }
+    if (lane < 10u) {
+        uint64_t cm = 0ul;
+        for (int r = 0; r < len; r++) {
+            if (((sRows[r] >> lane) & 1u) != 0u) cm |= 1ul << uint(len - 1 - r);
+        }
+        sColP[lane] = cm;
+    }
+    barrier();
+    if (lane == 0u) {
+        int s = 0;
+        for (int r = 0; r < 40; r++) s += int(sRtPart[r]);
+        sRtP = s;
+        uint64_t fb = 0ul;
+        for (int r = 0; r < len; r++) {
+            if (sFlags[r] != 0u) fb |= 1ul << uint(len - 1 - r);
+        }
+        sFlagBits = fb;
+    }
+    barrier();
+    uint64_t levelMask = below64(uint(len));
+
+    for (uint p0 = 0u; p0 < sNChild; p0 += 64u) {
+        uint li = p0 + lane;
+        if (li >= sNChild) continue;
+        uint child = sChildOff + li;
+        uint pw0 = plc.w[child * 2u];
+        uint pw1 = plc.w[child * 2u + 1u];
+        int kind = int(pw0 & 0xFFu);
+        int rot = int((pw0 >> 8) & 0xFFu);
+        int px = int((pw0 >> 16) & 0xFFu);
+        if (px >= 128) px -= 256;
+        int py = int((pw0 >> 24) & 0xFFu);
+        if (py >= 128) py -= 256;
+        int srs = int(pw1 & 0xFFu);
+        uint si = uint(kind) * 4u + uint(rot & 3);
+        ivec4 hd = SHAPE_HDR[si];
+        uvec4 srw = SHAPE_ROWS[si];
+        int shift = px + hd.x;
+
+        int spin = classify_spin(kind, rot, px, py, srs);
+
+        g_trow0 = -1; g_trow1 = -1; g_trow2 = -1; g_trow3 = -1;
+        g_crow0 = 100; g_crow1 = 100; g_crow2 = 100; g_crow3 = 100;
+        g_lines = 0; g_landed = 0; g_gwell = 0; g_len = len;
+
+        uint64_t col[10];
+        for (int x = 0; x < 10; x++) col[x] = sColP[x];
+        uint64_t touched = 0ul;
+        for (int i = 0; i < hd.w; i++) {
+            int row = py + hd.z + i;
+            if (row < 0 || row >= len) continue;
+            touched |= 1ul << uint(row);
+            uint level = uint(len - 1 - row);
+            uint bits = vget4(srw, i);
+            uint pbits = shift >= 0 ? ((bits << uint(shift)) & 0x3FFu) : (bits >> uint(-shift));
+            if (i == 0) { g_trow0 = row; g_tbits0 = pbits; }
+            else if (i == 1) { g_trow1 = row; g_tbits1 = pbits; }
+            else if (i == 2) { g_trow2 = row; g_tbits2 = pbits; }
+            else { g_trow3 = row; g_tbits3 = pbits; }
+            while (bits != 0u) {
+                int b = findLSB(bits);
+                int x = shift + b;
+                if (x >= 0 && x < 10) col[x] |= 1ul << level;
+                bits &= bits - 1u;
+            }
+        }
+        uint64_t full = ~0ul;
+        for (int x = 0; x < 10; x++) full &= col[x];
+        full &= levelMask;
+        int lines = pop64(full);
+        g_lines = lines;
+        if (lines >= 1 && lines <= 4) {
+            // Cleared levels come out of `full` in ascending level
+            // order, i.e. descending row order; insert each row into
+            // the ascending scalar list (unused slots hold 100).
+            uint64_t f2 = full;
+            while (f2 != 0ul) {
+                int e = lsb64(f2);
+                int cr = len - 1 - e;
+                if (cr < g_crow0) { g_crow3 = g_crow2; g_crow2 = g_crow1; g_crow1 = g_crow0; g_crow0 = cr; }
+                else if (cr < g_crow1) { g_crow3 = g_crow2; g_crow2 = g_crow1; g_crow1 = cr; }
+                else if (cr < g_crow2) { g_crow3 = g_crow2; g_crow2 = cr; }
+                else if (cr < g_crow3) { g_crow3 = cr; }
+                f2 &= f2 - 1ul;
+            }
+        }
+        uint64_t flb = sFlagBits;
+        int gc = pop64(flb & full);
+
+        // row_transitions, difference form. Post-placement row masks
+        // come from prow_of (parent row | placement bits). The old
+        // form's extra loop subtracted rt_of over each full level;
+        // a full level's row mask is 0x3FF by definition and
+        // rt_of(0x3FF) == 0, so that loop was a no-op (removed).
+        int rt = sRtP;
+        for (int i = 0; i < hd.w; i++) {
+            int row = py + hd.z + i;
+            if (row < 0 || row >= len) continue;
+            rt -= rt_of(sRows[row]);
+            rt += rt_of(prow_of(row));
+        }
+        // compression: iterated bit deletion per column; flags follow.
+        if (full != 0ul) {
+            for (int x = 0; x < 10; x++) {
+                uint64_t m = col[x];
+                uint64_t f = full;
+                int j = 0;
+                while (f != 0ul) {
+                    int k = lsb64(f);
+                    m = delete_level(m, uint(k - j));
+                    j += 1;
+                    f &= f - 1ul;
+                }
+                col[x] = m;
+            }
+            uint64_t m = flb;
+            uint64_t f = full;
+            int j = 0;
+            while (f != 0ul) {
+                int k = lsb64(f);
+                m = delete_level(m, uint(k - j));
+                j += 1;
+                f &= f - 1ul;
+            }
+            flb = m;
+        }
+        bool pc_ = lines > 0 && col[0] == 0ul && col[1] == 0ul && col[2] == 0ul && col[3] == 0ul && col[4] == 0ul
+            && col[5] == 0ul && col[6] == 0ul && col[7] == 0ul && col[8] == 0ul && col[9] == 0ul;
+        bool difficult = lines > 0 && (lines == 4 || spin != 0 || pc_);
+
+        int combo = lines > 0 ? sCombo + 1 : -1;
+        int attack = 0;
+        int dchain = sChain;
+        if (lines > 0) {
+            int base;
+            int li5 = min(lines, 5);
+            if (spin == 2) base = int[6](0, 2, 4, 6, 10, 12)[li5];
+            else if (spin == 1) base = int[6](0, 0, 1, 2, 10, 12)[li5];
+            else base = int[6](0, 0, 1, 2, 4, 5)[li5];
+            if (lines > 5) base += lines - 5;
+            int surge = difficult ? 0 : s2surge(sChain);
+            precise double raw = combo_raw(double(base) + (difficult && sChain > 0 ? 1.0lf : 0.0lf), combo);
+            int sb = (gc > 0 && (spin != 0 || lines >= 4)) ? 1 : 0;
+            precise double a1 = raw * sMult + double(sb);
+            precise double a2 = 5.0lf * sMult;
+            precise double a3 = double(surge) * sMult;
+            attack = int(floor(a1))
+                + (pc_ ? int(floor(a2)) : 0)
+                + int(floor(a3));
+            dchain = difficult ? sChain + 1 : 0;
+        }
+        int pending, landed;
+        if (lines > 0) {
+            pending = max(sPending - attack, 0);
+            landed = 0;
+        } else {
+            landed = min(sDepth == 0 ? sDue : sPending, sPending);
+            pending = sPending - landed;
+        }
+        g_landed = landed;
+        if (landed > 0) {
+            int l = landed;
+            int lmin = min(l, len);
+            // Pushed-out rows are the top lmin rows (levels
+            // [len-lmin, len)); masks are post-placement (prow_of).
+            for (int r = 0; r < lmin; r++) {
+                rt -= rt_of(prow_of(r));
+            }
+            int hw[10];
+            for (int x = 0; x < 10; x++) hw[x] = height_of(col[x]);
+            int well = 0;
+            for (int x = 1; x < 10; x++) if (hw[x] < hw[well]) well = x;
+            g_gwell = well;
+            uint64_t gb = l >= len ? levelMask : below64(uint(l));
+            for (int x = 0; x < 10; x++) {
+                uint64_t shifted = l >= 64 ? 0ul : ((col[x] << uint(l)) & levelMask);
+                col[x] = shifted | (x != well ? gb : 0ul);
+            }
+            flb = (l >= 64 ? 0ul : ((flb << uint(l)) & levelMask)) | gb;
+            rt += lmin * rt_of(0x3FFu ^ (1u << uint(well)));
+        }
+
+        // ---- features over the child's column masks ----
+        int h[10];
+        int maxh = 0;
+        int well = 0;
+        for (int x = 0; x < 10; x++) {
+            h[x] = height_of(col[x]);
+            if (h[x] > maxh) maxh = h[x];
+            if (h[x] < h[well]) well = x;
+        }
+        int holes = 0;
+        uint64_t holeOr = 0ul;
+        for (int x = 0; x < 10; x++) {
+            holes += h[x] - pop64(col[x]);
+            if (col[x] != 0ul) holeOr |= ~col[x] & below64(uint(h[x] - 1));
+        }
+        int holeRows = pop64(holeOr);
+        int bump = 0, bumpSq = 0;
+        for (int x = 0; x < 9; x++) {
+            if (x == well || x + 1 == well) continue;
+            int d = abs(h[x] - h[x + 1]);
+            bump += d;
+            bumpSq += d * d;
+        }
+        int leftN = well > 0 ? h[well - 1] : len;
+        int rightN = well < 9 ? h[well + 1] : len;
+        int wellDepth = min(4, min(leftN, rightN) - h[well]);
+        int extraWells = 0;
+        for (int x = 0; x < 10; x++) {
+            if (x == well) continue;
+            int l2 = x > 0 ? h[x - 1] : len;
+            int r2 = x < 9 ? h[x + 1] : len;
+            if (min(l2, r2) - h[x] >= 3) extraWells += 1;
+        }
+        int over = max(maxh - 10, 0);
+        int danger = over * over;
+        bool dead = maxh >= min(len, 21);
+
+        // exact features (always on in the production bound)
+        int holeCover = 0;
+        for (int x = 0; x < 10; x++) holeCover += hole_cover_col(col[x]);
+        int tslot = best_tslot(col, h, len);
+
+        // ---- dedupe hash (stage-2B mode 0 mixing order, verbatim) ----
+        // Computed BEFORE the f64 bound section on purpose: the hash is the
+        // last consumer of col[10], so the column masks' registers are dead
+        // across the whole bound (register-peak split).
+#ifdef GATE_OUT
+        for (int L = 0; L < 40; L++) {
+            sRowM[lane * 40u + uint(L)] = L < len ? row_mask10(col[0], col[1], col[2], col[3], col[4], col[5], col[6], col[7], col[8], col[9], uint(L)) : 0u;
+        }
+#endif
+        // packed-key FNV (stage-2C): the same key bits as the stage-2B
+        // scalar mixing, packed into 11 u64 words before mixing (key
+        // equality is preserved exactly; the serial multiply chain drops
+        // from 86 mixes to 11).
+        uint64_t hw0 = uint64_t(sNextIdx) | (uint64_t(sHoldWord) << 32);
+        uint64_t hw1 = uint64_t(uint(dchain)) | (uint64_t(uint(combo)) << 32);
+        uint64_t hw2 = uint64_t(uint(pending));
+        uint64_t rp0 = 0ul, rp1 = 0ul, rp2 = 0ul, rp3 = 0ul, rp4 = 0ul, rp5 = 0ul, rp6 = 0ul;
+#ifdef GATE_OUT
+        for (int r = 0; r < 40; r++) {
+            uint rm = r < len ? sRowM[lane * 40u + uint(len - 1 - r)] : 0u;
+            if (r < 6) rp0 |= uint64_t(rm) << (10 * r);
+            else if (r < 12) rp1 |= uint64_t(rm) << (10 * (r - 6));
+            else if (r < 18) rp2 |= uint64_t(rm) << (10 * (r - 12));
+            else if (r < 24) rp3 |= uint64_t(rm) << (10 * (r - 18));
+            else if (r < 30) rp4 |= uint64_t(rm) << (10 * (r - 24));
+            else if (r < 36) rp5 |= uint64_t(rm) << (10 * (r - 30));
+            else rp6 |= uint64_t(rm) << (10 * (r - 36));
+        }
+#else
+        if (g_lines <= 4) {
+            // Row masks via the row mapping (final_row_mask); rows
+            // >= len pack as 0, exactly as the original loop.
+            for (int r = 0; r < len; r++) {
+                uint rm = final_row_mask(r);
+                if (r < 6) rp0 |= uint64_t(rm) << (10 * r);
+                else if (r < 12) rp1 |= uint64_t(rm) << (10 * (r - 6));
+                else if (r < 18) rp2 |= uint64_t(rm) << (10 * (r - 12));
+                else if (r < 24) rp3 |= uint64_t(rm) << (10 * (r - 18));
+                else if (r < 30) rp4 |= uint64_t(rm) << (10 * (r - 24));
+                else if (r < 36) rp5 |= uint64_t(rm) << (10 * (r - 30));
+                else rp6 |= uint64_t(rm) << (10 * (r - 36));
+            }
+        } else {
+            for (int r = 0; r < 40; r++) {
+                uint rm = r < len ? row_mask10(col[0], col[1], col[2], col[3], col[4], col[5], col[6], col[7], col[8], col[9], uint(len - 1 - r)) : 0u;
+                if (r < 6) rp0 |= uint64_t(rm) << (10 * r);
+                else if (r < 12) rp1 |= uint64_t(rm) << (10 * (r - 6));
+                else if (r < 18) rp2 |= uint64_t(rm) << (10 * (r - 12));
+                else if (r < 24) rp3 |= uint64_t(rm) << (10 * (r - 18));
+                else if (r < 30) rp4 |= uint64_t(rm) << (10 * (r - 24));
+                else if (r < 36) rp5 |= uint64_t(rm) << (10 * (r - 30));
+                else rp6 |= uint64_t(rm) << (10 * (r - 36));
+            }
+        }
+#endif
+        uint64_t hh = (uint64_t(0x14650FB0u) << 32) | uint64_t(0x739D0383u);
+        uint64_t prime = (uint64_t(0x100u) << 32) | uint64_t(0x000001B3u);
+        hh = (hh ^ hw0) * prime;
+        hh = (hh ^ hw1) * prime;
+        hh = (hh ^ hw2) * prime;
+        hh = (hh ^ flb) * prime;
+        hh = (hh ^ rp0) * prime;
+        hh = (hh ^ rp1) * prime;
+        hh = (hh ^ rp2) * prime;
+        hh = (hh ^ rp3) * prime;
+        hh = (hh ^ rp4) * prime;
+        hh = (hh ^ rp5) * prime;
+        hh = (hh ^ rp6) * prime;
+
+#ifdef GATE_OUT
+        {
+            uint ob = (child - pc.childBase) * 64u;
+            for (int j = 0; j < 20; j++) {
+                uint r0 = 2 * j < len ? sRowM[lane * 40u + uint(len - 1 - (2 * j))] : 0u;
+                uint r1 = (2 * j + 1 < len) ? sRowM[lane * 40u + uint(len - 1 - (2 * j + 1))] : 0u;
+                gout.w[ob + uint(j)] = r0 | (r1 << 16);
+            }
+            for (int j = 0; j < 10; j++) {
+                uint fw = 0u;
+                for (int q = 0; q < 4; q++) {
+                    int r = 4 * j + q;
+                    uint fv2 = r < len ? uint((flb >> uint(len - 1 - r)) & 1ul) : 0u;
+                    fw |= fv2 << uint(8 * q);
+                }
+                gout.w[ob + 20u + uint(j)] = fw;
+            }
+        }
+#endif
+
+        // A1 carries NO f64: the bound lives in bxp_a2.comp, which reads
+        // only this record's features + scalars. U words are written as 0
+        // here and filled by A2.
+
+        // ---- pack + write the 16-word record ----
+        uint64_t flo = 0ul;
+        flo |= (uint64_t(uint(maxh)) & 0x7Ful) << 0;
+        flo |= (uint64_t(uint(danger)) & 0x3FFul) << 7;
+        flo |= (uint64_t(uint(holes)) & 0x1FFul) << 17;
+        flo |= (uint64_t(uint(holeCover)) & 0x7FFul) << 26;
+        flo |= (uint64_t(uint(holeRows)) & 0x3Ful) << 37;
+        flo |= (uint64_t(uint(bump)) & 0x1FFul) << 43;
+        flo |= (uint64_t(uint(rt)) & 0x1FFul) << 52;
+        flo |= (uint64_t(uint(wellDepth)) & 0x7ul) << 61;
+        uint fhi = uint(bumpSq) | (uint(extraWells) << 14) | (uint(tslot) << 18);
+        uint scA = uint(spin) | (uint(lines) << 2) | ((dead ? 1u : 0u) << 8) | ((pc_ ? 1u : 0u) << 9)
+            | (uint(attack) << 10) | (uint(gc) << 20);
+        uint scB = uint(combo + 1) | (uint(dchain) << 6) | (uint(pending) << 14) | (uint(landed) << 20);
+        uint rb = child * 4u;
+        rec.q[rb + 0u] = uvec4(uint(hh & 0xFFFFFFFFul), uint(hh >> 32), 0u, 0u);
+        rec.q[rb + 1u] = uvec4(0u, 0u, 0u, 0u);
+        rec.q[rb + 2u] = uvec4(0u, 0u, uint(flo & 0xFFFFFFFFul), uint(flo >> 32));
+        rec.q[rb + 3u] = uvec4(fhi, scA, scB, ii);
+    }
+}

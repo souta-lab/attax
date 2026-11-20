@@ -1,0 +1,44 @@
+// BASIC-CEILING lane A4 variant: order2 widened to 1024 threads with
+// a subgroup scan. Identical semantics and interface to order2.comp:
+// gather representatives in generation order; the compaction output
+// (repsgen sequence, stats[0]=nReps) is independent of the block
+// partition, so widening the workgroup and changing the scan
+// algorithm (Hillis-Steele 16 barriers -> subgroup scan1024 pattern
+// from sel_prefix6b) is bit-identical by construction.
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 1024) in;
+layout(std430, binding = 0) readonly buffer List { uint v[]; } lst;
+layout(std430, binding = 1) readonly buffer IsRep { uint v[]; } isrep;
+layout(std430, binding = 2) buffer RepsGen { uint v[]; } repsgen;
+layout(std430, binding = 3) buffer Stats { uint v[]; } stats; // [0] = nReps
+layout(push_constant) uniform PC { uint n; } pc;
+
+shared uint s_part[1024];
+shared uint s_sub[32];
+
+void main() {
+    uint lid = gl_LocalInvocationIndex;
+    uint K = (pc.n + 1023u) / 1024u;
+    uint lo = lid * K;
+    uint hi = min(pc.n, lo + K);
+    uint my = 0u;
+    for (uint i = lo; i < hi; i++) my += isrep.v[i];
+    s_part[lid] = my;
+    barrier();
+    // inclusive scan of s_part[0..1024) in place (scan1024 pattern)
+    uint incl = subgroupInclusiveAdd(s_part[lid]);
+    if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) s_sub[gl_SubgroupID] = incl;
+    barrier();
+    if (lid == 0u) {
+        uint run = 0u;
+        uint nsub = 1024u / gl_SubgroupSize;
+        for (uint s2 = 0u; s2 < nsub; s2++) { uint t = s_sub[s2]; s_sub[s2] = run; run += t; }
+    }
+    barrier();
+    s_part[lid] = incl + s_sub[gl_SubgroupID];
+    barrier();
+    uint off = s_part[lid] - my;
+    if (lid == 0u) stats.v[0] = s_part[1023];
+    for (uint i = lo; i < hi; i++) if (isrep.v[i] != 0u) repsgen.v[off++] = lst.v[i];
+}

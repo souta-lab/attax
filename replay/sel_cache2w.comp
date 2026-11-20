@@ -1,0 +1,57 @@
+// BASIC-CEILING lane A4 variant of sel_cache2: same repsOrd build,
+// but the ordU min/max is reduced per workgroup first (subgroup
+// two-step + LDS fold, the sel_sort3f pattern) so each workgroup
+// issues exactly 2 global atomics instead of 2 per thread
+// (~3.4K -> ~28 atomic ops on the two mm addresses). Min/max are
+// exact integer reductions: bit-identical by construction.
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_atomic_int64 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Rec { uint w[]; } rec;
+layout(std430, binding = 1) readonly buffer RepsGen { uint v[]; } repsgen;
+layout(std430, binding = 2) buffer RepsOrd { uint64_t v[]; } repsord;
+layout(std430, binding = 3) readonly buffer Stats { uint v[]; } stats;
+layout(std430, binding = 4) buffer MM { uint64_t v[]; } mm;
+layout(push_constant) uniform PC { uint nMax; } pc;
+
+shared uint64_t s_mmnS[8];
+shared uint64_t s_mmxS[8];
+
+uint64_t subMin64(uint64_t x) {
+    uint h = subgroupMin(uint(x >> 32));
+    uint l = subgroupMin((uint(x >> 32) == h) ? uint(x) : 0xFFFFFFFFu);
+    return (uint64_t(h) << 32) | uint64_t(l);
+}
+
+uint64_t subMax64(uint64_t x) {
+    uint h = subgroupMax(uint(x >> 32));
+    uint l = subgroupMax((uint(x >> 32) == h) ? uint(x) : 0u);
+    return (uint64_t(h) << 32) | uint64_t(l);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint lid = gl_LocalInvocationIndex;
+    bool live = (i < pc.nMax && i < stats.v[0]);
+    uint64_t k = ~0ul;
+    if (live) {
+        uint child = repsgen.v[i];
+        uint64_t bits = (uint64_t(rec.w[child * 16u + 3u]) << 32) | uint64_t(rec.w[child * 16u + 2u]);
+        k = (bits >> 63) != 0ul ? ~bits : (bits | 0x8000000000000000ul);
+        repsord.v[i] = k;
+    }
+    uint64_t lmn = subMin64(k);
+    uint64_t lmx = subMax64(live ? k : 0ul);
+    if (gl_SubgroupInvocationID == 0u) { s_mmnS[gl_SubgroupID] = lmn; s_mmxS[gl_SubgroupID] = lmx; }
+    barrier();
+    if (lid == 0u) {
+        uint nsub = 256u / gl_SubgroupSize;
+        uint64_t mn = s_mmnS[0], mx = s_mmxS[0];
+        for (uint s2 = 1u; s2 < nsub; s2++) { mn = min(mn, s_mmnS[s2]); mx = max(mx, s_mmxS[s2]); }
+        atomicMin(mm.v[0], mn);
+        atomicMax(mm.v[1], mx);
+    }
+}
