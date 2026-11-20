@@ -298,12 +298,18 @@ static void a_pack_plcin(uint8_t kind, const uint8_t plc4[4], uint32_t w[2]) {
            ((uint32_t)(int8_t)plc4[1] << 16) | ((uint32_t)(int8_t)plc4[2] << 24);
     w[1] = plc4[3];
 }
-// ---- BP movegen: literal port of the fork's movegen.rs -------------
-// (itself a line-by-line port of movegen.ts). Options fixed to the
-// BPD1 generator's: spin_evidence = true, rotate180 = false (wiring
-// record §5.1). Output = resting placements in BFS dequeue order;
-// non-T kinds are deduped by placed cells (a spin-proving duplicate
-// replaces the kept representative in place), T is never deduped.
+// ---- BP movegen: port of the fork's movegen.rs ---------------------
+// (itself a line-by-line port of movegen.ts), with the reachability
+// rule taken from the KERNEL (BPD1 is the kernel's own dump): spin
+// evidence on, and rotations attempted in three directions -- CW, CCW
+// and 180 with the S2 kick tables -- first fitting kick per direction.
+// movegen.rs's rotate180 = false reading (§5.1) undercounts the kernel;
+// see the note inside the BFS loop. Output = resting placements in BFS
+// dequeue order; non-T kinds are deduped by placed cells (a
+// spin-proving duplicate replaces the kept representative in place),
+// T is never deduped. Only the COUNT is contractual for serve: each
+// child's identity (placement, srs) is read back from the kernel's
+// plcout byproduct, never from this list.
 typedef struct { uint8_t rot; int8_t x; int8_t y; uint8_t srs; } APlc;
 
 // pieces.rs NATIVE_CELLS: [kind][rot][cell] = (x, y), y down.
@@ -348,6 +354,21 @@ static const int8_t A_KICKS_I[4][2][5][2] = {
     { {{0,0},{-1,0},{2,0},{-1,2},{2,-1}},   {{0,0},{2,0},{-1,0},{2,1},{-1,-2}} },
     { {{0,0},{2,0},{-1,0},{2,1},{-1,-2}},   {{0,0},{1,0},{-2,0},{1,-2},{-2,1}} },
     { {{0,0},{1,0},{-2,0},{1,-2},{-2,1}},   {{0,0},{-2,0},{1,0},{-2,-1},{1,2}} },
+};
+// 180-degree kicks, (dx, dy) dy up, keyed by the FROM rotation (target
+// = from + 2): pieces.rs KICKS_180_JLSTZ_S2 (the S2 profile table the
+// kernel's dir-2 kb blocks use; KN = 5) and KICKS_180_I (KN = 2).
+static const int8_t A_KICKS180_JLSTZ_S2[4][5][2] = {
+    { {0,0},{0,1},{1,1},{-1,1},{1,0} },
+    { {0,0},{1,0},{1,2},{1,1},{0,2} },
+    { {0,0},{0,-1},{-1,-1},{1,-1},{-1,0} },
+    { {0,0},{-1,0},{-1,2},{-1,1},{0,2} },
+};
+static const int8_t A_KICKS180_I[4][2][2] = {
+    { {0,0},{0,1} },
+    { {0,0},{1,0} },
+    { {0,0},{0,-1} },
+    { {0,0},{-1,0} },
 };
 #define A_STATE_COUNT (4 * 64 * 16)
 static struct {
@@ -433,10 +454,42 @@ static int a_movegen(const uint16_t *rows, int len, int kind, int sr, int sx, in
             int to = (rot + (dir == 0 ? 1 : 3)) & 3;
             const int8_t (*ks)[2] = (kind == 0) ? A_KICKS_I[rot][dir] : A_KICKS_JLSTZ[rot][dir];
             const AShape *ts = &a_shapes[kind][to];
+            // Kernel BP reachability (established against BPD1, the
+            // kernel's own dump, on 2026-11-21): first fitting kick per
+            // direction, in THREE directions -- CW, CCW, and 180 (the
+            // shader's kb blocks are dir = 0, 1, 2; KN[24] in
+            // tables.glsl). movegen.rs with rotate180 = false undercounts
+            // the kernel on 2,371 of 413,838 corpus instances (pockets
+            // only a 180 entry reaches); visiting every fitting kick
+            // overshoots on 5,200. The host count contract is the
+            // kernel's, so the port follows the kernel here.
             for (int i = 0; i < 5; i++) {
                 int nx = x + ks[i][0], ny = y - (int)ks[i][1];
                 if (a_collides_shape(rows, len, ts, nx, ny)) continue;
                 int last_srs = (i == 0) ? 1 : i + 1;
+                if (a_collides_shape(rows, len, ts, nx, ny + 1) &&
+                    ny + 4 >= 0 && ny + 4 < 64 && nx + 3 >= 0 && nx + 3 < 16) {
+                    int target = a_encode(to, nx, ny);
+                    if (a_mg.spin_stamp[target] != stamp || last_srs > a_mg.spin_arrival[target]) {
+                        a_mg.spin_stamp[target] = stamp;
+                        a_mg.spin_arrival[target] = (uint8_t)last_srs;
+                    }
+                }
+                a_visit(rows, len, kind, stamp, to, nx, ny, &tail);
+                break;
+            }
+        }
+        // 180-degree rotation (kernel dir 2): first fitting kick of the
+        // S2 tables (pieces.rs kicks180 with s2 = true).
+        {
+            int to = (rot + 2) & 3;
+            const AShape *ts = &a_shapes[kind][to];
+            const int8_t (*ks)[2] = (kind == 0) ? A_KICKS180_I[rot] : A_KICKS180_JLSTZ_S2[rot];
+            int nk = (kind == 0) ? 2 : 5;
+            for (int i = 0; i < nk; i++) {
+                int nx = x + ks[i][0], ny = y - (int)ks[i][1];
+                if (a_collides_shape(rows, len, ts, nx, ny)) continue;
+                int last_srs = i + 1;
                 if (a_collides_shape(rows, len, ts, nx, ny + 1) &&
                     ny + 4 >= 0 && ny + 4 < 64 && nx + 3 >= 0 && nx + 3 < 16) {
                     int target = a_encode(to, nx, ny);
@@ -478,9 +531,10 @@ static int a_movegen(const uint16_t *rows, int len, int kind, int sr, int sx, in
     }
     return nout;
 }
-// Child board reconstruction (fork lock_placement for the rows; the
-// garbage flags follow their rows, cleared rows vanish, new top rows
-// flag 0). Verified against every BXD1 child by harness check G.
+// Child board reconstruction, lock half (fork lock_placement for the
+// rows; the garbage flags follow their rows, cleared rows vanish, new
+// top rows flag 0). The landed-garbage half is a_land_garbage below;
+// harness check G verifies lock + garbage against every BXD1 child.
 static void a_apply_placement(const uint16_t *rows, const uint8_t *flags, int len,
                               int kind, int rot, int x, int y,
                               uint16_t *out_rows, uint8_t *out_flags) {
@@ -501,6 +555,46 @@ static void a_apply_placement(const uint16_t *rows, const uint8_t *flags, int le
     while (write >= 0) { out_rows[write] = 0; out_flags[write] = 0; write--; }
     for (int r = len; r < 40; r++) { out_rows[r] = 0; out_flags[r] = 0; }
 }
+// Well column of a board (search.rs well_column): the column with the
+// lowest stack; the first minimum wins. The landed-garbage hole column
+// is shared by the whole tank.
+static int a_well_column(const uint16_t *rows, int len) {
+    int well = 0, lowest = 0x7FFFFFFF;
+    for (int x = 0; x < 10; x++) {
+        int height = 0;
+        for (int r = 0; r < len; r++)
+            if (rows[r] & (uint16_t)(1u << x)) { height = len - r; break; }
+        if (height < lowest) { lowest = height; well = x; }
+    }
+    return well;
+}
+
+// Landed-garbage materialization (search.rs expand_s2), applied to a
+// post-lock board in place. On a non-clearing lock, pending garbage
+// lands under the stack: at the root only the due part, deeper the
+// whole pending. The board shifts up by the landed count over new
+// bottom rows of FULL_ROW ^ (1 << well), flagged 1. Returns the landed
+// row count. The residual pending is NOT computed here: in serve it is
+// the kernel's own output (rec/arena), in the corpus the child record
+// carries it; harness check G cross-checks both against this count.
+static int a_land_garbage(uint16_t *rows, uint8_t *flags, int len,
+                          int lines, int pending_in, int depth, int due) {
+    if (lines > 0 || pending_in <= 0) return 0;
+    int landed = (depth == 0 ? due : pending_in);
+    if (landed > pending_in) landed = pending_in;
+    if (landed <= 0) return 0;
+    if (landed > len) landed = len;
+    uint16_t mask = (uint16_t)(0x3FFu ^ (1u << a_well_column(rows, len)));
+    uint16_t sr[40]; uint8_t sf[40];
+    memcpy(sr, rows, sizeof sr); memcpy(sf, flags, sizeof sf);
+    for (int r = 0; r < len; r++) {
+        int src = r + landed;
+        if (src < len) { rows[r] = sr[src]; flags[r] = sf[src]; }
+        else { rows[r] = mask; flags[r] = 1; }
+    }
+    return landed;
+}
+
 // Serve uni descriptor for one ply, sentinel tau (wiring record §3:
 // tau is dead in r13/r14; the sentinel keeps the layout identical to
 // pfload's nReps <= 96 case). slot is always 0 for per-ply dispatch.
@@ -659,7 +753,7 @@ static int first_diff(const uint8_t *a, const uint8_t *b, int n) {
 // ---- Checks G/H/I: movegen, child boards, all-ply serve inputs -----
 static int run_xverify(void) {
     int bad = 0;
-    uint64_t g_ok = 0, g_tot = 0, h_ok = 0, h_tot = 0;
+    uint64_t g_ok = 0, g_tot = 0, g_pend_bad = 0, h_ok = 0, h_cnt_ok = 0, h_tot = 0;
     uint64_t i_pack_bad = 0, i_uni_bad = 0, i_uni_tot = 0;
     // Per-decision running child base accumulated from movegen counts,
     // in stored instance order (decision-major, depth ascending).
@@ -674,6 +768,7 @@ static int run_xverify(void) {
                           (int8_t)g_vbp[gi].spawn[3], out, 128);
         h_tot++;
         if (n == (int)g_vbp[gi].nout) {
+            h_cnt_ok++;
             int ok = 1;
             for (uint32_t ci = 0; ci < g_vbp[gi].nout; ci++) {
                 const uint8_t *bp = g_vbp[gi].plc + (size_t)ci * 8;
@@ -681,22 +776,41 @@ static int run_xverify(void) {
                     out[ci].y != (int8_t)bp[2] || out[ci].srs != bp[3]) { ok = 0; break; }
             }
             if (ok) h_ok++;
-            else if (h_tot - h_ok < 4) printf("H inst %u: placement list diff\n", gi);
-        } else if (h_tot - h_ok < 4) printf("H inst %u: count %d != BPD1 %u\n", gi, n, g_vbp[gi].nout);
+        } else if (h_tot - h_cnt_ok < 4) printf("H inst %u: count %d != BPD1 %u\n", gi, n, g_vbp[gi].nout);
         // Check G: child board reconstruction vs every BXD1 child.
+        // Reconstruction = pure lock (a_apply_placement) followed by the
+        // landed-garbage materialization (a_land_garbage), driven by the
+        // child record's own lines/attack and the parent instance's
+        // pending/due/depth. The residual pending implied by the same
+        // accounting is cross-checked against the child record's.
+        int32_t pending_in = ri32(F->raw + 160), due_in = ri32(F->raw + 164);
         for (uint32_t ci = 0; ci < F->nchild; ci++) {
             const uint8_t *ch = child_rec(gi, ci);
             uint16_t orows[40]; uint8_t oflags[40];
             a_apply_placement(prows, pflags, 40, ch[0], ch[1], (int8_t)ch[2], (int8_t)ch[3], orows, oflags);
+            int lines = (int)ri32(ch + 172), attack = (int)ri32(ch + 176);
+            int landed = a_land_garbage(orows, oflags, 40, lines, pending_in, (int)F->depth, due_in);
+            int pout = lines > 0 ? (pending_in - attack > 0 ? pending_in - attack : 0)
+                                 : pending_in - landed;
+            if (pout != (int)ri32(ch + 188)) {
+                g_pend_bad++;
+                if (g_pend_bad < 4) printf("G inst %u child %u: residual pending %d != stored %d\n",
+                                           gi, ci, pout, (int)ri32(ch + 188));
+            }
             g_tot++;
             if (!memcmp(orows, ch + 8, 80) && !memcmp(oflags, ch + 88, 40)) g_ok++;
             else if (g_tot - g_ok < 4) printf("G inst %u child %u: board diff\n", gi, ci);
         }
     }
-    printf("G child boards: %llu/%llu byte-identical\n", (unsigned long long)g_ok, (unsigned long long)g_tot);
-    printf("H movegen vs BPD1: %llu/%llu instances identical (count + ordered placements + srs)\n",
+    printf("G child boards (lock + landed garbage): %llu/%llu byte-identical; residual-pending mismatches %llu\n",
+           (unsigned long long)g_ok, (unsigned long long)g_tot, (unsigned long long)g_pend_bad);
+    printf("H movegen counts vs BPD1: %llu/%llu (the serve contract)\n",
+           (unsigned long long)h_cnt_ok, (unsigned long long)h_tot);
+    printf("H full lists identical (count + ordered placements + srs): %llu/%llu"
+           " (informational: BPD1 order is the kernel's emission order;"
+           " serve takes each child's identity from plcout, not from this list)\n",
            (unsigned long long)h_ok, (unsigned long long)h_tot);
-    if (g_ok != g_tot || h_ok != h_tot) bad = 1;
+    if (g_ok != g_tot || g_pend_bad || h_cnt_ok != h_tot) bad = 1;
     // Check I: all-ply pack streams + uni descriptors with the child
     // base accumulated from movegen counts (serve path), vs the stored
     // corpus accumulation. Any count error shifts every later base in

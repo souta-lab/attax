@@ -2756,6 +2756,12 @@ static void pf_child_psnode(PSNode *dst, const PSNode *parent, const AOption *op
     int x = (int)(int8_t)(pw0 >> 16), y = (int)(int8_t)(pw0 >> 24);
     AChildState cs; memset(&cs, 0, sizeof cs);
     a_apply_placement(parent->node.rows, parent->node.flags, 40, kind, rot, x, y, cs.rows, cs.flags);
+    // Landed garbage (wiring record §6): the kernel reports the child's
+    // residual pending but no board; the landed rows are materialized
+    // host-side exactly as the reference search does (expand_s2), or the
+    // next ply's instance boards diverge from the kernel's child state.
+    a_land_garbage(cs.rows, cs.flags, 40, (int)((rw[13] >> 2) & 63u),
+                   parent->node.pending, (int)parent->node.depth, parent->node.due);
     double accum = bits_f64((uint64_t)rw[6] | ((uint64_t)rw[7] << 32));
     if (arn44) { cs.chain = (int32_t)arn44[32]; cs.combo = (int32_t)arn44[33]; cs.pending = (int32_t)arn44[34]; }
     else { cs.chain = (int32_t)((rw[14] >> 6) & 0xFFu); cs.combo = (int32_t)(rw[14] & 63u) - 1; cs.pending = (int32_t)((rw[14] >> 14) & 63u); }
