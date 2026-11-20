@@ -111,6 +111,10 @@ static void load_corpus(const char *path) {
     for (uint32_t p = 0; p < nfply; p++) { if (fply[p].dec != curd) { curd = fply[p].dec; cnt = 0; } if (++cnt > maxpd) maxpd = cnt; }
     printf("max plies per decision: %u (kernel MAXPLY 32)\n", maxpd);
     if (maxpd > 32) { fprintf(stderr, "MAXPLY exceeded\n"); exit(1); }
+    // Shader layout contract (audit B (d)): per-ply children must fit the
+    // 8192-word SLOTOF/EVALCH/REPSGEN regions. The kernel does not check
+    // this, so the host rejects an over-limit corpus up front.
+    if (g_max_ply_ch > 8192) { fprintf(stderr, "ply children %u exceeds kernel layout limit 8192\n", g_max_ply_ch); exit(1); }
 }
 static double child_value(uint64_t ci) { uint64_t b = rd64(CREC(ci) + 220); double d; memcpy(&d, &b, 8); return d; }
 static uint64_t ord_of(double v) { uint64_t b; memcpy(&b, &v, 8); if (b == 0x8000000000000000ull) b = 0; return (b >> 63) ? ~b : (b | 0x8000000000000000ull); }
@@ -333,8 +337,7 @@ static void vk_setup(const char *spvp) {
     if (!ph) {
         for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (pr.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) { ph = ds[i]; break; } }
     }
-    if (!ph && nd > 0) { ph = ds[0]; vkGetPhysicalDeviceProperties(ph, &pr); }
-    if (!ph) { fprintf(stderr, "no Vulkan GPU found\n"); exit(1); }
+    if (!ph) { fprintf(stderr, "no discrete Vulkan GPU found (ATTAX_GPU / RX 6400 / discrete only; no silent fallback)\n"); exit(1); }
     VkPhysicalDeviceSubgroupSizeControlProperties ssc = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES, NULL };
     VkPhysicalDeviceSubgroupProperties sub = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &ssc };
     VkPhysicalDeviceProperties2 p2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &sub };
@@ -830,7 +833,7 @@ static uint64_t fnv1a(const uint8_t *p, size_t n) {
     return h;
 }
 int main(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: pfload <gate|drill|bench|dump> <spv> [G=72] [out.bin]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: pfload <gate|drill|bench|dump|dumpsel> <spv> [G=72] [out.bin]\n"); return 1; }
     const char *mode = argv[1], *spvp = argv[2];
     uint32_t G = (argc >= 4) ? (uint32_t)atoi(argv[3]) : 72u;
     if (G == 0 || G % 12) { fprintf(stderr, "G must be a multiple of 12\n"); return 1; }
@@ -861,6 +864,28 @@ int main(int argc, char **argv) {
     buffers_setup(inst52, inst48, plcin, tabD, gout);
     pipeline_setup(spvp);
     printf("setup done, G=%u\n", G);
+
+    if (!strcmp(mode, "dumpsel")) {
+        if (argc < 5) { fprintf(stderr, "usage: pfload dumpsel <spv> <G> <out.bin>\n"); return 1; }
+        FILE *of = fopen(argv[4], "wb");
+        if (!of) { perror(argv[4]); return 1; }
+        double tot = 0;
+        for (uint32_t d = 0; d < NDEC; d++) {
+            double sp, wa;
+            if (run_decision(d, G, 0, &sp, &wa)) { printf("FAULT dec %u\n", d); fclose(of); return 1; }
+            tot += sp;
+            const uint32_t *out = (const uint32_t *)bout.ptr;
+            for (uint32_t k = 0; k < decPlyN[d]; k++) {
+                uint32_t nSel = out[k * 16 + 2];
+                fwrite(&nSel, 4, 1, of);
+                fwrite(out + 524800 + k * 96, 4, nSel, of);
+                fwrite(out + 527872 + k * 4224, 4, nSel * 44, of);
+            }
+        }
+        fclose(of);
+        printf("DUMPSEL ok: %u decisions, mean span %.1f us/dec -> %s\n", NDEC, tot / NDEC, argv[4]);
+        return 0;
+    }
 
     if (!strcmp(mode, "drill")) {
         double sp, wa;

@@ -4,7 +4,7 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 1 つの自己完結した形にまとめたもの。実験中の候補（ラウンド8〜10 の
 変種、案B の計画表化など）は含まない。
 
-確定形は単一ファイル **`pfl_r13_sub1ms.comp`** が体現する（B&B ゲート正本 `pfl_r11_sub500.comp` の上に `r13_sub1ms` を直接積んだ形）。`-DPROD_MODE=0`（既定・デバッグ出力オン）と `-DPROD_MODE=1`（本番最速・デバッグ出力のみ削除）をコンパイル時フラグ 1 つで切り替え可能。
+確定形は単一ファイル **`pfl_r13_sub1ms.comp`** が体現する（`r11` の上に `r13_sub1ms` を直接積んだ形）。`-DPROD_MODE=0`（既定・デバッグ出力オン）と `-DPROD_MODE=1`（本番最速・デバッグ出力のみ削除）をコンパイル時フラグ 1 つで切り替え可能。
 
 ## スタック構成
 
@@ -15,7 +15,7 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 | r6g1 | `gen_r6g1.py` | emitOrderPX の WG0 prefix fan-in 修正: nwg≤64 前提だった fan-in をストライド共有化し、G>64 でも totals が正しく発行されるようにする（nwg≤64 ではビット同一、レジスタ費用ゼロ） |
 | int2 | `gen_r6int2.py` | r6g1 に bt1（ヘッダ拡張）＋ ba1（案A移植: 構築項の分岐を clamp＋値マスク化、wall の出所を subgroup ballot 化、seed walk を running counter 化）＋ bh1（hash パッキングの 8 行ブロック転置で gather を削減）を統合 |
 | r7c1 | `gen_r7cons.py` | int2 の構築段で、(cOff, ky) が決める項の重複計算を排除: 15 項 → distinct 7–8 値を各1回だけ計算し、ky をコンパイル時定数として畳む（VGPR コストゼロ） |
-| r11_sub500 | `gen_r11_sub500.py` | B&B ゲート正本: S1 を BP (`S1a`, 3バリア BFS) と 100% レーン稼働 BX＋直接 in-wave 評価＋融合 `dedupeA` (`S1b`) に分離／4096-bin `floatBucket12` 並列バケット選択／インクリメンタル Top-96＋wave64 bitonic merge／touched-slot `resetScratch` |
+| **r11** | `gen_r11.py` | S1 を BP (`S1a`, 3バリア BFS) と 100% レーン稼働 BX＋直接 in-wave 評価＋融合 `dedupeA` (`S1b`) に分離／`emitOrderPX` Pass 2 融合 4096-bin `floatBucket12`＋全72WG 並列バケット選択（WG0 `prefixP` 撤廃）／インクリメンタル Top-96＋展開 wave64 bitonic merge（`judgePreCount`/`judgeBuildPX2`/`sortStage`/`gbar X5` 撤廃）／touched-slot `resetScratch`／並列 setup・`candK` キックゲート・`sh<maxh` 空ハッシュ省略・`passB` 生存者スキップ・並列 `matStage`・`surv` 非 coherent 化 |
 | **r13_sub1ms** | `gen_r13_sub1ms.py` | **Top-1 一致契約・実測サブ 1 ms**: B&B ループ撤廃・1-shot 直接評価＋TOUCHED-slot Top-96／評価演算 FP64→FP32 化（RDNA2 FP64 1/16 律速解除・`tab.t` 初回 FP32 キャッシュ）／1 発 64-bit `atomicMax((vord32<<32)\|~coff)` で `dedupeB` と `gbar(X1)` を完全消滅／列直接 64-bit FNV-1a ハッシュ／`maxBin` 始点降順コアレス 64-bin ブロックスキャン＋2 ワード `bitonic128_2w`／`bpxMainBP` の純ビットボード BFS 化（`RANK/KB/WP/ordSet/RREC/posSetA/PLACE` 撤廃、1 バリア/iter＋直接 twin-dedupe 出力）／除算レス `matStage`／NVIDIA NVVM 互換修正／`-DPROD_MODE=0\|1` 切替対応 |
 
 ## 測定状態（正直な記述）
@@ -28,27 +28,29 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 - **r7c1**: drill @72 合格、同一窓 ABAB で int2 比 **−61 µs/判断
   （−1.5%、両ペア同符号）**。リソースは SGPR 108 / VGPR 120 /
   SpillSGPR 60 / SpillVGPR 0 / LDS 5,120（RADV shaderstats）。
-- **r11_sub500（本ブランチ確定形）**: RX 6400 (RADV NAVI24) @ **G=72**。
+- **r11**: RX 6400 (RADV NAVI24) @ **G=72**。
   - リソース（RADV shaderstats）: **SGPR 108 / VGPR 120 / SpillSGPR 46（60→46 減） / SpillVGPR 0 / LDS 4,096 B（5,120→4,096 B 減）**。
-  - `pfload drill`: **wave64 (`G=72`)・wave32 (`ATTAX_WAVE=32 G=48`, NVIDIA L4 等価経路) ともに PASSED**（sabotage 検知＋dec7 全 16 カウンタ 0）。
+  - `pfload drill`: **wave64 (`G=72`) は PASSED**（sabotage 検知＋dec7 全 16 カウンタ 0）。wave32 (`ATTAX_WAVE=32 G=48`) は RDNA2 上の強制実行では PASSED だが、**実 wave32 機（NVIDIA L4）ではパイプライン生成が拒否され、可搬性は不成立**（監査 C、2026-11-20）。wave32 は後回しとし、検証済みの範囲は wave64 のみ。
   - `pfload bench` @72（496 MHz 窓・実測）: **2,090.0–2,109.0 µs/判断**（中央値 **1,974.3–1,982.0 µs/判断**）vs 土台 `pfl_r7c1` **4,137.8 µs/判断**（**約 1.98× 高速化**）。
   - 連続 180 判断実行（`bench2320`、496 MHz 窓・実測）: **G=72 で 1,943.9–1,956.8 µs/判断**（土台 `pfl_r7c1` 3,887.3 µs/判断比 **2.00×**）、**G=84 で 1,856.9–1,877.3 µs/判断**（**2.08×**）。
-  - 2,320 MHz 定格 sclk への ALU 比例換算（`2320 / 496 = 4.68×`、`PERSISTENT-R6-2026-11-20.md` §7/§8 と同方式。注: VRAM/メモリ帯域成分はこの比率では縮まないため下限寄り見積）: **G=72 で ≈415–450 µs/判断（0.42–0.45 ms/手）**、**G=84 で ≈399 µs/判断（0.40 ms/手）**。
-  - 既定の常駐 WG 数はデスクトップ共在性を優先し **`G=72`**（省略時 72）。`ATTAX_WAVE=64|32` で wave64/wave32 を明示選択可能（省略時はデバイスのネイティブ subgroupSize を自動使用）、`ATTAX_GPU=<substring>` で任意の離散 Vulkan GPU（例: NVIDIA L4）を選択可能。
-  - フルゲート（`pfload_gd gate`）: 未完走（drill は wave64/wave32 双方合格、フルゲートは採用点で一括実施方針）。
-- **r13_sub1ms（本ブランチ最新確定形・Top-1 一致契約・実測サブ 1 ms）**: RX 6400 (RADV NAVI24) @ **G=72**。
+  - **0.5 ms 主張の撤回（監査 A、2026-11-20）**: かつて 2,320 MHz への ALU 比例換算で 0.42–0.45 ms/手と見積もったが、クロック強制（`power_dpm_force_performance_level=high`、実効 2320 MHz）での実測は bench **2,086.3–2,099.3 µs/判断**・連続 **1,948.6–1,961.1 µs/判断** で、低クロック窓と誤差範囲で変わらなかった。律速は ALU ではなくメモリ/同期側にあり、比例換算の前提は実測で崩れた。**正直な現在地は約 2.0 ms/判断**（監査の自前 bench は 2,054–2,061 µs/判断）。sub-0.5ms は未達。
+  - 既定の常駐 WG 数はデスクトップ共在性を優先し **`G=72`**（省略時 72）。`ATTAX_WAVE=64|32` で wave サイズを明示選択可能（省略時はデバイスのネイティブ subgroupSize を自動使用）。`ATTAX_GPU=<substring>` でデバイスを明示選択できる。デバイス選択に黙ったフォールバックはない: 明示指定・RX 6400・離散 GPU のいずれにも当たらなければエラーで終了する（監査 B (h) の修正、2026-11-20）。
+  - フルゲート（`pfload_gd gate` @72）: **PASSED**（監査 A、2026-11-20。全カウンタ 0、faults 0、DUMP の fnv `aeec061e4f6c4a0c` = 正典一致、コーパス 180 判断・9,031,554 子）。
+  - 監査 B の残件修正（2026-11-20）: CAND 容量ガード（5,461 件を超えたら gbar エラー経路で判断を失敗させる。生成器 `gen_r11.py` の後処理ステップとして実装）と、ホスト側の ply 子数 ≤ 8,192 の入力検証を入れた。
+- **r13_sub1ms（最新確定形・Top-1 一致契約・実測サブ 1 ms）**: RX 6400 (RADV NAVI24) @ **G=72**。
   - リソース（RADV shaderstats, `-DPROD_MODE=1`）: **SGPR 108 / VGPR 120 / SpillSGPR 13（r7c1 比 60→13、78% 減） / SpillVGPR 0 / LDS 3,072 B（5,120→3,072 B）**。
   - 検証（`spirv-val --target-env vulkan1.2` 0 エラー＋`pfload dumpsel` 180 決定 / 2,495 ply）:
-    - `r11_sub500` (FP64 B&B 正本) 比 **Top-1 評価値一致: 2,495/2,495 ply (`100.00%`, 最大差 `3.9e-4`)**、**Top-1 親インスタンス一致: 2,494/2,495 ply (`99.96%`)**。
+    - `r11` (FP64 B&B 正本) 比 **Top-1 評価値一致: 2,495/2,495 ply (`100.00%`, 最大差 `3.9e-4`)**、**Top-1 親インスタンス一致: 2,494/2,495 ply (`99.96%`)**。
     - `PROD_MODE=0` vs `PROD_MODE=1` (wave64, `G=72`): **41.2 MB 100% ビット完全一致**。
-    - `wave32 (ATTAX_WAVE=32 G=48)` vs `wave64 (G=72)`: **41.2 MB 100% ビット完全一致**。
+    - `wave32 (ATTAX_WAVE=32 G=48)` vs `wave64 (G=72)`: **41.2 MB 100% ビット完全一致**（RDNA2 上の強制 wave32 実行での一致。実 wave32 機での正しさは下記のとおり未成立）。
   - `pfload bench` @72（実測）:
     - `-DPROD_MODE=0`: **981.6–988.4 µs/判断**（中央値 **926.8–928.6 µs/判断**）
-    - `-DPROD_MODE=1`: **954.9–962.7 µs/判断**（中央値 **890.7–894.7 µs/判断**、`pfl_r7c1` 比 **4.33×**、`pfl_r11_sub500` 比 **2.19×**）
+    - `-DPROD_MODE=1`: **954.9–962.7 µs/判断**（中央値 **890.7–894.7 µs/判断**、`pfl_r7c1` 比 **4.33×**、`pfl_r11` 比 **2.19×**）
   - 連続 180 判断実行（`bench2320`、実測）:
     - `-DPROD_MODE=0`: **925.1–934.3 µs/判断**（中央値 **933.8–941.0 µs/判断**）
-    - `-DPROD_MODE=1`: **887.2–896.5 µs/判断**（中央値 **898.6–903.4 µs/判断**、`pfl_r7c1` 比 **4.38×**、`pfl_r11_sub500` 比 **2.19×**）
-  - NVIDIA NVVM 互換修正: `r11_sub500` で NVVM クラッシュ (`NVVM compilation failed: 1`) の原因となっていた `subgroupBroadcast(v, idx)`（非定数/63）および `subgroupShuffleXor(..., 32u|63u)` を `r13_sub1ms` から完全撤廃（`J==32u` を専用 LDS マクロ `BT2_STEP32` に分離し、全 `subgroupShuffleXor` マスクを `1..16` のみに限定）。
+    - `-DPROD_MODE=1`: **887.2–896.5 µs/判断**（中央値 **898.6–903.4 µs/判断**、`pfl_r7c1` 比 **4.38×**、`pfl_r11` 比 **2.19×**）
+  - NVIDIA NVVM 互換修正: `r11` で NVVM クラッシュ (`NVVM compilation failed: 1`) の原因となっていた `subgroupBroadcast(v, idx)`（非定数/63）および `subgroupShuffleXor(..., 32u|63u)` を `r13_sub1ms` から完全撤廃（`J==32u` を専用 LDS マクロ `BT2_STEP32` に分離し、全 `subgroupShuffleXor` マスクを `1..16` のみに限定）。
+  - **実 wave32 機での監査（NVIDIA L4、2026-11-21）**: 実機で `vkCreateComputePipelines` を通過し 180 判断を完走した。**NVVM-safe はコンパイルの意味では実証済み**。ただし実 wave32 での `pfload drill` verify は dec7 から大量不一致（hash/U/feat/q1 各 ≈55,302 件）となり **FAIL**（土台 `r7c1` と同型の乖離）。RDNA2 上の強制 wave32 の dumpsel 一致は実 wave32 機の正しさを保証しない。**wave32 対応は後回し（未対応）**とし、検証済みの範囲は wave64 のみ。
 
 詳細な測定記録は同梱の `PERSISTENT-R6-2026-11-20.md`（r6g1 の
 フルゲート詳細は同記録 §6 が引く `PERSISTENT-R6-GCEIL-2026-11-20.md`、
@@ -58,11 +60,11 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 
 確定形と生成系:
 
-- `pfl_r13_sub1ms.comp` — 確定スタックそのもの（本ブランチ最新・実測サブ 1 ms、`-DPROD_MODE=0|1` 切替対応）
-- `gen_r13_sub1ms.py` — `pfl_r11_sub500.comp` → `pfl_r13_sub1ms.comp` 生成器
-- `pfl_r11_sub500.comp` — B&B ゲート正本（`gen_r13_sub1ms.py` の入力、および `dumpsel` 照合基準）
-- `gen_r11_sub500.py` — `pfl_r7c1.comp` → `pfl_r11_sub500.comp` 生成器
-- `pfl_r7c1.comp` — ラウンド7確定形（`gen_r11_sub500.py` の入力）
+- `pfl_r13_sub1ms.comp` — 確定スタックそのもの（最新・実測サブ 1 ms、`-DPROD_MODE=0|1` 切替対応）
+- `gen_r13_sub1ms.py` — `r11` → `pfl_r13_sub1ms.comp` 生成器。入力は監査済み r11 の内容（sha256 `c1c1144a774e…`）をファイル名 `pfl_r11_sub500.comp` でピン留めしている（下記の再生成手順の注意を参照）
+- `pfl_r11.comp` — r11 確定形（監査 B 修正適用版。r13 の系譜上の土台で、`dumpsel` 照合の基準）
+- `gen_r11.py` — `pfl_r7c1.comp` → `pfl_r11.comp` 生成器（監査 B 修正の後処理を含む）
+- `pfl_r7c1.comp` — ラウンド7確定形（`gen_r11.py` の入力）
 - `gen_r6g1.py` / `gen_r6int2.py` / `gen_r7cons.py` — 生成器（各段）
 - `pfl_r4tk1.comp` — 生成チェーンの起点（ラウンド4確定形）
 - `pfl_r6g1.comp` / `pfl_r6int2.comp` — 中間段の成果物（次段の入力）
@@ -87,10 +89,17 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 ```sh
 python3 gen_r6g1.py pfl_r4tk1.comp   # -> pfl_r6g1.comp      (sha256 efc3f169a0cb…)
 python3 gen_r6int2.py                # -> pfl_r6int2.comp    (sha256 f005f4322daa…)
-python3 gen_r7cons.py                # -> pfl_r7c1.comp       (sha256 adc2d9a6694f…)
-python3 gen_r11_sub500.py            # -> pfl_r11_sub500.comp (sha256 c1c1144a774e…)
+python3 gen_r7cons.py                # -> pfl_r7c1.comp      (sha256 adc2d9a6694f…)
+python3 gen_r11.py                   # -> pfl_r11.comp      (sha256 c1d44823b17f…)
 python3 gen_r13_sub1ms.py            # -> pfl_r13_sub1ms.comp (sha256 090f1044bf19…)
 ```
+
+注意: `gen_r13_sub1ms.py` の入力は監査済み r11 の内容（sha256
+`c1c1144a774e…`、監査 B 修正の適用前）で、ファイル名 `pfl_r11_sub500.comp`
+としてピン留めされている。本ツリーの `pfl_r11.comp` は監査 B 修正の
+適用版（sha256 `c1d44823b17f…`）のため、そのままでは再生成できない。
+r13 を再生成する場合は、ピン留めされた入力を `pfl_r11_sub500.comp` の
+名前で生成器と同じディレクトリに置いて実行すること。
 
 注意: `gen_r7cons.py` の `TABLES` 定数は原典では spike 側の絶対パス
 （`~/workspace/attax-gpu-spike/opus-phase2/bpg/tables.glsl`）を指す。
@@ -104,6 +113,7 @@ python3 gen_r13_sub1ms.py            # -> pfl_r13_sub1ms.comp (sha256 090f1044bf
 glslangValidator -V --target-env vulkan1.2 -DPROD_MODE=0 -o pfl_r13_dbg.spv  pfl_r13_sub1ms.comp
 # 本番最速モード（-DPROD_MODE=1、デバッグ出力のみ削除・選択結果は 100% ビット同一）
 glslangValidator -V --target-env vulkan1.2 -DPROD_MODE=1 -o pfl_r13_prod.spv pfl_r13_sub1ms.comp
+glslangValidator -V --target-env vulkan1.3 -o pfl_r11.spv pfl_r11.comp
 
 gcc -O2 -o pfload    pfload.c    -lvulkan -lm
 gcc -O2 -o pfload_gd pfload_gd.c -lvulkan -lm
@@ -111,12 +121,18 @@ gcc -O2 -o pfload_gd pfload_gd.c -lvulkan -lm
 # ベンチマーク（wave64 既定 G=72）
 ./pfload bench pfl_r13_prod.spv 72
 
-# PROD_MODE=0 vs 1 / wave64 vs wave32 の完全一致検証（全 180 決定 / 2,495 ply / 41.2 MB）
+# PROD_MODE=0 vs 1 の完全一致検証（全 180 決定 / 2,495 ply / 41.2 MB）
 ./pfload dumpsel pfl_r13_dbg.spv  72 /tmp/sel_r13_dbg.bin
 ./pfload dumpsel pfl_r13_prod.spv 72 /tmp/sel_r13_prod.bin
 cmp /tmp/sel_r13_dbg.bin /tmp/sel_r13_prod.bin && echo "EXACT BIT-IDENTICAL"
+# wave32 は RDNA2 上の強制実行でのみ wave64 とビット一致する
+# （実 wave32 機では未対応 — 「測定状態」の L4 監査の項を参照）
 ATTAX_WAVE=32 ./pfload dumpsel pfl_r13_prod.spv 48 /tmp/sel_r13_w32.bin
 cmp /tmp/sel_r13_prod.bin /tmp/sel_r13_w32.bin && echo "WAVE32 == WAVE64 BIT-IDENTICAL"
+
+./pfload    drill pfl_r11.spv 72
+./pfload    bench pfl_r11.spv 72
+./pfload_gd gate  pfl_r11.spv 72    # フルゲート。ドライバ timeout は 1800 秒
 ```
 
 - `G` は常駐ワークグループ数。動作点は **72**。**G は 12 の倍数で
@@ -135,8 +151,8 @@ cmp /tmp/sel_r13_prod.bin /tmp/sel_r13_w32.bin && echo "WAVE32 == WAVE64 BIT-IDE
 ```
 090f1044bf19c4aed9666dd773149260da387b5f0425ec34fcdb55c156378456  pfl_r13_sub1ms.comp
 dd412511926ce74fde9d310e6c82eba2b083eb922c1e6b8a4c78350e4d578f17  gen_r13_sub1ms.py
-c1c1144a774e67c2501bad06a7fad585ceda0f59ef3178bbd9815506fe105065  pfl_r11_sub500.comp
-646f3cf0132fb5fbd229633f59ddfcffe66cad40eb733bce5aa477ee8932f16d  gen_r11_sub500.py
+c1d44823b17f76373b7e19ecee89ad37e64f629a79f6c14421e2c5e878bc9230  pfl_r11.comp
+d396dfe9f0ecc36056ea03f95118a52a70a7b9f306cec65b0ef1a87dc49316d5  gen_r11.py
 7b5c0d3656e6f07d9d7a892e2dde21992a8f37cba82fe9a2614095b21a96e028  bx_shapes.glsl
 adc2d9a6694f3e721ec00df5243d17b368fb0174271a7bf897209e55f29b4c2e  pfl_r7c1.comp
 f005f4322daaf4dda08cd0bc3ac9ef4237242caca3d72e01ce7d0b1aed1150bf  pfl_r6int2.comp
@@ -144,8 +160,8 @@ efc3f169a0cbecf8390c11b586ea226097338af3033dca1996cd659f9ae9a7d5  pfl_r6g1.comp
 2f4add4a266948cdadb5cba35e8549cab881df4638f8fcda02fd3b730dba4bcc  pfl_r4tk1.comp
 ac32354e7df3ae63f64b7ae25f0bc2e2ea56ae2a50c1c30281f5f672ac2f3b34  pfl_r6int1.comp
 3acaf58a685ef5aa9be3803a0576acc40813a585c3d0b7dc33a025ce34879ee8  pfl_r4bt1.comp
-5c27e7b46cbf9d3a72b8d50bd05f5739ac9d5955af2306e12fa344d2f6973c81  pfload.c
-c56ad082937fda4332938547b0074674c2c118068f146d7e00f1a9b372eb1914  pfload_gd.c
+7ee756b9d84be026d1d58dfaf69684df7d4eb45b445194c640451c0022810a22  pfload.c
+d2ba59c918213f16aaba7ac9c8582592478e091bff0f054ab7d253f5e42aa80c  pfload_gd.c
 a388dff80c3f44ae382432bb79cbb19de6c7fa13cbbe2482e4a0cbd7ad313bc6  tables.glsl
 ```
 
