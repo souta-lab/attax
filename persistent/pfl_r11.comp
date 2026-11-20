@@ -100,6 +100,7 @@ layout(push_constant) uniform PCU { uint nwg; uint gsize; uint flags; uint spin;
 #define ST_CAND   37u
 #define ST_TICKET 40u
 #define CAND_OFF  EVLIST
+#define CAND_CAP  5461u
 #define TOP_KH    (EVORD + 16000u)
 #define TOP_KL    (EVORD + 16096u)
 #define TOP_COFF  (EVORD + 16192u)
@@ -2817,13 +2818,15 @@ shared uint h_nAlive, h_nReps, h_nSel, h_nEval, h_rounds, h_nSurv;
 
 
 // Monotonic 12-bit float bucket (3907 bins in 0..4095):
-// 6-bit mantissa precision (64 bins/exponent) across [-2^23, -2^-8] and [+2^-8, +2^23].
-// Strictly monotonic with 64-bit ordOfBits(double) for ALL uint64_t values!
+// 6-bit mantissa precision (64 bins/exponent) across [+2^-8, +2^23] and, on the
+// negative side, |d| in [2^-7, ~1.48*2^23); the band (-2^-7, +2^-8) collapses
+// into the single central bin 1921 (audit B (a)).
+// Monotone non-decreasing in 64-bit ordOfBits(double) for ALL uint64_t values.
 uint floatBucket12(uint64_t ord) {
   uint v = uint(ord >> 46);
   if (v < 64128u) return 0u;
-  if (v < 66048u) return 1u + (v - 64128u);         // 1..1920 (negatives -2^23 .. -2^-8)
-  if (v < 196032u) return 1921u;                    // (-2^-8 .. +2^-8)
+  if (v < 66048u) return 1u + (v - 64128u);         // 1..1920 (negatives, fine-grained for |d| in [2^-7, ~1.48*2^23))
+  if (v < 196032u) return 1921u;                    // central coarse bin (-2^-7 .. +2^-8)
   if (v < 198016u) return 1922u + (v - 196032u);    // 1922..3905 (positives +2^-8 .. +2^23)
   return 3906u;
 }
@@ -3059,9 +3062,11 @@ void passBOne(uint si, uint childBase, uint nTop, uint64_t tauOrd, uint tauCoff)
     uint coff = child - childBase;
     if (nTop < 96u || ord > tauOrd || (ord == tauOrd && coff < tauCoff)) {
       uint cs = atomicAdd(state.u[STATS + ST_CAND], 1u);
-      state.u[CAND_OFF + cs * 3u + 0u] = uint(ord >> 32);
-      state.u[CAND_OFF + cs * 3u + 1u] = uint(ord);
-      state.u[CAND_OFF + cs * 3u + 2u] = coff;
+      if (cs < CAND_CAP) {
+        state.u[CAND_OFF + cs * 3u + 0u] = uint(ord >> 32);
+        state.u[CAND_OFF + cs * 3u + 1u] = uint(ord);
+        state.u[CAND_OFF + cs * 3u + 2u] = coff;
+      } else { atomicOr(ctrl.u[128u], 1u); atomicOr(ctrl.u[1u], 1u); }
     }
 }
 
@@ -3083,9 +3088,11 @@ void passBStage(uint ply) {
       uint64_t ord = ordOfBits(recValBits(child));
       if (nTop < 96u || ord > tauOrd || (ord == tauOrd && coff < tauCoff)) {
         uint cs = atomicAdd(state.u[STATS + ST_CAND], 1u);
-        state.u[CAND_OFF + cs * 3u + 0u] = uint(ord >> 32);
-        state.u[CAND_OFF + cs * 3u + 1u] = uint(ord);
-        state.u[CAND_OFF + cs * 3u + 2u] = coff;
+        if (cs < CAND_CAP) {
+          state.u[CAND_OFF + cs * 3u + 0u] = uint(ord >> 32);
+          state.u[CAND_OFF + cs * 3u + 1u] = uint(ord);
+          state.u[CAND_OFF + cs * 3u + 2u] = coff;
+        } else { atomicOr(ctrl.u[128u], 1u); atomicOr(ctrl.u[1u], 1u); }
       }
     } else {
       passBOne(si, childBase, nTop, tauOrd, tauCoff);
@@ -3495,7 +3502,7 @@ void mergeTop96AndJudge(uint ply, bool isLastRound) {
   uint lane = gl_LocalInvocationIndex;
   uint childBase = plyCB(ply);
   uint nTop = state.u[STATS + ST_NTOP];
-  uint nCand = state.u[STATS + ST_CAND];
+  uint nCand = min(state.u[STATS + ST_CAND], CAND_CAP);
   uint nEval = state.u[STATS + ST_NEVAL];
   uint nReps = state.u[STATS + ST_NREPS];
   uint rounds = state.u[STATS + ST_ROUNDS] + 1u;

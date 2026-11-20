@@ -111,6 +111,10 @@ static void load_corpus(const char *path) {
     for (uint32_t p = 0; p < nfply; p++) { if (fply[p].dec != curd) { curd = fply[p].dec; cnt = 0; } if (++cnt > maxpd) maxpd = cnt; }
     printf("max plies per decision: %u (kernel MAXPLY 32)\n", maxpd);
     if (maxpd > 32) { fprintf(stderr, "MAXPLY exceeded\n"); exit(1); }
+    // Shader layout contract (audit B (d)): per-ply children must fit the
+    // 8192-word SLOTOF/EVALCH/REPSGEN regions. The kernel does not check
+    // this, so the host rejects an over-limit corpus up front.
+    if (g_max_ply_ch > 8192) { fprintf(stderr, "ply children %u exceeds kernel layout limit 8192\n", g_max_ply_ch); exit(1); }
 }
 static double child_value(uint64_t ci) { uint64_t b = rd64(CREC(ci) + 220); double d; memcpy(&d, &b, 8); return d; }
 static uint64_t ord_of(double v) { uint64_t b; memcpy(&b, &v, 8); if (b == 0x8000000000000000ull) b = 0; return (b >> 63) ? ~b : (b | 0x8000000000000000ull); }
@@ -333,8 +337,7 @@ static void vk_setup(const char *spvp) {
     if (!ph) {
         for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (pr.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) { ph = ds[i]; break; } }
     }
-    if (!ph && nd > 0) { ph = ds[0]; vkGetPhysicalDeviceProperties(ph, &pr); }
-    if (!ph) { fprintf(stderr, "no Vulkan GPU found\n"); exit(1); }
+    if (!ph) { fprintf(stderr, "no discrete Vulkan GPU found (ATTAX_GPU / RX 6400 / discrete only; no silent fallback)\n"); exit(1); }
     VkPhysicalDeviceSubgroupSizeControlProperties ssc = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES, NULL };
     VkPhysicalDeviceSubgroupProperties sub = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &ssc };
     VkPhysicalDeviceProperties2 p2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &sub };
