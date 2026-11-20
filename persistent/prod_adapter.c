@@ -90,7 +90,11 @@ typedef struct {
 // Config-O search constants (bxcheck config_o): the discount that drives
 // scale_bits, and the S2 margin multiplier's parameters (rules.rs).
 #define ADAPTER_DISCOUNT 0.97
-#define ADAPTER_ROOT_FRAME 0 // serve supplies the referee frame; corpus used 0
+// Serve supplies the referee frame per decision (a_set_root_frame);
+// the corpus used 0, which stays the default so the harness is
+// bit-identical without ever calling the setter.
+static int64_t a_root_frame = 0;
+static void a_set_root_frame(int64_t f) { a_root_frame = f; }
 
 static void a_column_heights(const uint16_t *rows, int len, int h[10]) {
     uint16_t seen = 0;
@@ -141,7 +145,14 @@ static double a_s2_multiplier(int64_t frame) {
     return value;
 }
 static double a_multiplier(uint32_t depth) {
-    return a_s2_multiplier(ADAPTER_ROOT_FRAME + 60 * (int64_t)depth);
+    // Memoized per (root frame, depth): the ascending accumulation is
+    // O(frame) and serve builds many records per decision.
+    static double memo[256]; static uint8_t memo_ok[256]; static int64_t memo_frame = -1;
+    if (memo_frame != a_root_frame) { memset(memo_ok, 0, sizeof memo_ok); memo_frame = a_root_frame; }
+    if (depth < 256 && memo_ok[depth]) return memo[depth];
+    double v = a_s2_multiplier(a_root_frame + 60 * (int64_t)depth);
+    if (depth < 256) { memo[depth] = v; memo_ok[depth] = 1; }
+    return v;
 }
 // f64::powi(ADAPTER_DISCOUNT, depth): binary powering, ascending-bit
 // accumulation order (the compiler-rt/libgcc form the reference host
@@ -287,8 +298,221 @@ static void a_pack_plcin(uint8_t kind, const uint8_t plc4[4], uint32_t w[2]) {
            ((uint32_t)(int8_t)plc4[1] << 16) | ((uint32_t)(int8_t)plc4[2] << 24);
     w[1] = plc4[3];
 }
+// ---- BP movegen: literal port of the fork's movegen.rs -------------
+// (itself a line-by-line port of movegen.ts). Options fixed to the
+// BPD1 generator's: spin_evidence = true, rotate180 = false (wiring
+// record §5.1). Output = resting placements in BFS dequeue order;
+// non-T kinds are deduped by placed cells (a spin-proving duplicate
+// replaces the kept representative in place), T is never deduped.
+typedef struct { uint8_t rot; int8_t x; int8_t y; uint8_t srs; } APlc;
+
+// pieces.rs NATIVE_CELLS: [kind][rot][cell] = (x, y), y down.
+static const int8_t A_CELLS[7][4][4][2] = {
+    { {{0,1},{1,1},{2,1},{3,1}}, {{2,0},{2,1},{2,2},{2,3}}, {{0,2},{1,2},{2,2},{3,2}}, {{1,0},{1,1},{1,2},{1,3}} }, // I
+    { {{1,0},{2,0},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{2,1}} }, // O
+    { {{1,0},{0,1},{1,1},{2,1}}, {{1,0},{1,1},{2,1},{1,2}}, {{0,1},{1,1},{2,1},{1,2}}, {{1,0},{0,1},{1,1},{1,2}} }, // T
+    { {{1,0},{2,0},{0,1},{1,1}}, {{1,0},{1,1},{2,1},{2,2}}, {{1,1},{2,1},{0,2},{1,2}}, {{0,0},{0,1},{1,1},{1,2}} }, // S
+    { {{0,0},{1,0},{1,1},{2,1}}, {{2,0},{1,1},{2,1},{1,2}}, {{0,1},{1,1},{1,2},{2,2}}, {{1,0},{0,1},{1,1},{0,2}} }, // Z
+    { {{0,0},{0,1},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{1,2}}, {{0,1},{1,1},{2,1},{2,2}}, {{1,0},{1,1},{0,2},{1,2}} }, // J
+    { {{2,0},{0,1},{1,1},{2,1}}, {{1,0},{1,1},{1,2},{2,2}}, {{0,1},{1,1},{2,1},{0,2}}, {{0,0},{1,0},{1,1},{1,2}} }, // L
+};
+typedef struct { int min_x, max_x, min_y, height; uint16_t rows[4]; } AShape;
+static AShape a_shapes[7][4];
+static int a_shapes_ready = 0;
+static void a_build_shapes(void) {
+    if (a_shapes_ready) return;
+    for (int k = 0; k < 7; k++) for (int r = 0; r < 4; r++) {
+        AShape *s = &a_shapes[k][r];
+        int minx = 9, maxx = 0, miny = 9, maxy = 0;
+        for (int i = 0; i < 4; i++) {
+            int cx = A_CELLS[k][r][i][0], cy = A_CELLS[k][r][i][1];
+            if (cx < minx) minx = cx; if (cx > maxx) maxx = cx;
+            if (cy < miny) miny = cy; if (cy > maxy) maxy = cy;
+        }
+        s->min_x = minx; s->max_x = maxx; s->min_y = miny; s->height = maxy - miny + 1;
+        s->rows[0] = s->rows[1] = s->rows[2] = s->rows[3] = 0;
+        for (int i = 0; i < 4; i++)
+            s->rows[A_CELLS[k][r][i][1] - miny] |= (uint16_t)(1u << (A_CELLS[k][r][i][0] - minx));
+    }
+    a_shapes_ready = 1;
+}
+// pieces.rs kick tables: [from][dir 0=CW,1=CCW][test] = (dx, dy-up).
+static const int8_t A_KICKS_JLSTZ[4][2][5][2] = {
+    { {{0,0},{-1,0},{-1,1},{0,-2},{-1,-2}}, {{0,0},{1,0},{1,1},{0,-2},{1,-2}} },
+    { {{0,0},{1,0},{1,-1},{0,2},{1,2}},     {{0,0},{1,0},{1,-1},{0,2},{1,2}} },
+    { {{0,0},{1,0},{1,1},{0,-2},{1,-2}},    {{0,0},{-1,0},{-1,1},{0,-2},{-1,-2}} },
+    { {{0,0},{-1,0},{-1,-1},{0,2},{-1,2}},  {{0,0},{-1,0},{-1,-1},{0,2},{-1,2}} },
+};
+static const int8_t A_KICKS_I[4][2][5][2] = {
+    { {{0,0},{-2,0},{1,0},{-2,-1},{1,2}},   {{0,0},{-1,0},{2,0},{-1,2},{2,-1}} },
+    { {{0,0},{-1,0},{2,0},{-1,2},{2,-1}},   {{0,0},{2,0},{-1,0},{2,1},{-1,-2}} },
+    { {{0,0},{2,0},{-1,0},{2,1},{-1,-2}},   {{0,0},{1,0},{-2,0},{1,-2},{-2,1}} },
+    { {{0,0},{1,0},{-2,0},{1,-2},{-2,1}},   {{0,0},{-2,0},{1,0},{-2,-1},{1,2}} },
+};
+#define A_STATE_COUNT (4 * 64 * 16)
+static struct {
+    uint32_t visited[A_STATE_COUNT];
+    uint8_t spin_arrival[A_STATE_COUNT];
+    uint32_t spin_stamp[A_STATE_COUNT];
+    uint16_t queue[A_STATE_COUNT];
+    uint16_t resting[A_STATE_COUNT];
+    uint64_t seen[A_STATE_COUNT];
+    int32_t seen_pos[A_STATE_COUNT];
+    uint8_t seen_srs[A_STATE_COUNT];
+    uint32_t stamp;
+} a_mg;
+static int a_encode(int rot, int x, int y) { return (rot * 64 + (y + 4)) * 16 + (x + 3); }
+static int a_collides_shape(const uint16_t *rows, int len, const AShape *s, int x, int y) {
+    if (x + s->min_x < 0 || x + s->max_x >= 10) return 1;
+    int shift = x + s->min_x;
+    for (int i = 0; i < s->height; i++) {
+        int row = y + s->min_y + i;
+        if (row >= len) return 1;
+        if (row >= 0 && (rows[row] & (uint16_t)(s->rows[i] << shift))) return 1;
+    }
+    return 0;
+}
+static int a_collides(const uint16_t *rows, int len, int kind, int rot, int x, int y) {
+    return a_collides_shape(rows, len, &a_shapes[kind][rot & 3], x, y);
+}
+static void a_visit(const uint16_t *rows, int len, int kind, uint32_t stamp, int rot, int x, int y, int *tail) {
+    if (y + 4 < 0 || y + 4 >= 64 || x + 3 < 0 || x + 3 >= 16) return;
+    int id = a_encode(rot, x, y);
+    if (a_mg.visited[id] == stamp) return;
+    if (a_collides(rows, len, kind, rot, x, y)) return;
+    a_mg.visited[id] = stamp;
+    a_mg.queue[(*tail)++] = (uint16_t)id;
+}
+static uint64_t a_cell_key(const AShape *s, int x, int y) {
+    uint64_t key = (uint64_t)(y + s->min_y + 4);
+    for (int i = 0; i < s->height; i++) key = key * 1024 + ((uint64_t)s->rows[i] << (x + s->min_x));
+    return key;
+}
+// All resting placements for (kind at spawn sr/sx/sy) on rows[0..len),
+// in BPD1 order. Stores at most cap entries; returns the full emitted
+// count. The kernel's per-instance child count is min(count, 64).
+static int a_movegen(const uint16_t *rows, int len, int kind, int sr, int sx, int sy, APlc *out, int cap) {
+    a_build_shapes();
+    int syy = sy;
+    if (len > 20 && syy == len - 21 && a_collides(rows, len, kind, sr, sx, syy)) syy -= 1;
+    if (a_collides(rows, len, kind, sr, sx, syy)) return 0;
+    a_mg.stamp += 1;
+    if (a_mg.stamp == 0xFFFFFFFFu || a_mg.stamp == 0) {
+        memset(a_mg.visited, 0, sizeof a_mg.visited);
+        memset(a_mg.spin_stamp, 0, sizeof a_mg.spin_stamp);
+        a_mg.stamp = 1;
+    }
+    uint32_t stamp = a_mg.stamp;
+    int rotations = (kind == 1) ? 1 : 4;
+    int head = 0, tail = 0, nrest = 0;
+    int top = 0; while (top < len && rows[top] == 0) top++;
+    const AShape *ss = &a_shapes[kind][sr & 3];
+    int start_bottom = syy + ss->min_y + ss->height - 1;
+    if (start_bottom < top - 1) {
+        for (int rot = 0; rot < rotations; rot++) {
+            const AShape *s = &a_shapes[kind][rot];
+            int lowest = top - s->min_y - s->height;
+            int highest = lowest - 2; if (highest < syy) highest = syy;
+            for (int x = -s->min_x; x + s->max_x < 10; x++)
+                for (int y = lowest; y >= highest; y--)
+                    a_visit(rows, len, kind, stamp, rot, x, y, &tail);
+        }
+    } else {
+        a_visit(rows, len, kind, stamp, sr, sx, syy, &tail);
+    }
+    while (head < tail) {
+        int id = a_mg.queue[head++];
+        int x = (id % 16) - 3, y = ((id / 16) % 64) - 4, rot = id / (16 * 64);
+        int grounded = a_collides(rows, len, kind, rot, x, y + 1);
+        if (grounded) a_mg.resting[nrest++] = (uint16_t)id;
+        a_visit(rows, len, kind, stamp, rot, x - 1, y, &tail);
+        a_visit(rows, len, kind, stamp, rot, x + 1, y, &tail);
+        if (!grounded) a_visit(rows, len, kind, stamp, rot, x, y + 1, &tail);
+        if (rotations == 1) continue;
+        for (int dir = 0; dir < 2; dir++) {
+            int to = (rot + (dir == 0 ? 1 : 3)) & 3;
+            const int8_t (*ks)[2] = (kind == 0) ? A_KICKS_I[rot][dir] : A_KICKS_JLSTZ[rot][dir];
+            const AShape *ts = &a_shapes[kind][to];
+            for (int i = 0; i < 5; i++) {
+                int nx = x + ks[i][0], ny = y - (int)ks[i][1];
+                if (a_collides_shape(rows, len, ts, nx, ny)) continue;
+                int last_srs = (i == 0) ? 1 : i + 1;
+                if (a_collides_shape(rows, len, ts, nx, ny + 1) &&
+                    ny + 4 >= 0 && ny + 4 < 64 && nx + 3 >= 0 && nx + 3 < 16) {
+                    int target = a_encode(to, nx, ny);
+                    if (a_mg.spin_stamp[target] != stamp || last_srs > a_mg.spin_arrival[target]) {
+                        a_mg.spin_stamp[target] = stamp;
+                        a_mg.spin_arrival[target] = (uint8_t)last_srs;
+                    }
+                }
+                a_visit(rows, len, kind, stamp, to, nx, ny, &tail);
+                break;
+            }
+        }
+    }
+    int nseen = 0, nout = 0;
+    for (int k = 0; k < nrest; k++) {
+        int id = a_mg.resting[k];
+        int x = (id % 16) - 3, y = ((id / 16) % 64) - 4, rot = id / (16 * 64);
+        const AShape *s = &a_shapes[kind][rot];
+        if (y + s->min_y + s->height - 1 < 0) continue;
+        int last_srs = (a_mg.spin_stamp[id] == stamp) ? a_mg.spin_arrival[id] : 0;
+        if (kind != 2) { // T is never cell-deduped
+            uint64_t key = a_cell_key(s, x, y);
+            int pos = -1;
+            for (int j = 0; j < nseen; j++) if (a_mg.seen[j] == key) { pos = j; break; }
+            if (pos >= 0) {
+                // spin-evidence: a spin-proving duplicate replaces the
+                // kept representative in place (position preserved).
+                if (last_srs > a_mg.seen_srs[pos]) {
+                    a_mg.seen_srs[pos] = (uint8_t)last_srs;
+                    int idx = a_mg.seen_pos[pos];
+                    if (idx < cap) { out[idx].rot = (uint8_t)rot; out[idx].x = (int8_t)x; out[idx].y = (int8_t)y; out[idx].srs = (uint8_t)last_srs; }
+                }
+                continue;
+            }
+            a_mg.seen[nseen] = key; a_mg.seen_pos[nseen] = nout; a_mg.seen_srs[nseen] = (uint8_t)last_srs; nseen++;
+        }
+        if (nout < cap) { out[nout].rot = (uint8_t)rot; out[nout].x = (int8_t)x; out[nout].y = (int8_t)y; out[nout].srs = (uint8_t)last_srs; }
+        nout++;
+    }
+    return nout;
+}
+// Child board reconstruction (fork lock_placement for the rows; the
+// garbage flags follow their rows, cleared rows vanish, new top rows
+// flag 0). Verified against every BXD1 child by harness check G.
+static void a_apply_placement(const uint16_t *rows, const uint8_t *flags, int len,
+                              int kind, int rot, int x, int y,
+                              uint16_t *out_rows, uint8_t *out_flags) {
+    a_build_shapes();
+    uint16_t tmp[40]; uint8_t tfl[40];
+    memcpy(tmp, rows, sizeof tmp); memcpy(tfl, flags, sizeof tfl);
+    const AShape *s = &a_shapes[kind][rot & 3];
+    int shift = x + s->min_x;
+    for (int i = 0; i < s->height; i++) {
+        int row = y + s->min_y + i;
+        if (row >= 0 && row < len) tmp[row] |= (uint16_t)(s->rows[i] << shift);
+    }
+    int write = len - 1;
+    for (int read = len - 1; read >= 0; read--) {
+        if (tmp[read] == 0x3FF) continue;
+        out_rows[write] = tmp[read]; out_flags[write] = tfl[read]; write--;
+    }
+    while (write >= 0) { out_rows[write] = 0; out_flags[write] = 0; write--; }
+    for (int r = len; r < 40; r++) { out_rows[r] = 0; out_flags[r] = 0; }
+}
+// Serve uni descriptor for one ply, sentinel tau (wiring record §3:
+// tau is dead in r13/r14; the sentinel keeps the layout identical to
+// pfload's nReps <= 96 case). slot is always 0 for per-ply dispatch.
+static void a_ply_uni(uint32_t *uni, int slot, uint32_t inst_base, uint32_t ni,
+                      uint32_t child_base, uint32_t nch, uint32_t depth) {
+    uint32_t *d = uni + 16 + slot * 8;
+    d[0] = inst_base; d[1] = ni; d[2] = child_base; d[3] = nch;
+    d[4] = 0; d[5] = 0xFFF00000u; d[6] = 0xFFFFFFFFu; d[7] = depth;
+}
 // =================== ADAPTER END =====================================
 
+#ifndef PROD_ADAPTER_NO_HARNESS
 // ---------------- verification harness -------------------------------
 static uint8_t *g_obs; static long g_obs_n;
 static uint8_t *g_bx; static long g_bx_len;
@@ -432,9 +656,109 @@ static int first_diff(const uint8_t *a, const uint8_t *b, int n) {
     return -1;
 }
 
+// ---- Checks G/H/I: movegen, child boards, all-ply serve inputs -----
+static int run_xverify(void) {
+    int bad = 0;
+    uint64_t g_ok = 0, g_tot = 0, h_ok = 0, h_tot = 0;
+    uint64_t i_pack_bad = 0, i_uni_bad = 0, i_uni_tot = 0;
+    // Per-decision running child base accumulated from movegen counts,
+    // in stored instance order (decision-major, depth ascending).
+    for (uint32_t gi = 0; gi < g_ninst; gi++) {
+        VInst *F = &g_inst[gi];
+        uint16_t prows[40]; memcpy(prows, F->raw + 32, 80);
+        const uint8_t *pflags = F->raw + 112;
+        int kind = g_vbp[gi].spawn[0];
+        // Check H: movegen count + ordered placements vs BPD1.
+        APlc out[128];
+        int n = a_movegen(prows, 40, kind, g_vbp[gi].spawn[1], g_vbp[gi].spawn[2],
+                          (int8_t)g_vbp[gi].spawn[3], out, 128);
+        h_tot++;
+        if (n == (int)g_vbp[gi].nout) {
+            int ok = 1;
+            for (uint32_t ci = 0; ci < g_vbp[gi].nout; ci++) {
+                const uint8_t *bp = g_vbp[gi].plc + (size_t)ci * 8;
+                if (out[ci].rot != bp[0] || out[ci].x != (int8_t)bp[1] ||
+                    out[ci].y != (int8_t)bp[2] || out[ci].srs != bp[3]) { ok = 0; break; }
+            }
+            if (ok) h_ok++;
+            else if (h_tot - h_ok < 4) printf("H inst %u: placement list diff\n", gi);
+        } else if (h_tot - h_ok < 4) printf("H inst %u: count %d != BPD1 %u\n", gi, n, g_vbp[gi].nout);
+        // Check G: child board reconstruction vs every BXD1 child.
+        for (uint32_t ci = 0; ci < F->nchild; ci++) {
+            const uint8_t *ch = child_rec(gi, ci);
+            uint16_t orows[40]; uint8_t oflags[40];
+            a_apply_placement(prows, pflags, 40, ch[0], ch[1], (int8_t)ch[2], (int8_t)ch[3], orows, oflags);
+            g_tot++;
+            if (!memcmp(orows, ch + 8, 80) && !memcmp(oflags, ch + 88, 40)) g_ok++;
+            else if (g_tot - g_ok < 4) printf("G inst %u child %u: board diff\n", gi, ci);
+        }
+    }
+    printf("G child boards: %llu/%llu byte-identical\n", (unsigned long long)g_ok, (unsigned long long)g_tot);
+    printf("H movegen vs BPD1: %llu/%llu instances identical (count + ordered placements + srs)\n",
+           (unsigned long long)h_ok, (unsigned long long)h_tot);
+    if (g_ok != g_tot || h_ok != h_tot) bad = 1;
+    // Check I: all-ply pack streams + uni descriptors with the child
+    // base accumulated from movegen counts (serve path), vs the stored
+    // corpus accumulation. Any count error shifts every later base in
+    // the decision and fails loudly here.
+    uint32_t gi = 0;
+    while (gi < g_ninst) {
+        uint32_t dec = g_inst[gi].dec;
+        uint32_t run_base = 0;
+        while (gi < g_ninst && g_inst[gi].dec == dec) {
+            uint32_t ply_first = gi, depth = g_inst[gi].depth;
+            uint32_t ply_base = run_base, nch_sum = 0;
+            while (gi < g_ninst && g_inst[gi].dec == dec && g_inst[gi].depth == depth) {
+                VInst *F = &g_inst[gi];
+                uint16_t prows[40]; memcpy(prows, F->raw + 32, 80);
+                APlc tmp[128];
+                int n = a_movegen(prows, 40, g_vbp[gi].spawn[0], g_vbp[gi].spawn[1],
+                                  g_vbp[gi].spawn[2], (int8_t)g_vbp[gi].spawn[3], tmp, 128);
+                uint32_t cnt = n > 64 ? 64 : (uint32_t)n;
+                uint32_t ga[48], ra[48], gs[52], rs[52];
+                a_pack_inst48(F->raw, ga); ga[4] = run_base;
+                ref_pack_inst48(F, F->child_g0, ra);
+                a_pack_inst52(F->raw, g_vbp[gi].spawn, gs); gs[4] = run_base;
+                ref_pack_inst52(F, F->child_g0, rs);
+                if (memcmp(ga, ra, sizeof ga) || memcmp(gs, rs, sizeof gs)) {
+                    i_pack_bad++;
+                    if (i_pack_bad < 4) printf("I inst %u: pack diff (base %u vs stored %u)\n", gi, run_base, F->child_g0);
+                }
+                run_base += cnt; nch_sum += cnt;
+                gi++;
+            }
+            uint32_t ni = gi - ply_first;
+            uint32_t ubuf[24]; memset(ubuf, 0, sizeof ubuf);
+            a_ply_uni(ubuf, 0, ply_first, ni, ply_base, nch_sum, depth);
+            uint32_t *serve_d = ubuf + 16;
+            uint32_t ref_d[8];
+            ref_d[0] = ply_first; ref_d[1] = ni; ref_d[2] = g_inst[ply_first].child_g0;
+            ref_d[3] = 0; for (uint32_t m = ply_first; m < gi; m++) ref_d[3] += g_inst[m].nchild;
+            ref_d[7] = depth;
+            i_uni_tot++;
+            if (serve_d[0] != ref_d[0] || serve_d[1] != ref_d[1] || serve_d[2] != ref_d[2] ||
+                serve_d[3] != ref_d[3] || serve_d[7] != ref_d[7] ||
+                serve_d[4] != 0 || serve_d[5] != 0xFFF00000u || serve_d[6] != 0xFFFFFFFFu) {
+                i_uni_bad++;
+                if (i_uni_bad < 4) printf("I dec %u depth %u: uni diff\n", dec, depth);
+            }
+        }
+    }
+    printf("I pack streams (all plies, movegen bases): %llu bad\n", (unsigned long long)i_pack_bad);
+    printf("I uni descriptors (all plies): %llu/%llu identical on words 0-3,7 + sentinel tau\n",
+           (unsigned long long)(i_uni_tot - i_uni_bad), (unsigned long long)i_uni_tot);
+    if (i_pack_bad || i_uni_bad) bad = 1;
+    printf("XVERIFY %s\n", bad ? "FAILED" : "PASSED");
+    return bad ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc >= 5 && !strcmp(argv[1], "xverify")) {
+        load_all(argv[2], argv[3], argv[4]);
+        return run_xverify();
+    }
     if (argc < 5 || strcmp(argv[1], "verify")) {
-        fprintf(stderr, "usage: prod_adapter verify <obs.bin> <bxdump.bin> <bpdump.bin>\n");
+        fprintf(stderr, "usage: prod_adapter verify|xverify <obs.bin> <bxdump.bin> <bpdump.bin>\n");
         return 1;
     }
     load_all(argv[2], argv[3], argv[4]);
@@ -699,3 +1023,4 @@ int main(int argc, char **argv) {
     printf("VERIFY %s\n", bad ? "FAILED" : "PASSED");
     return bad ? 1 : 0;
 }
+#endif // PROD_ADAPTER_NO_HARNESS
