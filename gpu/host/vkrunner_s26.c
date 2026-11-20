@@ -2603,6 +2603,12 @@ static void pf_vk_setup(const char *want) {
     uint32_t effWave = reqWave ? reqWave : sub.subgroupSize;
     if (effWave != 32 && effWave != 64) { fprintf(stderr, "serve-persistent: unsupported subgroupSize %u (need 32 or 64)\n", effWave); exit(1); }
     fprintf(stderr, "serve-persistent: device %s subgroupSize %u (wave=%u)\n", pr.deviceName, sub.subgroupSize, effWave);
+    // Same startup banner as vk_setup (production serve): TbpGpuServer
+    // and the lab GpuServer wait for "selected: <device>" on stderr
+    // before sending decisions. During cmd_serve_persistent setup stdout
+    // is redirected to stderr, so this printf lands there exactly as in
+    // production serve (wiring record section 9.5 (i)).
+    printf("selected: %s (timestampPeriod %.1f ns)\n", pr.deviceName, pr.limits.timestampPeriod);
     pf_tsp_ns = pr.limits.timestampPeriod;
     vkGetPhysicalDeviceMemoryProperties(ph, &pf_mp);
     uint32_t nq = 0; vkGetPhysicalDeviceQueueFamilyProperties(ph, &nq, NULL); VkQueueFamilyProperties qf[16]; vkGetPhysicalDeviceQueueFamilyProperties(ph, &nq, qf);
@@ -2819,6 +2825,7 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
 
     PSNode *cur = malloc(sizeof(PSNode));
     memset(cur, 0, sizeof *cur); cur[0].node = root;
+    PSNode *root_arr = cur; // initial beam (root only); never stored in hist, freed once at cleanup
     uint32_t ncur = 1;
     PFPlyHist hist[40]; int nhist = 0;
     PSNode *fm = NULL; // first-move table for ply 0, indexed by root label - 1
@@ -2914,7 +2921,14 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
         hist[nhist].beam = next; hist[nhist].nbeam = nnext;
         hist[nhist].dead = dead; hist[nhist].ndead = ndead;
         nhist++;
-        free(cur); cur = next; ncur = nnext;
+        // Ownership: next is now owned by hist and must stay alive until
+        // the output assembly below has read every ply's beam/dead, so the
+        // ply loop never frees it. cur becomes a borrowed pointer to
+        // hist[nhist-1].beam (the previous cur array is likewise owned by
+        // hist, or is root_arr before the first store). Freeing cur here
+        // freed the array hist still held: heap-use-after-free in pf_exout
+        // plus a double free at cleanup (wiring record section 9.2).
+        cur = next; ncur = nnext;
         if (nnext == 0 || nhist >= 40) break;
     }
 
@@ -2996,7 +3010,7 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
         }
     }
     for (int h = 0; h < nhist; h++) { free(hist[h].beam); free(hist[h].dead); }
-    free(cur); free(fm); free(cand);
+    free(root_arr); free(fm); free(cand); // cur borrows root_arr or a hist beam; never freed separately
     return status;
 }
 
