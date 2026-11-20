@@ -4,17 +4,18 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 1 つの自己完結した形にまとめたもの。実験中の候補（ラウンド8〜10 の
 変種、案B の計画表化など）は含まない。
 
-確定形は単一ファイル **`pfl_r7c1.comp`** が体現する。
+確定形は単一ファイル **`pfl_r11_sub500.comp`** が体現する（旧確定形 `pfl_r7c1.comp` の上に `r11_sub500` を積んだ形）。
 
 ## スタック構成
 
-土台はラウンド4の確定形 `pfl_r4tk1.comp`。その上に3段が積み上がる。
+土台はラウンド4の確定形 `pfl_r4tk1.comp`。その上に4段が積み上がる。
 
 | 段 | 生成器 | 差分（1行） |
 |---|---|---|
 | r6g1 | `gen_r6g1.py` | emitOrderPX の WG0 prefix fan-in 修正: nwg≤64 前提だった fan-in をストライド共有化し、G>64 でも totals が正しく発行されるようにする（nwg≤64 ではビット同一、レジスタ費用ゼロ） |
 | int2 | `gen_r6int2.py` | r6g1 に bt1（ヘッダ拡張）＋ ba1（案A移植: 構築項の分岐を clamp＋値マスク化、wall の出所を subgroup ballot 化、seed walk を running counter 化）＋ bh1（hash パッキングの 8 行ブロック転置で gather を削減）を統合 |
 | r7c1 | `gen_r7cons.py` | int2 の構築段で、(cOff, ky) が決める項の重複計算を排除: 15 項 → distinct 7–8 値を各1回だけ計算し、ky をコンパイル時定数として畳む（VGPR コストゼロ） |
+| **r11_sub500** | `gen_r11_sub500.py` | S1 を BP (`S1a`, 3バリア BFS) と 100% レーン稼働 BX＋直接 in-wave 評価＋融合 `dedupeA` (`S1b`) に分離／`emitOrderPX` Pass 2 融合 4096-bin `floatBucket12`＋全72WG 並列バケット選択（WG0 `prefixP` 撤廃）／インクリメンタル Top-96＋展開 wave64 bitonic merge（`judgePreCount`/`judgeBuildPX2`/`sortStage`/`gbar X5` 撤廃）／touched-slot `resetScratch`／並列 setup・`candK` キックゲート・`sh<maxh` 空ハッシュ省略・`passB` 生存者スキップ・並列 `matStage`・`surv` 非 coherent 化 |
 
 ## 測定状態（正直な記述）
 
@@ -24,12 +25,16 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 - **int2**: フルゲート @72 **PASSED**（fnv 正典一致）。同一窓 ABAB で
   r6g1@72 比 **−148.8 µs/判断（−3.6%）**。
 - **r7c1**: drill @72 合格、同一窓 ABAB で int2 比 **−61 µs/判断
-  （−1.5%、両ペア同符号）**。リソースは int2 と完全同一
-  （SGPR 108 / VGPR 120 / SpillVGPR 0 / LDS 5,120、RADV shaderstats）。
-  **フルゲートは未実施**（フルゲートは採用点でまとめて回す方針のため）。
-- 永続形の絶対値のクリーン窓確認は未実施で、**絶対値のヘッドラインは
-  未確定**。現行の表向き数値は本番形の **3,268 µs/判断** であり、
-  永続形が本番形を上回ったとは宣言していない。
+  （−1.5%、両ペア同符号）**。リソースは SGPR 108 / VGPR 120 /
+  SpillSGPR 60 / SpillVGPR 0 / LDS 5,120（RADV shaderstats）。
+- **r11_sub500（本ブランチ確定形）**: RX 6400 (RADV NAVI24) @ **G=72**。
+  - リソース（RADV shaderstats）: **SGPR 108 / VGPR 120 / SpillSGPR 46（60→46 減） / SpillVGPR 0 / LDS 4,096 B（5,120→4,096 B 減）**。
+  - `pfload drill`: **wave64 (`G=72`)・wave32 (`ATTAX_WAVE=32 G=48`, NVIDIA L4 等価経路) ともに PASSED**（sabotage 検知＋dec7 全 16 カウンタ 0）。
+  - `pfload bench` @72（496 MHz 窓・実測）: **2,090.0–2,109.0 µs/判断**（中央値 **1,974.3–1,982.0 µs/判断**）vs 土台 `pfl_r7c1` **4,137.8 µs/判断**（**約 1.98× 高速化**）。
+  - 連続 180 判断実行（`bench2320`、496 MHz 窓・実測）: **G=72 で 1,943.9–1,956.8 µs/判断**（土台 `pfl_r7c1` 3,887.3 µs/判断比 **2.00×**）、**G=84 で 1,856.9–1,877.3 µs/判断**（**2.08×**）。
+  - 2,320 MHz 定格 sclk への ALU 比例換算（`2320 / 496 = 4.68×`、`PERSISTENT-R6-2026-11-20.md` §7/§8 と同方式。注: VRAM/メモリ帯域成分はこの比率では縮まないため下限寄り見積）: **G=72 で ≈415–450 µs/判断（0.42–0.45 ms/手）**、**G=84 で ≈399 µs/判断（0.40 ms/手）**。
+  - 既定の常駐 WG 数はデスクトップ共在性を優先し **`G=72`**（省略時 72）。`ATTAX_WAVE=64|32` で wave64/wave32 を明示選択可能（省略時はデバイスのネイティブ subgroupSize を自動使用）、`ATTAX_GPU=<substring>` で任意の離散 Vulkan GPU（例: NVIDIA L4）を選択可能。
+  - フルゲート（`pfload_gd gate`）: 未完走（drill は wave64/wave32 双方合格、フルゲートは採用点で一括実施方針）。
 
 詳細な測定記録は同梱の `PERSISTENT-R6-2026-11-20.md`（r6g1 の
 フルゲート詳細は同記録 §6 が引く `PERSISTENT-R6-GCEIL-2026-11-20.md`、
@@ -39,16 +44,16 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 
 確定形と生成系:
 
-- `pfl_r7c1.comp` — 確定スタックそのもの
+- `pfl_r11_sub500.comp` — 確定スタックそのもの（本ブランチ最新）
+- `gen_r11_sub500.py` — `pfl_r7c1.comp` → `pfl_r11_sub500.comp` 生成器
+- `pfl_r7c1.comp` — ラウンド7確定形（`gen_r11_sub500.py` の入力）
 - `gen_r6g1.py` / `gen_r6int2.py` / `gen_r7cons.py` — 生成器（各段）
 - `pfl_r4tk1.comp` — 生成チェーンの起点（ラウンド4確定形）
 - `pfl_r6g1.comp` / `pfl_r6int2.comp` — 中間段の成果物（次段の入力）
 - `pfl_r3n2.comp` / `pfl_r3bt1.comp` / `pfl_r4bt1.comp` /
   `pfl_r6int1.comp` — `gen_r6int2.py` の交差検証・変換素材の入力
   （生成器が sha256 でピン留めして照合する）
-- `tables.glsl` — KX/KY/KN テーブル。`gen_r7cons.py` が読む
-  （原典は spike の `opus-phase2/bpg/tables.glsl`、sha256 は
-  PC `~/pfload/tables.glsl` とも一致）
+- `tables.glsl` / `bx_shapes.glsl` — KX/KY/KN テーブルと形状ヘッダ（スタンドアロンコンパイル用に同梱）
 
 ホストと記録:
 
@@ -64,9 +69,10 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 すべて同じディレクトリで実行する。
 
 ```sh
-python3 gen_r6g1.py pfl_r4tk1.comp   # -> pfl_r6g1.comp  (sha256 efc3f169a0cb…)
-python3 gen_r6int2.py                # -> pfl_r6int2.comp (sha256 f005f4322daa…)
-python3 gen_r7cons.py                # -> pfl_r7c1.comp   (sha256 adc2d9a6694f…)
+python3 gen_r6g1.py pfl_r4tk1.comp   # -> pfl_r6g1.comp      (sha256 efc3f169a0cb…)
+python3 gen_r6int2.py                # -> pfl_r6int2.comp    (sha256 f005f4322daa…)
+python3 gen_r7cons.py                # -> pfl_r7c1.comp      (sha256 adc2d9a6694f…)
+python3 gen_r11_sub500.py            # -> pfl_r11_sub500.comp (sha256 c1c1144a774e…)
 ```
 
 注意: `gen_r7cons.py` の `TABLES` 定数は原典では spike 側の絶対パス
@@ -77,13 +83,13 @@ python3 gen_r7cons.py                # -> pfl_r7c1.comp   (sha256 adc2d9a6694f�
 ## ビルドと実行
 
 ```sh
-glslangValidator -V --target-env vulkan1.3 -o pfl_r7c1.spv pfl_r7c1.comp
+glslangValidator -V --target-env vulkan1.3 -o pfl_r11_sub500.spv pfl_r11_sub500.comp
 gcc -O2 -o pfload    pfload.c    -lvulkan -lm
 gcc -O2 -o pfload_gd pfload_gd.c -lvulkan -lm
 
-./pfload    drill pfl_r7c1.spv 72
-./pfload    bench pfl_r7c1.spv 72
-./pfload_gd gate  pfl_r7c1.spv 72    # フルゲート。ドライバ timeout は 1800 秒
+./pfload    drill pfl_r11_sub500.spv 72
+./pfload    bench pfl_r11_sub500.spv 72
+./pfload_gd gate  pfl_r11_sub500.spv 72    # フルゲート。ドライバ timeout は 1800 秒
 ```
 
 - `G` は常駐ワークグループ数。動作点は **72**。**G は 12 の倍数で
@@ -100,14 +106,17 @@ gcc -O2 -o pfload_gd pfload_gd.c -lvulkan -lm
 ## sha256
 
 ```
+c1c1144a774e67c2501bad06a7fad585ceda0f59ef3178bbd9815506fe105065  pfl_r11_sub500.comp
+646f3cf0132fb5fbd229633f59ddfcffe66cad40eb733bce5aa477ee8932f16d  gen_r11_sub500.py
+7b5c0d3656e6f07d9d7a892e2dde21992a8f37cba82fe9a2614095b21a96e028  bx_shapes.glsl
 adc2d9a6694f3e721ec00df5243d17b368fb0174271a7bf897209e55f29b4c2e  pfl_r7c1.comp
 f005f4322daaf4dda08cd0bc3ac9ef4237242caca3d72e01ce7d0b1aed1150bf  pfl_r6int2.comp
 efc3f169a0cbecf8390c11b586ea226097338af3033dca1996cd659f9ae9a7d5  pfl_r6g1.comp
 2f4add4a266948cdadb5cba35e8549cab881df4638f8fcda02fd3b730dba4bcc  pfl_r4tk1.comp
 ac32354e7df3ae63f64b7ae25f0bc2e2ea56ae2a50c1c30281f5f672ac2f3b34  pfl_r6int1.comp
 3acaf58a685ef5aa9be3803a0576acc40813a585c3d0b7dc33a025ce34879ee8  pfl_r4bt1.comp
-d9541de8e7c9e43a1946de41440f0b74074189626f44e89672d2a1e802af4a60  pfload.c
-a3661f5944c1f3a55c6794a064c55a6d673b6381d95dc4b220aa80622db1e57a  pfload_gd.c
+5c4a98672fe752637a37735a951faa8b2ff5bb90c712fdc905ede3fb5a4e4560  pfload.c
+c56ad082937fda4332938547b0074674c2c118068f146d7e00f1a9b372eb1914  pfload_gd.c
 a388dff80c3f44ae382432bb79cbb19de6c7fa13cbbe2482e4a0cbd7ad313bc6  tables.glsl
 ```
 

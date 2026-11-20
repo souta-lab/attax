@@ -34,11 +34,17 @@ static uint64_t rd64(const uint8_t *p) { uint64_t v; memcpy(&v, p, 8); return v;
 static int cmpd(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
 static double now_s(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + ts.tv_nsec * 1e-9; }
 static int read_sclk(void) {
-    FILE *f = fopen("/sys/class/drm/card0/device/pp_dpm_sclk", "r");
-    if (!f) f = fopen("/sys/class/drm/card1/device/pp_dpm_sclk", "r");
+    const char *paths[3] = { "/sys/class/drm/card2/device/pp_dpm_sclk", "/sys/class/drm/card1/device/pp_dpm_sclk", "/sys/class/drm/card0/device/pp_dpm_sclk" };
+    FILE *f = NULL;
+    for (int i = 0; i < 3 && !f; i++) f = fopen(paths[i], "r");
     if (!f) return -1;
     char buf[1024]; int mhz = -1;
-    while (fgets(buf, sizeof buf, f)) { char *s = strchr(buf, '*'); if (s) { while (s > buf && (s[-1] == ' ')) s--; int v = 0; while (s > buf && s[-1] >= '0' && s[-1] <= '9') { s--; } v = atoi(s); if (v) mhz = v; } }
+    while (fgets(buf, sizeof buf, f)) {
+        if (strchr(buf, '*')) {
+            char *colon = strchr(buf, ':');
+            if (colon) { int v = atoi(colon + 1); if (v > 0) mhz = v; }
+        }
+    }
     fclose(f); return mhz;
 }
 static int gpu_busy(void) {
@@ -312,25 +318,48 @@ static VkCommandBuffer cb;
 #define OUT_WORDS 663040u
 
 static void vk_setup(const char *spvp) {
-    VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL, "pfload", 1, "pfload", 1, VK_API_VERSION_1_2 };
+    VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL, "pfload", 1, "pfload", 1, VK_API_VERSION_1_3 };
     VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &app, 0, NULL, 0, NULL };
     VkInstance vi; CK(vkCreateInstance(&ici, NULL, &vi));
     uint32_t nd = 0; CK(vkEnumeratePhysicalDevices(vi, &nd, NULL)); VkPhysicalDevice ds[8]; CK(vkEnumeratePhysicalDevices(vi, &nd, ds));
     VkPhysicalDevice ph = VK_NULL_HANDLE; VkPhysicalDeviceProperties pr;
-    for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (strstr(pr.deviceName, "RX 6400")) { ph = ds[i]; break; } }
-    if (!ph) { fprintf(stderr, "RX 6400 not found\n"); exit(1); }
-    VkPhysicalDeviceSubgroupProperties sub = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, NULL };
+    const char *wantGpu = getenv("ATTAX_GPU");
+    if (wantGpu && wantGpu[0]) {
+        for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (strstr(pr.deviceName, wantGpu)) { ph = ds[i]; break; } }
+    }
+    if (!ph) {
+        for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (strstr(pr.deviceName, "RX 6400")) { ph = ds[i]; break; } }
+    }
+    if (!ph) {
+        for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (pr.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) { ph = ds[i]; break; } }
+    }
+    if (!ph && nd > 0) { ph = ds[0]; vkGetPhysicalDeviceProperties(ph, &pr); }
+    if (!ph) { fprintf(stderr, "no Vulkan GPU found\n"); exit(1); }
+    VkPhysicalDeviceSubgroupSizeControlProperties ssc = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES, NULL };
+    VkPhysicalDeviceSubgroupProperties sub = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &ssc };
     VkPhysicalDeviceProperties2 p2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &sub };
     vkGetPhysicalDeviceProperties2(ph, &p2);
-    printf("device %s subgroupSize %u sclk %d MHz\n", pr.deviceName, sub.subgroupSize, read_sclk());
-    if (sub.subgroupSize != 64) { fprintf(stderr, "subgroupSize != 64\n"); exit(1); }
+    uint32_t reqWave = 0;
+    const char *ws = getenv("ATTAX_WAVE");
+    if (ws && ws[0]) {
+        reqWave = (uint32_t)atoi(ws);
+        if (reqWave != 32 && reqWave != 64) { fprintf(stderr, "ATTAX_WAVE must be 32 or 64\n"); exit(1); }
+        if (reqWave < ssc.minSubgroupSize || reqWave > ssc.maxSubgroupSize) {
+            fprintf(stderr, "ATTAX_WAVE=%u unsupported by %s (min=%u max=%u)\n", reqWave, pr.deviceName, ssc.minSubgroupSize, ssc.maxSubgroupSize);
+            exit(1);
+        }
+    }
+    uint32_t effWave = reqWave ? reqWave : sub.subgroupSize;
+    if (effWave != 32 && effWave != 64) { fprintf(stderr, "unsupported subgroupSize %u (need 32 or 64)\n", effWave); exit(1); }
+    printf("device %s subgroupSize %u (wave=%u, min=%u max=%u) sclk %d MHz\n", pr.deviceName, sub.subgroupSize, effWave, ssc.minSubgroupSize, ssc.maxSubgroupSize, read_sclk());
     tsp_ns = pr.limits.timestampPeriod;
     vkGetPhysicalDeviceMemoryProperties(ph, &mp);
     uint32_t nq = 0; vkGetPhysicalDeviceQueueFamilyProperties(ph, &nq, NULL); VkQueueFamilyProperties qf[16]; vkGetPhysicalDeviceQueueFamilyProperties(ph, &nq, qf);
     uint32_t qfi = 0; for (uint32_t i = 0; i < nq; i++) if (qf[i].queueFlags & VK_QUEUE_COMPUTE_BIT) { qfi = i; break; }
     float prio = 1; VkDeviceQueueCreateInfo qci = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, NULL, 0, qfi, 1, &prio };
     VkPhysicalDeviceFeatures feats = { 0 }; feats.shaderInt64 = VK_TRUE; feats.shaderFloat64 = VK_TRUE;
-    VkPhysicalDeviceShaderAtomicInt64Features af = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES, NULL };
+    VkPhysicalDeviceSubgroupSizeControlFeatures sscf = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES, NULL, VK_TRUE, VK_FALSE };
+    VkPhysicalDeviceShaderAtomicInt64Features af = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES, &sscf };
     af.shaderBufferInt64Atomics = VK_TRUE;
     VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &af, 0, 1, &qci, 0, NULL, 0, NULL, &feats };
     CK(vkCreateDevice(ph, &dci, NULL, &dev));
@@ -415,8 +444,11 @@ static void pipeline_setup(const char *spvp) {
     uint32_t *spv = malloc(sl); if (fread(spv, 1, sl, sf) != (size_t)sl) exit(1); fclose(sf);
     VkShaderModuleCreateInfo smi = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, NULL, 0, (size_t)sl, spv };
     VkShaderModule sm; CK(vkCreateShaderModule(dev, &smi, NULL, &sm));
+    const char *ws2 = getenv("ATTAX_WAVE");
+    uint32_t rw2 = (ws2 && ws2[0]) ? (uint32_t)atoi(ws2) : 0u;
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rss = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO, NULL, rw2 };
     VkComputePipelineCreateInfo cci = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, NULL, 0,
-        { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_COMPUTE_BIT, sm, "main", NULL }, lay, VK_NULL_HANDLE, 0 };
+        { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, rw2 ? &rss : NULL, 0, VK_SHADER_STAGE_COMPUTE_BIT, sm, "main", NULL }, lay, VK_NULL_HANDLE, 0 };
     CK(vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &cci, NULL, &kpipe));
     free(spv);
 }
@@ -798,9 +830,9 @@ static uint64_t fnv1a(const uint8_t *p, size_t n) {
     return h;
 }
 int main(int argc, char **argv) {
-    if (argc < 4) { fprintf(stderr, "usage: pfload <gate|drill|bench|dump> <spv> <G> [out.bin]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: pfload <gate|drill|bench|dump> <spv> [G=72] [out.bin]\n"); return 1; }
     const char *mode = argv[1], *spvp = argv[2];
-    uint32_t G = (uint32_t)atoi(argv[3]);
+    uint32_t G = (argc >= 4) ? (uint32_t)atoi(argv[3]) : 72u;
     if (G == 0 || G % 12) { fprintf(stderr, "G must be a multiple of 12\n"); return 1; }
     const char *bxp = getenv("BXDUMP"); if (!bxp) bxp = "/home/s0u7a/bxgpu/bxdump.bin";
     const char *bpp = getenv("BPDUMP"); if (!bpp) bpp = "/tmp/s9work/stage1/bpdump180.bin";
