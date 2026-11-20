@@ -1,0 +1,3684 @@
+// PERSISTENT LOAD-IN — resident kernel with the real stage bodies:
+//   S1 = BPX-L (bpxl.comp, LDS 4,096 B form) transplanted verbatim
+//        (shared-state section + helpers + main body as bpxMain();
+//        only the instance selector and the pc block became globals),
+//   S2 = selection dedupe phase A (rec_dedup_m form, child-direct),
+//   S3 = dedupe B + emit/order + repsOrd cache + B&B rounds
+//        (prefix-P = sel_prefix4 algorithm at 64 lanes, passB =
+//        bxp_b body, judge on WG 0) + final sort (sel_sort3 form),
+//   S4 = materialization (sel_mat form) + next-ply scratch reset.
+// Sync: skeleton grid3 barriers, 3-point basis (B1/B2/B4) with the
+// dedupe barriers folded onto B2 + one extra (X1); selection-internal
+// transitions X2/X3/X5 and 3 per B&B round. Contracts per
+// PERSISTENT-IMPL section 6: all inter-stage buffers coherent;
+// dedupe refill (scratch reset) lives in S4/init, never in S3's tail
+// after the last read; anomaly = timeout flag -> whole grid exits ->
+// host recomputes the decision in the basic form.
+#version 460
+#extension GL_ARB_gpu_shader_fp64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_atomic_int64 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 64) in;
+#include "tables.glsl"
+#include "bx_shapes.glsl"
+
+// ---- merged binding map ----
+//  0 ctrl (skeleton layout)   1 uni (decision header + ply table)
+//  2 inst (BPX 52-word)       3 inst48 (passB/mat 48-word)
+//  4 plcin (passB placements) 5 tab (180 doubles)
+//  6 rec (records, uvec4)     7 state (scratch, u32)
+//  8 surv (outbuf; BPX survivor view)  9 gout (stride-30 boards)
+// 10 status (BPX status)     11 plc (BPX plc byproduct out)
+// 12 survCnt (state view)    13 tabfp (state u64 view, offset 0)
+// 14 tabord (state u64 view) 15 mmu (state u64 view)
+// 16 mmv (state u64 view)    17 chunkb (state view, passB list)
+// 18 recw (records, u32 view)
+layout(std430, binding = 0) coherent buffer Ctrl { uint u[]; } ctrl;
+layout(std430, binding = 1) readonly buffer Uni { uint u[]; } uni;
+layout(std430, binding = 2) readonly buffer Inst { uint w[]; } inst;
+layout(std430, binding = 3) readonly buffer Inst48 { uint w[]; } inst48;
+layout(std430, binding = 4) readonly buffer PlcIn { uint w[]; } plcin;
+layout(std430, binding = 5) readonly buffer Tables { double t[]; } tab;
+layout(std430, binding = 6) coherent buffer Rec { uvec4 q[]; } rec;
+layout(std430, binding = 7) coherent buffer Sta { uint u[]; } state;
+layout(std430, binding = 8) coherent buffer Surv { uint w[]; } surv;
+layout(std430, binding = 9) readonly buffer Gout { uint w[]; } gout;
+layout(std430, binding = 10) buffer Status { uint w[]; } status;
+layout(std430, binding = 11) buffer Plc { uint w[]; } plc;
+layout(std430, binding = 12) coherent buffer SurvCnt { uint w[]; } survCnt;
+layout(std430, binding = 13) coherent buffer TabFp { uint64_t v[]; } tabfp;
+layout(std430, binding = 14) coherent buffer TabOrd { uint64_t v[]; } tabord;
+layout(std430, binding = 15) coherent buffer MMU { uint64_t v[]; } mmu;
+layout(std430, binding = 16) coherent buffer MMV { uint64_t v[]; } mmv;
+layout(std430, binding = 17) coherent readonly buffer Chunk { uint w[]; } chunkb;
+layout(std430, binding = 18) coherent readonly buffer RecW { uint w[]; } recw;
+
+layout(push_constant) uniform PCU { uint nwg; uint gsize; uint flags; uint spin; } pcu;
+
+// ---- state buffer word offsets (all multiples of 64) ----
+#define TABFP   0u
+#define TABORD  32768u
+#define TABMETA 65536u
+#define SLOTOF  98304u
+#define EVALCH  106496u
+#define REPSGEN 114688u
+#define REPSORD 122880u
+#define PREFIXB 139264u
+#define CHUNKB  147456u
+#define EVLIST  155648u
+#define EVORD   172032u
+#define STATS   188416u
+#define MMU_OFF 188480u
+#define MMV_OFF 188544u
+#define SURVCNT_OFF 188608u
+#define SELB    188672u
+// STATS fields
+#define ST_NREPS 0u
+#define ST_PFXSZ 1u
+#define ST_NGT   2u
+#define ST_NSEL  3u
+#define ST_NEVAL 4u
+#define ST_ROUNDS 5u
+#define ST_STOP  6u
+#define ST_NALIVE 7u
+#define ST_CN    8u
+#define ST_NKEYLO 9u
+#define ST_NKEYHI 10u
+#define ST_NIDX  11u
+#define ST_HASNEXT 12u
+#define ST_TAULO 13u
+#define ST_TAUHI 14u
+#define ST_TAUCOFF 15u
+#define ST_EVGEN 16u
+#define ST_EVST0 17u
+#define ST_TICKET 40u
+// outbuf word offsets
+#define OHEAD   0u
+#define OSURV   512u
+#define OEVAL   262656u
+#define OSEL    524800u
+#define OARENA  527872u
+#define MAXPLY  32u
+
+uint g_nwg, g_gsize, g_flags, g_spin;
+
+// BPX pc block as globals (set by the S1 wrapper per ply/instance).
+struct BPXPC { uint base; uint n; uint childBase; uint tauLo; uint tauHi; uint tauPos; uint survBase; uint reserved; };
+BPXPC pc;
+uint g_bpxII;
+
+// ---- grid3 barrier (skeleton pfx_common.glsl, verbatim) ----
+bool gbar(uint k) {
+  memoryBarrierBuffer(); barrier();
+  if (gl_LocalInvocationIndex == 0u) {
+    bool skipArrive = (g_flags & 1u) != 0u && k == 1u && gl_WorkGroupID.x == 0u;
+    if (!skipArrive) {
+      uint grp = gl_WorkGroupID.x / g_gsize;
+      uint v = atomicAdd(ctrl.u[16u + grp], 1u);
+      if ((v + 1u) % g_gsize == 0u) {
+        uint rv = atomicAdd(ctrl.u[28u], 1u);
+        if ((rv + 1u) % 12u == 0u) atomicAdd(ctrl.u[29u], 1u);
+      }
+    }
+    uint s = 0u;
+    while (ctrl.u[29u] <= k) {
+      if (atomicOr(ctrl.u[30u], 0u) != 0u) break;
+      if (++s > g_spin) { atomicOr(ctrl.u[30u], 1u); atomicOr(ctrl.u[1u], 1u); break; }
+    }
+  }
+  barrier(); memoryBarrierBuffer(); barrier();
+  return atomicOr(ctrl.u[30u], 0u) != 0u;
+}
+
+// ---- selection shared state (aliases onto BPX shared, dead in S3) ----
+// Defined after the BPX section (pool/sF/sFpre/sOrderPk/sFitW live
+// there); the selection bodies appear after it too. Only the small
+// scalars and the emit/order scan arrays are declared here.
+shared uint eo_a[64];
+shared uint eo_b[64];
+shared uint64_t p_T;
+shared uint64_t p_prefix;
+shared uint p_rem;
+shared uint p_need;
+shared uint p_totA;
+shared uint p_tauIdx;
+shared uint c_cnt;
+shared uint j_cnt;
+
+// ---- record helpers (selection side) ----
+uint64_t ordOfBits(uint64_t bits) { return (bits >> 63) != 0ul ? ~bits : (bits | 0x8000000000000000ul); }
+uint64_t recOrdU(uint child) {
+  uint64_t bits = (uint64_t(recw.w[child * 16u + 3u]) << 32) | uint64_t(recw.w[child * 16u + 2u]);
+  return ordOfBits(bits);
+}
+uint64_t recValBits(uint child) {
+  return (uint64_t(recw.w[child * 16u + 5u]) << 32) | uint64_t(recw.w[child * 16u + 4u]);
+}
+bool childDead(uint child) { return ((recw.w[child * 16u + 13u] >> 8) & 1u) != 0u; }
+uint64_t sm64(uint64_t x) {
+  x ^= x >> 30; x *= 0xBF58476D1CE4E5B9ul;
+  x ^= x >> 27; x *= 0x94D049BB133111EBul;
+  x ^= x >> 31; return x;
+}
+#define EMPTY64 0xFFFFFFFFFFFFFFFFul
+
+uint plyI0(uint ply)   { return uni.u[16u + ply * 8u + 0u]; }
+uint plyNi(uint ply)   { return uni.u[16u + ply * 8u + 1u]; }
+uint plyCB(uint ply)   { return uni.u[16u + ply * 8u + 2u]; }
+uint plyNch(uint ply)  { return uni.u[16u + ply * 8u + 3u]; }
+
+// Scratch reset for the coming ply: dedupe tables, eval flags, stats,
+// min/max, BPX survivor counter. Runs in init and in S4 (the design's
+// rearm position); never in S3's tail after a read.
+void resetScratch() {
+  uint tid = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
+  uint tt = g_nwg * 64u;
+  for (uint i = tid; i < 32768u; i += tt) {
+    state.u[TABFP + i] = 0xFFFFFFFFu;
+    state.u[TABORD + i] = 0u;
+    state.u[TABMETA + i] = 0xFFFFFFFFu;
+  }
+  for (uint i = tid; i < 8192u; i += tt) state.u[EVALCH + i] = 0u;
+  for (uint i = tid; i < 64u; i += tt) state.u[STATS + i] = 0u;
+  if (tid == 0u) {
+    state.u[MMU_OFF + 0u] = 0xFFFFFFFFu; state.u[MMU_OFF + 1u] = 0xFFFFFFFFu;
+    state.u[MMU_OFF + 2u] = 0u; state.u[MMU_OFF + 3u] = 0u;
+    state.u[MMV_OFF + 0u] = 0xFFFFFFFFu; state.u[MMV_OFF + 1u] = 0xFFFFFFFFu;
+    state.u[MMV_OFF + 2u] = 0u; state.u[MMV_OFF + 3u] = 0u;
+    state.u[SURVCNT_OFF] = 0u;
+  }
+}
+
+// ================= BPX-L body (transplanted from bpxl.comp) =========
+// Everything from bpxl.comp's shared-state section to the end of its
+// main() follows, unmodified except: main() -> bpxMain(), the instance
+// selector reads the global g_bpxII, and the early-out guard is gone
+// (the S1 wrapper only calls bpxMain for real instances).
+// ================= shared state =================
+// LDS diet (bpxl): total <= 4096 B for the persistent form's resident
+// grid. Phase-disjoint blocks are overlaid, all meaning-preserving:
+//  - the BX-phase blocks (placement array PLACE, evaluation stash
+//    STASH, local survivor list SURVL) are carved out of pool, which
+//    is dead once the BP interval ends;
+//  - RREC lives in sFitW, dead after the start adjustment;
+//  - the BP occupancy columns (was sOC) live in sF[0..9], dead until
+//    the flood loop's first write;
+//  - uniform instance scalars (descriptor-derived) are main() locals
+//    loaded identically by every lane, not shared; only sLen (read by
+//    the occ_p helper), sRtP, sFlagBits and sErr stay shared.
+// Parent board rows are kept in the instance's own packing (2 rows /
+// word, sRowsPk); rowAt() extracts.
+shared uint64_t sColP[10];
+shared uint64_t sF[64];
+shared uint64_t sFlagBits;
+shared uint pool[448];
+shared uint sOrderPk[192];
+shared uint sFitW[128];
+shared uint sRowsPk[20];
+shared uint sFpre[64];
+shared uint sWallPk[2];
+shared int sRtP;
+shared int sLen;
+shared uint sErr;
+// pool map (448 words):
+//   flood : rank bytes [0,128) | KEY packed 2x16 [128,256) |
+//           KB [256,320) | WP [320,384)
+//   spin  : planes [0,384) (ldPl/stPl indexing, unchanged)
+//   emit  : spin [0,384) read | POSPKW [384,448)
+//   BX    : PLACE [0,64) | SURVL [64,128) | STASH [128,448)
+#define KB(w) pool[256u + (w)]
+#define WP(w) pool[320u + (w)]
+#define POSPKW(w) pool[384u + (w)]
+#define RREC(i) sFitW[(i)]
+#define PLACE(i) pool[(i)]
+#define STASH(i) pool[128u + (i)]
+#define SURVL(i) pool[64u + (i)]
+// KEY values are rank*8+move <= 2047 (11 bits): two per word, written
+// with atomicOr onto words zeroed at the top of each flood iteration.
+uint keyGet(uint i) { return (pool[128u + (i >> 1)] >> ((i & 1u) * 16u)) & 0xFFFFu; }
+void keySet(uint i, uint v) { atomicOr(pool[128u + (i >> 1)], v << ((i & 1u) * 16u)); }
+// sFitW doubles as the fit array (u64 view via pack/unpack) during the
+// BP interval and as RREC (uint view) during emission.
+uint64_t fitGet(uint i) { return packUint2x32(uvec2(sFitW[i * 2u], sFitW[i * 2u + 1u])); }
+void fitSet(uint i, uint64_t v) { uvec2 u = unpackUint2x32(v); sFitW[i * 2u] = u.x; sFitW[i * 2u + 1u] = u.y; }
+uint rankGet(uint c, uint i) { return (pool[(c * 256u + i) >> 2] >> ((i & 3u) * 8u)) & 0xFFu; }
+const uint TWINPK[7] = uint[7](0x04525A0Bu, 0x050A1428u, 0x050A1428u, 0x04525A0Bu, 0x04525A0Bu, 0x050A1428u, 0x050A1428u);
+void rankSet(uint c, uint i, uint v) { atomicOr(pool[(c * 256u + i) >> 2], v << ((i & 3u) * 8u)); }
+#define RANK(c, i) rankGet(c, i)
+void ordSet(uint i, uint v) {
+  uint bp = i * 12u, w = bp >> 5, off = bp & 31u;
+  atomicOr(sOrderPk[w], v << off);
+  if (off > 20u) atomicOr(sOrderPk[w + 1u], v >> (32u - off));
+}
+uint ordGet(uint i) {
+  uint bp = i * 12u, w = bp >> 5, off = bp & 31u;
+  uint x = sOrderPk[w] >> off;
+  if (off > 20u) x |= sOrderPk[w + 1u] << (32u - off);
+  return x & 0xFFFu;
+}
+void posSetA(uint i, uint v) { atomicOr(POSPKW(i >> 1), v << ((i & 1u) * 16u)); }
+uint posGet(uint i) { return (POSPKW(i >> 1) >> ((i & 1u) * 16u)) & 0xFFFFu; }
+uint wallAt(uint idx) { return (sWallPk[idx >> 5] >> (idx & 31u)) & 1u; }
+uint64_t g_srcPkA, g_srcPkB, g_dyPk;
+int srcOf(int k) { uint64_t pk = k < 9 ? g_srcPkA : g_srcPkB; return int((pk >> uint((k < 9 ? k : k - 9) * 7)) & 0x7Ful) - 1; }
+int dyOf(int k) { return int((g_dyPk >> uint(k * 4)) & 0xFu) - 4; }
+uint64_t ldPl(uint p, uint l) { return packUint2x32(uvec2(pool[(p * 64u + l) * 2u], pool[(p * 64u + l) * 2u + 1u])); }
+void stPl(uint p, uint l, uint64_t v) { uvec2 u = unpackUint2x32(v); pool[(p * 64u + l) * 2u] = u.x; pool[(p * 64u + l) * 2u + 1u] = u.y; }
+
+
+uint popc64(uint64_t m) { uvec2 v = unpackUint2x32(m); return uint(bitCount(v.x) + bitCount(v.y)); }
+int lsb64(uint64_t m) {
+    uint lo = uint(m);
+    if (lo != 0u) return findLSB(lo);
+    return 32 + findLSB(uint(m >> 32));
+}
+uint64_t below(uint y) { return y == 0u ? 0ul : ((1ul << y) - 1ul); }
+uint64_t shl(uint64_t m, int s) { return s >= 0 ? (s >= 64 ? 0ul : m << uint(s)) : (-s >= 64 ? 0ul : m >> uint(-s)); }
+// PORTS HP1: branchless kick shift (BPX-SPEED4 S1). Bit-identical
+// to shl() for |s| < 64; all kick shift amounts are KY-derived
+// and lie in [-2, 2].
+uint64_t shlS(uint64_t m, int s) { return (m << uint(max(s, 0))) >> uint(max(-s, 0)); }
+// PORTS HP2: folded shift (BPX-SPEED5 V2 / BPX-SPEED6 W1).
+// shlK(x, dy) == shlS(x, -dy) for x < 2^44; cand/spin inputs
+// sF[sk] & M[k] are fit-bounded (see BPX-SPEED5 section 8).
+uint64_t shlK(uint64_t m, int dy) { return (m << 2) >> uint(2 + dy); }
+bool bit(uint64_t m, int y) { return y >= 0 && y < 64 && ((m >> uint(y)) & 1ul) != 0ul; }
+uint rowAt(int row) { return (sRowsPk[row >> 1] >> ((row & 1) * 16)) & 0xFFFFu; }
+bool filledCell(int x, int row, int len) {
+  if (x < 0 || x >= 10 || row >= len) return true;
+  if (row < 0) return false;
+  return ((rowAt(row) >> uint(x)) & 1u) != 0u;
+}
+
+// ================= BX helpers (verbatim from bxp_a / bxp_b) =================
+double ln1p125(int c) { return tab.t[c]; }
+double clip6(int n) { return tab.t[129 + clamp(n, 0, 6)]; }
+double clip8(int n) { return tab.t[136 + clamp(n, 0, 8)]; }
+
+int s2surge(int d) { return d >= 5 ? d - 1 : 0; }
+double combo_raw(double base, int combo) {
+    int c = max(combo, 0);
+    precise double g1 = 1.0lf + 0.25lf * double(c);
+    precise double grown = base * g1;
+    double ft = c >= 2 ? ln1p125(c) : 0.0lf;
+    return max(grown, ft);
+}
+
+uint64_t below64(uint k) { return k >= 64u ? ~0ul : ((1ul << k) - 1ul); }
+int pop64(uint64_t m) { return bitCount(uint(m)) + bitCount(uint(m >> 32)); }
+int height_of(uint64_t c) {
+    if (c == 0ul) return 0;
+    uint hi = uint(c >> 32);
+    if (hi != 0u) return 32 + findMSB(hi) + 1;
+    return findMSB(uint(c)) + 1;
+}
+uint64_t delete_level(uint64_t m, uint p) {
+    uint64_t b = below64(p);
+    return (m & b) | ((m >> 1) & ~b);
+}
+int rt_of(uint bits) {
+    if (bits == 0u) return 0;
+    uint w = ((bits << 1) | 1u | (1u << 11));
+    return bitCount((w ^ (w >> 1)) & 2047u);
+}
+uint row_mask10(uint64_t c0, uint64_t c1, uint64_t c2, uint64_t c3, uint64_t c4,
+                uint64_t c5, uint64_t c6, uint64_t c7, uint64_t c8, uint64_t c9, uint level) {
+    uint m = 0u;
+    m |= uint((c0 >> level) & 1ul);
+    m |= uint((c1 >> level) & 1ul) << 1;
+    m |= uint((c2 >> level) & 1ul) << 2;
+    m |= uint((c3 >> level) & 1ul) << 3;
+    m |= uint((c4 >> level) & 1ul) << 4;
+    m |= uint((c5 >> level) & 1ul) << 5;
+    m |= uint((c6 >> level) & 1ul) << 6;
+    m |= uint((c7 >> level) & 1ul) << 7;
+    m |= uint((c8 >> level) & 1ul) << 8;
+    m |= uint((c9 >> level) & 1ul) << 9;
+    return m;
+}
+
+// r6bh1: 8x8 bit-matrix transpose in a u64 (masked swaps;
+// masks derived and verified in gen_r6b.py).
+uint64_t transpose8x8(uint64_t x) {
+    x = (x & 0xAA55AA55AA55AA55ul) | ((x & 0x00AA00AA00AA00AAul) << 7u) | ((x & 0x5500550055005500ul) >> 7u);
+    x = (x & 0xCCCC3333CCCC3333ul) | ((x & 0x0000CCCC0000CCCCul) << 14u) | ((x & 0x3333000033330000ul) >> 14u);
+    x = (x & 0xF0F0F0F00F0F0F0Ful) | ((x & 0x00000000F0F0F0F0ul) << 28u) | ((x & 0x0F0F0F0F00000000ul) >> 28u);
+    return x;
+}
+
+uint vget4(uvec4 v, int i) { return i == 0 ? v.x : (i == 1 ? v.y : (i == 2 ? v.z : v.w)); }
+
+bool occ_p(int x, int y) {
+    if (x < 0 || x >= 10 || y >= sLen) return true;
+    if (y >= 0 && (rowAt(y) & (1u << uint(x))) != 0u) return true;
+    return false;
+}
+bool collides_p(int kind, int rot, int x, int y) {
+    uint si = uint(kind) * 4u + uint(rot & 3);
+    ivec4 hd = SHAPE_HDR[si];
+    uvec4 rw = SHAPE_ROWS[si];
+    if (x + hd.x < 0 || x + hd.y >= 10) return true;
+    uint shift = uint(x + hd.x);
+    for (int i = 0; i < hd.w; i++) {
+        int row = y + hd.z + i;
+        if (row >= sLen) return true;
+        if (row >= 0 && (rowAt(row) & (vget4(rw, i) << shift)) != 0u) return true;
+    }
+    return false;
+}
+int classify_spin(int kind, int rot, int px, int py, int srs) {
+    if (srs == 0) return 0;
+    if (kind == 2) {
+        bool f0 = occ_p(px, py);
+        bool f1 = occ_p(px + 2, py);
+        bool f2 = occ_p(px + 2, py + 2);
+        bool f3 = occ_p(px, py + 2);
+        int cnt = (f0 ? 1 : 0) + (f1 ? 1 : 0) + (f2 ? 1 : 0) + (f3 ? 1 : 0);
+        if (cnt >= 3) {
+            int r = rot & 3;
+            bool a = r == 0 ? f0 : (r == 1 ? f1 : (r == 2 ? f2 : f3));
+            int r1 = (r + 1) & 3;
+            bool b = r1 == 0 ? f0 : (r1 == 1 ? f1 : (r1 == 2 ? f2 : f3));
+            return (a && b) || srs == 5 ? 2 : 1;
+        }
+    }
+    bool imm = collides_p(kind, rot, px - 1, py) && collides_p(kind, rot, px + 1, py)
+        && collides_p(kind, rot, px, py - 1) && collides_p(kind, rot, px, py + 1);
+    return imm ? 1 : 0;
+}
+
+int hole_cover_col(uint64_t c) {
+    int m = pop64(c);
+    if (m == 0) return 0;
+    int t0 = 0, t1 = 0, t2 = 0, t3 = 0;
+    uint64_t tmp = c;
+    for (int j = 0; j < 4; j++) {
+        if (tmp == 0ul) break;
+        int top = height_of(tmp) - 1;
+        if (j == 0) t0 = top; else if (j == 1) t1 = top; else if (j == 2) t2 = top; else t3 = top;
+        tmp &= ~(1ul << uint(top));
+    }
+    int tm = lsb64(c);
+    int cover = 0;
+    int gaps = min(3, m - 1);
+    if (gaps >= 1) cover += (t0 - t1 - 1) * 1;
+    if (gaps >= 2) cover += (t1 - t2 - 1) * 2;
+    if (gaps >= 3) cover += (t2 - t3 - 1) * 3;
+    if (m >= 4) cover += 4 * (t3 - m + 4);
+    else cover += tm * m;
+    return cover;
+}
+
+int best_tslot(uint64_t c[10], int len) {
+    int best = 0;
+    for (int x = 1; x < 9; x++) {
+        int hx = height_of(c[x]);
+        if (hx > len - 3) continue;
+        if (((c[x] >> hx) & 1ul) != 0ul) continue;
+        if (((c[x - 1] >> hx) & 1ul) == 0ul || ((c[x + 1] >> hx) & 1ul) == 0ul) continue;
+        int f = hx + 1;
+        if (((c[x - 1] >> f) & 1ul) != 0ul || ((c[x] >> f) & 1ul) != 0ul || ((c[x + 1] >> f) & 1ul) != 0ul) continue;
+        bool lr = ((c[x - 1] >> (hx + 2)) & 1ul) != 0ul;
+        bool rr = ((c[x + 1] >> (hx + 2)) & 1ul) != 0ul;
+        if (lr == rr) continue;
+        int open_side = lr ? x + 1 : x - 1;
+        if (height_of(c[open_side]) > hx + 2) continue;
+        int lines = 0;
+        if ((row_mask10(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], uint(hx)) | (1u << uint(x))) == 0x3FFu) lines += 1;
+        if ((row_mask10(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], uint(f)) | (7u << uint(x - 1))) == 0x3FFu) lines += 1;
+        if (lines > best) best = lines;
+    }
+    return best;
+}
+
+// stock.rs stock_potential; hi=true fixes opportunity at 1.0 (prune phi_hi).
+double stock_phi(int chain, int combo, int pending, int maxh, int tslot, int wellDepth, double m, bool hi) {
+    precise double cashable = double(s2surge(chain)) * m;
+    int effH = maxh + pending;
+    double qB = clip8(18 - effH);
+    precise double g = clip6(14 - maxh) * clip6(20 - effH);
+    precise double ubase = max(double(s2surge(chain + 1)) * m - cashable, 0.0lf);
+    precise double uB = ubase;
+    if (!hi) {
+        double opp = tslot > 0 ? 1.0lf : (wellDepth >= 4 ? 0.7lf : 0.35lf);
+        uB = opp * ubase;
+    }
+    precise double uR = 0.0lf;
+    if (combo >= 0) {
+        for (int j = 1; j <= 3; j++) {
+            precise double term = tab.t[65 + (j - 1)] * (combo_raw(1.0lf, combo + j) - combo_raw(1.0lf, j - 1));
+            uR += term;
+        }
+        uR *= m;
+    }
+    precise double inner = qB * cashable + g * (tab.t[178] * uB + tab.t[179] * uR);
+    precise double r = tab.t[177] * tab.t[165] * inner;
+    return r;
+}
+
+void bpxMain() {
+    uint lane = gl_LocalInvocationIndex;
+    uint l = lane;
+    uint ii = g_bpxII;
+    
+    uint ib = ii * 52u;
+    // ================= setup: parent loaded once (bxp_a form) =================
+    // Uniform instance scalars: every lane loads the same inst words,
+    // so these live in locals with identical wave-wide values. sLen
+    // stays shared only because the occ_p helper reads it.
+    if (lane == 0u) { sLen = int(inst.w[ib + 2u]); sErr = 0u; }
+    uint sChildOff = inst.w[ib + 4u];
+    uint sNextIdx = inst.w[ib + 5u];
+    uint sHoldWord = inst.w[ib + 6u];
+    int sCombo = int(inst.w[ib + 37u]);
+    int sChain = int(inst.w[ib + 38u]);
+    int sPending = int(inst.w[ib + 39u]);
+    int sDue = int(inst.w[ib + 40u]);
+    int sTslot = int(inst.w[ib + 41u]);
+    int sDepth = int(inst.w[ib + 1u]);
+    double sReward = packDouble2x32(uvec2(inst.w[ib + 42u], inst.w[ib + 43u]));
+    double sMult = packDouble2x32(uvec2(inst.w[ib + 44u], inst.w[ib + 45u]));
+    double sScale = packDouble2x32(uvec2(inst.w[ib + 46u], inst.w[ib + 47u]));
+    uint sw = inst.w[ib + 48u];
+    int sKind = int(sw & 0xFFu);
+    int sSr = int((sw >> 8) & 0xFFu);
+    int sxb = int((sw >> 16) & 0xFFu); int sSx = sxb >= 128 ? sxb - 256 : sxb;
+    int syb = int((sw >> 24) & 0xFFu); int sSy = syb >= 128 ? syb - 256 : syb;
+    uint sEmitPlc = inst.w[ib + 49u] & 1u;
+    uint sNChild = 0u;
+    barrier();
+    int len = sLen;
+    if (lane < 20u) sRowsPk[lane] = inst.w[ib + 7u + lane];
+    barrier(); // sRowsPk write->read: required when a WG spans 2+ waves (BPX32-L4 finding)
+    if (lane < 10u) {
+        uint64_t cm = 0ul;
+        for (int r = 0; r < len; r++) {
+            if (((rowAt(r) >> lane) & 1u) != 0u) cm |= 1ul << uint(len - 1 - r);
+        }
+        sColP[lane] = cm;
+    }
+    barrier();
+    if (lane == 0u) {
+        // sRtP / sFlagBits are derived directly (the sRtPart / sFlags
+        // staging arrays are gone): row transitions sum over the
+        // packed rows, flag bits over the inst flag bytes.
+        int s = 0;
+        for (int r = 0; r < len; r++) s += rt_of(rowAt(r));
+        sRtP = s;
+        uint64_t fb = 0ul;
+        for (int r = 0; r < len; r++) {
+            uint fw = (inst.w[ib + 27u + (uint(r) >> 2u)] >> ((uint(r) & 3u) * 8u)) & 0xFFu;
+            if (fw != 0u) fb |= 1ul << uint(len - 1 - r);
+        }
+        sFlagBits = fb;
+    }
+    barrier();
+    uint64_t levelMask = below64(uint(len));
+    double tau = packDouble2x32(uvec2(pc.tauLo, pc.tauHi));
+
+    // ================= BP interval (B1, verbatim from varB1) =================
+    int kind = sKind;
+    int sr = sSr;
+    int sx = sSx;
+    int sy = sSy;
+    uint topAll = 0u;    // was sTop: every lane derives it from the ballot
+    uint obaseAll = 0u;  // was sCount: built from subgroupAdd, wave-uniform
+    int r = int(l >> 4), xi = int(l & 15u), x = xi - 3;
+    int rots = kind == 1 ? 1 : 4;
+    int cls = kind == 0 ? 1 : 0;
+    pool[l] = 0u; pool[l + 64u] = 0u;
+    sOrderPk[l] = 0u; sOrderPk[l + 64u] = 0u; sOrderPk[l + 128u] = 0u;
+    barrier();
+    // ---- occupancy columns (bit j <-> row j-4; rows >= len occupied)
+    {
+        uint rb = l < uint(len) ? rowAt(int(l)) : 0u;
+        uint64_t floorm = len + 4 >= 64 ? 0ul : (~0ul << uint(len + 4));
+        for (uint c = 0u; c < 10u; c++) {
+            uvec4 bl = subgroupBallot(((rb >> c) & 1u) != 0u);
+            if (l == c) sF[c] = (packUint2x32(bl.xy) << 4) | floorm;
+        }
+        uvec4 nz = subgroupBallot(rb != 0u);
+        { uint64_t z = packUint2x32(nz.xy); topAll = z == 0ul ? uint(len) : uint(lsb64(z)); }
+    }
+    barrier();
+    // ---- fit mask of this lane (rotation r, column x)
+    int sidx = (kind * 4 + r) * 4;
+    uint64_t coll = 0ul; bool wall = true;
+    for (int c = 0; c < 4; c++) {
+        int col = x + CX[sidx + c], cy = CY[sidx + c];
+        if (col < 0 || col >= 10) { wall = false; break; }
+        uint64_t oc = sF[col];
+        coll |= (oc >> uint(cy)) | (cy > 0 ? ~(~0ul >> uint(cy)) : 0ul);
+    }
+    uint64_t fit = wall ? ~coll : 0ul;
+    fitSet(l, fit);
+    uint64_t wallBits = packUint2x32(subgroupBallot(wall).xy);  // r6ba1 A2
+    barrier();
+    // ---- first-fitting-kick masks, target perspective
+    uint wallR = uint((wallBits >> uint(r << 4)) & 0xFFFFul);
+    uint64_t M[15]; int NK[3];
+    g_srcPkA = 0ul; g_srcPkB = 0ul; g_dyPk = 0x4444444444444444ul;
+    // r7c1 f=0: per-kb specialized construction (gen_r7cons.py; see PERSISTENT-R6 round 7)
+    {
+        int pr = (r - 1) & 3;
+        int kb = ((cls * 3 + 0) * 4 + pr);
+        int nk = rots == 1 ? 0 : KN[kb];
+        NK[0] = nk;
+        M[0] = 0ul;
+        M[1] = 0ul;
+        M[2] = 0ul;
+        M[3] = 0ul;
+        M[4] = 0ul;
+        if (nk > 0) {
+            switch (kb) {
+            case 0: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000022544ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv2;
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = (fv0 << 1) | (w0 != 0u ? 0x0000000000000001ul : 0ul);
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv1 >> 2;
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv2 >> 2;
+                u6 = (c2 >= 0 && c2 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 1: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000066344ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1 >> 1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv2;
+                u3 = (c2 >= 0 && c2 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv2 >> 1;
+                u4 = (c2 >= 0 && c2 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv1 << 2) | (w1 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv0 << 2) | (w0 != 0u ? 0x0000000000000003ul : 0ul);
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 2: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000022544ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                uint64_t u2 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv2;
+                u3 = (c2 >= 0 && c2 < 16) ? u3 : 0ul;
+                uint64_t u4 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u4 = (c2 >= 0 && c2 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv1 >> 2;
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv0 >> 2;
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 3: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000066344ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv2;
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1 >> 1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0 >> 1;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv1 << 2) | (w1 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u6 = (c2 >= 0 && c2 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 12: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000063444ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 2;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv3;
+                u1 = (c3 >= 0 && c3 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv4;
+                u4 = (c4 >= 0 && c4 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv2 >> 1;
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv0 >> 1;
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                uint64_t u7 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi + 2;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi + 2;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            case 13: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000036444ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 2;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 1;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv3;
+                u1 = (c3 >= 0 && c3 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv4;
+                u4 = (c4 >= 0 && c4 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv0 << 2) | (w0 != 0u ? 0x0000000000000003ul : 0ul);
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                uint64_t u7 = fv2 >> 1;
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 2;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi + 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi - 2;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            case 14: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000025444ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 2;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 1;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv1;
+                u1 = (c1 >= 0 && c1 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv3;
+                u2 = (c3 >= 0 && c3 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv4;
+                u3 = (c4 >= 0 && c4 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv4 << 1) | (w4 != 0u ? 0x0000000000000001ul : 0ul);
+                u6 = (c4 >= 0 && c4 < 16) ? u6 : 0ul;
+                uint64_t u7 = fv2 >> 2;
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi - 2;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi - 2;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            case 15: {
+                g_dyPk = (g_dyPk & ~0x00000000000ffffful) | 0x0000000000052444ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 2;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv1;
+                u1 = (c1 >= 0 && c1 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv3;
+                u2 = (c3 >= 0 && c3 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv4;
+                u3 = (c4 >= 0 && c4 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv2 >> 2;
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv4 >> 2;
+                u6 = (c4 >= 0 && c4 < 16) ? u6 : 0ul;
+                uint64_t u7 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 0;
+                  M[0] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 7;
+                  M[1] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 2;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 14;
+                  M[2] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi - 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 21;
+                  M[3] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi + 2;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkA |= uint64_t(sv4) << 28;
+                  M[4] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            default: break;
+            }
+        }
+    }
+    // r7c1 f=1: per-kb specialized construction (gen_r7cons.py; see PERSISTENT-R6 round 7)
+    {
+        int pr = (r - 3) & 3;
+        int kb = ((cls * 3 + 1) * 4 + pr);
+        int nk = rots == 1 ? 0 : KN[kb];
+        NK[1] = nk;
+        M[5] = 0ul;
+        M[6] = 0ul;
+        M[7] = 0ul;
+        M[8] = 0ul;
+        M[9] = 0ul;
+        if (nk > 0) {
+            switch (kb) {
+            case 4: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000002254400000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                uint64_t u2 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv2;
+                u3 = (c2 >= 0 && c2 < 16) ? u3 : 0ul;
+                uint64_t u4 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u4 = (c2 >= 0 && c2 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv1 >> 2;
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv0 >> 2;
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 5: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000006634400000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1 >> 1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv2;
+                u3 = (c2 >= 0 && c2 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv2 >> 1;
+                u4 = (c2 >= 0 && c2 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv1 << 2) | (w1 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv0 << 2) | (w0 != 0u ? 0x0000000000000003ul : 0ul);
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 6: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000002254400000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv2;
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = (fv0 << 1) | (w0 != 0u ? 0x0000000000000001ul : 0ul);
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv1 >> 2;
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv2 >> 2;
+                u6 = (c2 >= 0 && c2 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 7: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000006634400000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv2;
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1 >> 1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0 >> 1;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv1 << 2) | (w1 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u6 = (c2 >= 0 && c2 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u0 | u3 | u4);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u5 & ~(u1 | u0 | u2 | u6);
+                }
+            } break;
+            case 16: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000003644400000ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 2;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 1;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv3;
+                u1 = (c3 >= 0 && c3 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv4;
+                u4 = (c4 >= 0 && c4 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv0 << 2) | (w0 != 0u ? 0x0000000000000003ul : 0ul);
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                uint64_t u7 = fv2 >> 1;
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 2;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi + 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi - 2;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            case 17: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000002544400000ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 2;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 1;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv1;
+                u1 = (c1 >= 0 && c1 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv3;
+                u2 = (c3 >= 0 && c3 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv4;
+                u3 = (c4 >= 0 && c4 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv4 << 1) | (w4 != 0u ? 0x0000000000000001ul : 0ul);
+                u6 = (c4 >= 0 && c4 < 16) ? u6 : 0ul;
+                uint64_t u7 = fv2 >> 2;
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi - 2;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi - 2;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            case 18: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000005244400000ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 2;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv1;
+                u1 = (c1 >= 0 && c1 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv3;
+                u2 = (c3 >= 0 && c3 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv4;
+                u3 = (c4 >= 0 && c4 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv2 >> 2;
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv4 >> 2;
+                u6 = (c4 >= 0 && c4 < 16) ? u6 : 0ul;
+                uint64_t u7 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 2;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi - 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi + 2;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            case 19: {
+                g_dyPk = (g_dyPk & ~0x000000fffff00000ul) | 0x0000006344400000ul;
+                int c0 = xi - 3;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 2;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 3;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv3;
+                u1 = (c3 >= 0 && c3 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv0;
+                u3 = (c0 >= 0 && c0 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv4;
+                u4 = (c4 >= 0 && c4 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv2 >> 1;
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv0 >> 1;
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                uint64_t u7 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u7 = (c2 >= 0 && c2 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkA |= uint64_t(sv0) << 35;
+                  M[5] = u0;
+                }
+                int sxi1 = xi + 2;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkA |= uint64_t(sv1) << 42;
+                  M[6] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkA |= uint64_t(sv2) << 49;
+                  M[7] = u0 & ~(u2 | u3);
+                }
+                int sxi3 = xi + 2;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkA |= uint64_t(sv3) << 56;
+                  M[8] = u5 & ~(u1 | u0 | u4);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 0;
+                  M[9] = u7 & ~(u2 | u3 | u0 | u6);
+                }
+            } break;
+            default: break;
+            }
+        }
+    }
+    // r7c1 f=2: per-kb specialized construction (gen_r7cons.py; see PERSISTENT-R6 round 7)
+    {
+        int pr = (r - 2) & 3;
+        int kb = ((cls * 3 + 2) * 4 + pr);
+        int nk = rots == 1 ? 0 : KN[kb];
+        NK[2] = nk;
+        M[10] = 0ul;
+        M[11] = 0ul;
+        M[12] = 0ul;
+        M[13] = 0ul;
+        M[14] = 0ul;
+        if (nk > 0) {
+            switch (kb) {
+            case 8: {
+                g_dyPk = (g_dyPk & ~0x0fffff0000000000ul) | 0x0455540000000000ul;
+                int c0 = xi - 2;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 1;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 2;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv1;
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u3 = (c1 >= 0 && c1 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv3;
+                u4 = (c3 >= 0 && c3 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv3 << 1) | (w3 != 0u ? 0x0000000000000001ul : 0ul);
+                u5 = (c3 >= 0 && c3 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv4 << 1) | (w4 != 0u ? 0x0000000000000001ul : 0ul);
+                u6 = (c4 >= 0 && c4 < 16) ? u6 : 0ul;
+                uint64_t u7 = (fv0 << 1) | (w0 != 0u ? 0x0000000000000001ul : 0ul);
+                u7 = (c0 >= 0 && c0 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u1 & ~(u0);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkB |= uint64_t(sv2) << 21;
+                  M[12] = u1 & ~(u2 | u3);
+                }
+                int sxi3 = xi + 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkB |= uint64_t(sv3) << 28;
+                  M[13] = u1 & ~(u4 | u5 | u6);
+                }
+                int sxi4 = xi - 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 35;
+                  M[14] = u0 & ~(u2 | u3 | u1 | u7);
+                }
+            } break;
+            case 9: {
+                g_dyPk = (g_dyPk & ~0x0fffff0000000000ul) | 0x0656440000000000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                uint64_t u2 = (fv1 << 2) | (w1 != 0u ? 0x0000000000000003ul : 0ul);
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u3 = (c1 >= 0 && c1 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv2;
+                u4 = (c2 >= 0 && c2 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv2 << 2) | (w2 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c2 >= 0 && c2 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv2 << 1) | (w2 != 0u ? 0x0000000000000001ul : 0ul);
+                u6 = (c2 >= 0 && c2 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u0 & ~(u1);
+                }
+                int sxi2 = xi - 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkB |= uint64_t(sv2) << 21;
+                  M[12] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi - 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkB |= uint64_t(sv3) << 28;
+                  M[13] = u3 & ~(u1 | u0 | u2);
+                }
+                int sxi4 = xi;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 35;
+                  M[14] = u2 & ~(u0 | u4 | u5 | u6);
+                }
+            } break;
+            case 10: {
+                g_dyPk = (g_dyPk & ~0x0fffff0000000000ul) | 0x0433340000000000ul;
+                int c0 = xi - 2;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi - 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                int c3 = xi + 1;
+                int cl3 = clamp(c3, 0, 15);
+                uint64_t fv3 = fitGet(uint((r << 4) | cl3));
+                uint w3 = (wallR >> uint(cl3)) & 1u;
+                int c4 = xi + 2;
+                int cl4 = clamp(c4, 0, 15);
+                uint64_t fv4 = fitGet(uint((r << 4) | cl4));
+                uint w4 = (wallR >> uint(cl4)) & 1u;
+                uint64_t u0 = fv2;
+                u0 = (c2 >= 0 && c2 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv2 >> 1;
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = fv3;
+                u2 = (c3 >= 0 && c3 < 16) ? u2 : 0ul;
+                uint64_t u3 = fv3 >> 1;
+                u3 = (c3 >= 0 && c3 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv1;
+                u4 = (c1 >= 0 && c1 < 16) ? u4 : 0ul;
+                uint64_t u5 = fv1 >> 1;
+                u5 = (c1 >= 0 && c1 < 16) ? u5 : 0ul;
+                uint64_t u6 = fv0 >> 1;
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                uint64_t u7 = fv4 >> 1;
+                u7 = (c4 >= 0 && c4 < 16) ? u7 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u1 & ~(u0);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkB |= uint64_t(sv2) << 21;
+                  M[12] = u1 & ~(u2 | u3);
+                }
+                int sxi3 = xi - 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkB |= uint64_t(sv3) << 28;
+                  M[13] = u1 & ~(u4 | u5 | u6);
+                }
+                int sxi4 = xi + 1;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 35;
+                  M[14] = u0 & ~(u2 | u3 | u1 | u7);
+                }
+            } break;
+            case 11: {
+                g_dyPk = (g_dyPk & ~0x0fffff0000000000ul) | 0x0656440000000000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                int c2 = xi + 1;
+                int cl2 = clamp(c2, 0, 15);
+                uint64_t fv2 = fitGet(uint((r << 4) | cl2));
+                uint w2 = (wallR >> uint(cl2)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv2;
+                u1 = (c2 >= 0 && c2 < 16) ? u1 : 0ul;
+                uint64_t u2 = (fv1 << 2) | (w1 != 0u ? 0x0000000000000003ul : 0ul);
+                u2 = (c1 >= 0 && c1 < 16) ? u2 : 0ul;
+                uint64_t u3 = (fv1 << 1) | (w1 != 0u ? 0x0000000000000001ul : 0ul);
+                u3 = (c1 >= 0 && c1 < 16) ? u3 : 0ul;
+                uint64_t u4 = fv0;
+                u4 = (c0 >= 0 && c0 < 16) ? u4 : 0ul;
+                uint64_t u5 = (fv0 << 2) | (w0 != 0u ? 0x0000000000000003ul : 0ul);
+                u5 = (c0 >= 0 && c0 < 16) ? u5 : 0ul;
+                uint64_t u6 = (fv0 << 1) | (w0 != 0u ? 0x0000000000000001ul : 0ul);
+                u6 = (c0 >= 0 && c0 < 16) ? u6 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u0 & ~(u1);
+                }
+                int sxi2 = xi + 1;
+                if (sxi2 >= 0 && sxi2 < 16) {
+                  uint sv2 = uint(((pr << 4) | sxi2) + 1);
+                  g_srcPkB |= uint64_t(sv2) << 21;
+                  M[12] = u2 & ~(u1 | u0);
+                }
+                int sxi3 = xi + 1;
+                if (sxi3 >= 0 && sxi3 < 16) {
+                  uint sv3 = uint(((pr << 4) | sxi3) + 1);
+                  g_srcPkB |= uint64_t(sv3) << 28;
+                  M[13] = u3 & ~(u1 | u0 | u2);
+                }
+                int sxi4 = xi;
+                if (sxi4 >= 0 && sxi4 < 16) {
+                  uint sv4 = uint(((pr << 4) | sxi4) + 1);
+                  g_srcPkB |= uint64_t(sv4) << 35;
+                  M[14] = u2 & ~(u0 | u4 | u5 | u6);
+                }
+            } break;
+            case 20: {
+                g_dyPk = (g_dyPk & ~0x0000ff0000000000ul) | 0x0000540000000000ul;
+                int c0 = xi;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                uint64_t u0 = fv0;
+                u0 = (c0 >= 0 && c0 < 16) ? u0 : 0ul;
+                uint64_t u1 = (fv0 << 1) | (w0 != 0u ? 0x0000000000000001ul : 0ul);
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u1 & ~(u0);
+                }
+            } break;
+            case 21: {
+                g_dyPk = (g_dyPk & ~0x0000ff0000000000ul) | 0x0000440000000000ul;
+                int c0 = xi - 1;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                uint64_t u0 = fv1;
+                u0 = (c1 >= 0 && c1 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi - 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u0 & ~(u1);
+                }
+            } break;
+            case 22: {
+                g_dyPk = (g_dyPk & ~0x0000ff0000000000ul) | 0x0000340000000000ul;
+                int c0 = xi;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                uint64_t u0 = fv0;
+                u0 = (c0 >= 0 && c0 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv0 >> 1;
+                u1 = (c0 >= 0 && c0 < 16) ? u1 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u1 & ~(u0);
+                }
+            } break;
+            case 23: {
+                g_dyPk = (g_dyPk & ~0x0000ff0000000000ul) | 0x0000440000000000ul;
+                int c0 = xi;
+                int cl0 = clamp(c0, 0, 15);
+                uint64_t fv0 = fitGet(uint((r << 4) | cl0));
+                uint w0 = (wallR >> uint(cl0)) & 1u;
+                int c1 = xi + 1;
+                int cl1 = clamp(c1, 0, 15);
+                uint64_t fv1 = fitGet(uint((r << 4) | cl1));
+                uint w1 = (wallR >> uint(cl1)) & 1u;
+                uint64_t u0 = fv0;
+                u0 = (c0 >= 0 && c0 < 16) ? u0 : 0ul;
+                uint64_t u1 = fv1;
+                u1 = (c1 >= 0 && c1 < 16) ? u1 : 0ul;
+                int sxi0 = xi;
+                if (sxi0 >= 0 && sxi0 < 16) {
+                  uint sv0 = uint(((pr << 4) | sxi0) + 1);
+                  g_srcPkB |= uint64_t(sv0) << 7;
+                  M[10] = u0;
+                }
+                int sxi1 = xi + 1;
+                if (sxi1 >= 0 && sxi1 < 16) {
+                  uint sv1 = uint(((pr << 4) | sxi1) + 1);
+                  g_srcPkB |= uint64_t(sv1) << 14;
+                  M[11] = u0 & ~(u1);
+                }
+            } break;
+            default: break;
+            }
+        }
+    }
+    // ---- start adjustment and seeds
+    bool sfit = false;
+    {
+        int lane2 = (sr << 4) | (sx + 3);
+        if (sx + 3 >= 0 && sx + 3 < 16 && sy + 4 >= 0 && sy + 4 < 64) sfit = bit(fitGet(uint(lane2)), sy + 4);
+        if (len > 20 && sy == len - 21 && !sfit) {
+            sy -= 1;
+            sfit = (sx + 3 >= 0 && sx + 3 < 16 && sy + 4 >= 0 && sy + 4 < 64) && bit(fitGet(uint(lane2)), sy + 4);
+        }
+    }
+    uint iters = 0u;
+    if (sfit) {
+        int top = int(topAll);
+        int ssi = kind * 4 + sr;
+        int startBottom = sy + MINY[ssi] + HT[ssi] - 1;
+        uint64_t S = 0ul;
+        if (startBottom < top - 1) {
+            if (r < rots) {
+                int si = kind * 4 + r;
+                int lowest = top - MINY[si] - HT[si];
+                int highest = max(lowest - 2, sy);
+                if (x >= -MINX[si] && x + MAXX[si] < 10)
+                    for (int y = lowest; y >= highest; y--) if (y + 4 >= 0 && y + 4 < 64) S |= 1ul << uint(y + 4);
+                S &= fit;
+            }
+        } else if (l == uint((sr << 4) | (sx + 3))) {
+            S = 1ul << uint(sy + 4);
+        }
+        uint64_t F = S, V = S;
+        uint cnt = popc64(F);
+        uint Fpre = subgroupExclusiveAdd(cnt);
+        uint total = subgroupAdd(cnt);
+        {
+            uint64_t m = F;
+            uint idx = Fpre;
+            uint cIdx = 0u;
+            while (m != 0ul) {
+                uint y = uint(lsb64(m)); m &= m - 1ul;
+                uint rk = Fpre + (cnt - 1u - cIdx);  // r6ba1 A3
+                if (idx < 256u) rankSet(0u, idx, rk); else sErr = 1u;
+                if (rk < 512u) ordSet(rk, (l << 6) | y); else sErr = 1u;
+                idx++; cIdx++;
+            }
+        }
+        KB(l) = 0u;
+        uint levelBase = total;
+        uint cur = 0u;
+        for (;;) {
+            sF[l] = F; sFpre[l] = Fpre;
+            pool[(cur ^ 1u) * 64u + l] = 0u;
+            pool[128u + l] = 0u; pool[192u + l] = 0u;
+            barrier();
+            iters++;
+            uint64_t cand = F << 1;
+            uint64_t FL = xi + 1 < 16 ? sF[l + 1u] : 0ul;
+            uint64_t FR = xi >= 1 ? sF[l - 1u] : 0ul;
+            cand |= FL | FR;
+            for (int k = 0; k < 15; k++) {
+                int sk = srcOf(k);
+                if (sk >= 0 && M[k] != 0ul) cand |= shlK(sF[sk] & M[k], dyOf(k));
+            }
+            uint64_t N = cand & fit & ~V;
+            V |= N;
+            uint nc = popc64(N);
+            uint Npre = subgroupExclusiveAdd(nc);
+            uint ntot = subgroupAdd(nc);
+            if (ntot == 0u) break;
+            if (total * 8u > 2048u) sErr = 2u;
+            // keys: min over predecessors of rank(p)*8 + m
+            {
+                uint FpreL = xi + 1 < 16 ? sFpre[l + 1u] : 0u;
+                uint FpreR = xi >= 1 ? sFpre[l - 1u] : 0u;
+                uint64_t m = N;
+                uint idx = Npre;
+                while (m != 0ul) {
+                    uint y = uint(lsb64(m)); m &= m - 1ul;
+                    uint key = 0xFFFFFFFFu;
+                    if (bit(FL, int(y))) key = min(key, RANK(cur, FpreL + popc64(FL & below(y))) * 8u + 0u);
+                    if (bit(FR, int(y))) key = min(key, RANK(cur, FpreR + popc64(FR & below(y))) * 8u + 1u);
+                    if (y >= 1u && bit(F, int(y) - 1)) key = min(key, RANK(cur, Fpre + popc64(F & below(y - 1u))) * 8u + 2u);
+                    for (int k = 0; k < 15; k++) {
+                        int sk = srcOf(k);
+                        if (sk < 0) continue;
+                        int ys = int(y) + dyOf(k);
+                        if (!bit(M[k], ys)) continue;
+                        uint64_t Fs = sF[sk];
+                        if (bit(Fs, ys)) {
+                            key = min(key, RANK(cur, sFpre[sk] + popc64(Fs & below(uint(ys)))) * 8u + uint(3 + k / 5));
+                        }
+                    }
+                    if (idx < 256u) keySet(idx, key); else sErr = 3u;
+                    if (key < 2048u) atomicOr(KB(key >> 5), 1u << (key & 31u)); else sErr = 4u;
+                    idx++;
+                }
+            }
+            barrier();
+            {
+                uint wc = uint(bitCount(KB(l)));
+                WP(l) = subgroupExclusiveAdd(wc);
+            }
+            barrier();
+            {
+                uint64_t m = N;
+                uint idx = Npre;
+                while (m != 0ul) {
+                    uint y = uint(lsb64(m)); m &= m - 1ul;
+                    uint key = idx < 256u ? keyGet(idx) : 0u;
+                    uint rk = WP(key >> 5) + uint(bitCount(KB(key >> 5) & ((1u << (key & 31u)) - 1u)));
+                    if (idx < 256u) rankSet(cur ^ 1u, idx, rk);
+                    if (levelBase + rk < 512u) ordSet(levelBase + rk, (l << 6) | y); else sErr = 5u;
+                    idx++;
+                }
+            }
+            barrier();
+            KB(l) = 0u;
+            levelBase += ntot;
+            F = N; Fpre = Npre; total = ntot; cur ^= 1u;
+        }
+        // ---- spin evidence (target perspective)
+        barrier();
+        sF[l] = V;
+        barrier();
+        uint64_t grounded = ~(fit >> 1);
+        uint64_t p0 = 0ul, p1 = 0ul, p2 = 0ul, assigned = 0ul;
+        for (int v = 6; v >= 1; v--) {
+            uint64_t Sv = 0ul;
+            for (int f = 0; f < 3; f++) {
+                int k = f * 5 + v - 1;
+                int sk = srcOf(k);
+                if (v - 1 < NK[f] && sk >= 0) Sv |= shlK(sF[sk] & M[k], dyOf(k));
+            }
+            Sv &= grounded;
+            uint64_t take = Sv & ~assigned;
+            if ((v & 1) != 0) p0 |= take;
+            if ((v & 2) != 0) p1 |= take;
+            if ((v & 4) != 0) p2 |= take;
+            assigned |= Sv;
+        }
+        stPl(0u, l, p0); stPl(1u, l, p1); stPl(2u, l, p2);
+        barrier();
+        // ---- emission into the LDS placement array (varB1 order/dedupe)
+        {
+            int si = kind * 4 + r;
+            int lim = 5 - MINY[si] - HT[si];
+            uint64_t rest = V & grounded & ~(lim <= 0 ? 0ul : (lim >= 64 ? ~0ul : ((1ul << uint(lim)) - 1ul)));
+            uint rc = popc64(rest);
+            sF[l] = rest; sFpre[l] = subgroupExclusiveAdd(rc);
+        }
+        POSPKW(l) = 0u;
+        barrier();
+        uint T = levelBase;
+        uint rbase = 0u;
+        for (uint s0 = 0u; s0 < T; s0 += 64u) {
+            uint s = s0 + l;
+            bool keep = false; uint recw = 0u; uint di = 0u;
+            if (s < T && s < 512u) {
+                uint st = ordGet(s);
+                uint ln = st >> 6; uint yi = st & 63u;
+                if (bit(sF[ln], int(yi))) {
+                    keep = true;
+                    int rr = int(ln >> 4), xx = int(ln & 15u) - 3, yy = int(yi) - 4;
+                    uint srs = (bit(ldPl(0u, ln), int(yi)) ? 1u : 0u) | (bit(ldPl(1u, ln), int(yi)) ? 2u : 0u) | (bit(ldPl(2u, ln), int(yi)) ? 4u : 0u);
+                    uint ts = 0u;
+                    if (kind == 2 && srs > 0u) {
+                        bool o0 = filledCell(xx, yy, len), o1 = filledCell(xx + 2, yy, len), o2 = filledCell(xx + 2, yy + 2, len), o3 = filledCell(xx, yy + 2, len);
+                        int c = int(o0) + int(o1) + int(o2) + int(o3);
+                        if (c >= 3) {
+                            bool oc[4] = bool[4](o0, o1, o2, o3);
+                            int a = rr & 3, b = (rr + 1) & 3;
+                            ts = (oc[a] != oc[b] && srs != 5u) ? 1u : 2u;
+                        }
+                    }
+                    recw = uint(rr) | (uint(xx & 0xFF) << 4) | (uint(yy & 0xFF) << 12) | (srs << 20) | (ts << 24);
+                    di = sFpre[ln] + popc64(sF[ln] & below(yi));
+                }
+            }
+            uint pos = rbase + subgroupExclusiveAdd(keep ? 1u : 0u);
+            if (keep) { if (pos < 128u && di < 128u) { posSetA(di, pos); RREC(pos) = recw; } else sErr = 6u; }
+            rbase += subgroupAdd(keep ? 1u : 0u);
+        }
+        barrier();
+        uint R = min(rbase, 128u);
+        uint obase = 0u;
+        for (uint i0 = 0u; i0 < R; i0 += 64u) {
+            uint i = i0 + l;
+            bool first = false; uint orec = 0u;
+            if (i < R) {
+                first = true; orec = RREC(i);
+                int rr = int(orec & 3u), xx = bitfieldExtract(int(orec), 4, 8), yy = bitfieldExtract(int(orec), 12, 8);
+                uint t3 = uint(kind * 4 + rr);
+                uint twp = (TWINPK[t3 >> 2] >> ((t3 & 3u) * 7u)) & 0x7Fu;
+                int tr = int(twp & 7u) - 1;
+                if (tr >= 0) {
+                    int tx = xx + int((twp >> 3) & 3u) - 1, ty = yy + int((twp >> 5) & 3u) - 1;
+                    int txi = tx + 3, tyi = ty + 4;
+                    if (txi >= 0 && txi < 16 && tyi >= 0 && tyi < 64) {
+                        uint tl = uint((tr << 4) | txi);
+                        if (bit(sF[tl], tyi)) {
+                            uint tpos = posGet(sFpre[tl] + popc64(sF[tl] & below(uint(tyi))));
+                            if (tpos < i) first = false;
+                            else if (((RREC(tpos) >> 20) & 7u) > ((orec >> 20) & 7u)) orec = RREC(tpos);
+                        }
+                    }
+                }
+            }
+            uint pos = obase + subgroupExclusiveAdd(first ? 1u : 0u);
+            if (first) { if (pos < 64u) PLACE(pos) = orec; else sErr = 7u; }
+            obase += subgroupAdd(first ? 1u : 0u);
+        }
+        obaseAll = obase;
+    }
+    barrier();
+
+    // ================= interval boundary =================
+    sNChild = min(obaseAll, 64u);
+    barrier();
+
+    // ================= BX interval (bxp_a, placements from LDS) =================
+    // BP caps the emission at 64, so the child loop is a single pass.
+    uint li = lane;
+    bool survived = false;
+    if (li < sNChild) {
+        uint child = sChildOff + li;
+        uint recw2 = PLACE(li);
+        int kind_b = sKind;
+        int rot = int(recw2 & 3u);
+        int px = int((recw2 >> 4) & 0xFFu); if (px >= 128) px -= 256;
+        int py = int((recw2 >> 12) & 0xFFu); if (py >= 128) py -= 256;
+        int srs = int((recw2 >> 20) & 7u);
+        uint si = uint(kind_b) * 4u + uint(rot & 3);
+        ivec4 hd = SHAPE_HDR[si];
+        uvec4 srw = SHAPE_ROWS[si];
+        int shift = px + hd.x;
+
+        int spin = classify_spin(kind_b, rot, px, py, srs);
+
+        uint64_t col[10];
+        for (int x = 0; x < 10; x++) col[x] = sColP[x];
+        uint64_t touched = 0ul;
+        for (int i = 0; i < hd.w; i++) {
+            int row = py + hd.z + i;
+            if (row < 0 || row >= len) continue;
+            touched |= 1ul << uint(row);
+            uint level = uint(len - 1 - row);
+            uint bits = vget4(srw, i);
+            while (bits != 0u) {
+                int b = findLSB(bits);
+                int x = shift + b;
+                if (x >= 0 && x < 10) col[x] |= 1ul << level;
+                bits &= bits - 1u;
+            }
+        }
+        uint64_t full = ~0ul;
+        for (int x = 0; x < 10; x++) full &= col[x];
+        full &= levelMask;
+        int lines = pop64(full);
+        uint64_t flb = sFlagBits;
+        int gc = pop64(flb & full);
+
+        // row_transitions, difference form (fixed form, verbatim).
+        int rt = sRtP;
+        for (int i = 0; i < hd.w; i++) {
+            int row = py + hd.z + i;
+            if (row < 0 || row >= len) continue;
+            rt -= rt_of(rowAt(row));
+            rt += rt_of(row_mask10(col[0], col[1], col[2], col[3], col[4], col[5], col[6], col[7], col[8], col[9], uint(len - 1 - row)));
+        }
+        {
+            uint64_t f = full;
+            while (f != 0ul) {
+                int k = lsb64(f);
+                rt -= rt_of(row_mask10(col[0], col[1], col[2], col[3], col[4], col[5], col[6], col[7], col[8], col[9], uint(k)));
+                f &= f - 1ul;
+            }
+        }
+        if (full != 0ul) {
+            for (int x = 0; x < 10; x++) {
+                uint64_t m = col[x];
+                uint64_t f = full;
+                int j = 0;
+                while (f != 0ul) {
+                    int k = lsb64(f);
+                    m = delete_level(m, uint(k - j));
+                    j += 1;
+                    f &= f - 1ul;
+                }
+                col[x] = m;
+            }
+            uint64_t m = flb;
+            uint64_t f = full;
+            int j = 0;
+            while (f != 0ul) {
+                int k = lsb64(f);
+                m = delete_level(m, uint(k - j));
+                j += 1;
+                f &= f - 1ul;
+            }
+            flb = m;
+        }
+        bool pc_ = lines > 0 && col[0] == 0ul && col[1] == 0ul && col[2] == 0ul && col[3] == 0ul && col[4] == 0ul
+            && col[5] == 0ul && col[6] == 0ul && col[7] == 0ul && col[8] == 0ul && col[9] == 0ul;
+        bool difficult = lines > 0 && (lines == 4 || spin != 0 || pc_);
+
+        int combo = lines > 0 ? sCombo + 1 : -1;
+        int attack = 0;
+        int dchain = sChain;
+        if (lines > 0) {
+            int base;
+            int li5 = min(lines, 5);
+            if (spin == 2) base = int[6](0, 2, 4, 6, 10, 12)[li5];
+            else if (spin == 1) base = int[6](0, 0, 1, 2, 10, 12)[li5];
+            else base = int[6](0, 0, 1, 2, 4, 5)[li5];
+            if (lines > 5) base += lines - 5;
+            int surge = difficult ? 0 : s2surge(sChain);
+            precise double raw = combo_raw(double(base) + (difficult && sChain > 0 ? 1.0lf : 0.0lf), combo);
+            int sb = (gc > 0 && (spin != 0 || lines >= 4)) ? 1 : 0;
+            precise double a1 = raw * sMult + double(sb);
+            precise double a2 = 5.0lf * sMult;
+            precise double a3 = double(surge) * sMult;
+            attack = int(floor(a1))
+                + (pc_ ? int(floor(a2)) : 0)
+                + int(floor(a3));
+            dchain = difficult ? sChain + 1 : 0;
+        }
+        int pending, landed;
+        if (lines > 0) {
+            pending = max(sPending - attack, 0);
+            landed = 0;
+        } else {
+            landed = min(sDepth == 0 ? sDue : sPending, sPending);
+            pending = sPending - landed;
+        }
+        if (landed > 0) {
+            int l = landed;
+            int lmin = min(l, len);
+            for (int level = len - lmin; level < len; level++) {
+                rt -= rt_of(row_mask10(col[0], col[1], col[2], col[3], col[4], col[5], col[6], col[7], col[8], col[9], uint(level)));
+            }
+            int hw[10];
+            for (int x = 0; x < 10; x++) hw[x] = height_of(col[x]);
+            int well = 0;
+            for (int x = 1; x < 10; x++) if (hw[x] < hw[well]) well = x;
+            uint64_t gb = l >= len ? levelMask : below64(uint(l));
+            for (int x = 0; x < 10; x++) {
+                uint64_t shifted = l >= 64 ? 0ul : ((col[x] << uint(l)) & levelMask);
+                col[x] = shifted | (x != well ? gb : 0ul);
+            }
+            flb = (l >= 64 ? 0ul : ((flb << uint(l)) & levelMask)) | gb;
+            rt += lmin * rt_of(0x3FFu ^ (1u << uint(well)));
+        }
+
+        // ---- features over the child's column masks ----
+        // R2C V2: no h[10] array. Heights are recomputed at each use
+        // (height_of is a pure function of col[x]); the per-column
+        // features accumulate in a single pass. Every accumulation
+        // order and every compared value is unchanged -> bit-identical.
+        int maxh = 0;
+        int well = 0;
+        int wellH = 0;
+        int holes = 0;
+        uint64_t holeOr = 0ul;
+        int holeCover = 0;
+        for (int x = 0; x < 10; x++) {
+            int hx = height_of(col[x]);
+            if (hx > maxh) maxh = hx;
+            if (x == 0 || hx < wellH) { well = x; wellH = hx; }
+            holes += hx - pop64(col[x]);
+            if (col[x] != 0ul) holeOr |= ~col[x] & below64(uint(hx - 1));
+            holeCover += hole_cover_col(col[x]);
+        }
+        int holeRows = pop64(holeOr);
+        int bump = 0, bumpSq = 0;
+        for (int x = 0; x < 9; x++) {
+            if (x == well || x + 1 == well) continue;
+            int d = abs(height_of(col[x]) - height_of(col[x + 1]));
+            bump += d;
+            bumpSq += d * d;
+        }
+        int leftN = well > 0 ? height_of(col[well - 1]) : len;
+        int rightN = well < 9 ? height_of(col[well + 1]) : len;
+        int wellDepth = min(4, min(leftN, rightN) - wellH);
+        int extraWells = 0;
+        for (int x = 0; x < 10; x++) {
+            if (x == well) continue;
+            int hx = height_of(col[x]);
+            int l2 = x > 0 ? height_of(col[x - 1]) : len;
+            int r2 = x < 9 ? height_of(col[x + 1]) : len;
+            if (min(l2, r2) - hx >= 3) extraWells += 1;
+        }
+        int over = max(maxh - 10, 0);
+        int danger = over * over;
+        bool dead = maxh >= min(len, 21);
+
+        int tslot = best_tslot(col, len);
+
+        // ---- dedupe hash (packed-key FNV, stage-2C form, verbatim) ----
+        uint64_t hw0 = uint64_t(sNextIdx) | (uint64_t(sHoldWord) << 32);
+        uint64_t hw1 = uint64_t(uint(dchain)) | (uint64_t(uint(combo)) << 32);
+        uint64_t hw2 = uint64_t(uint(pending));
+        uint64_t rp0 = 0ul, rp1 = 0ul, rp2 = 0ul, rp3 = 0ul, rp4 = 0ul, rp5 = 0ul, rp6 = 0ul;
+        // r6bh1: 8-row block transpose packing (bit-identical;
+        // verified against the row_mask10 loop in gen_r6b.py).
+        { int sh = len - 8;
+          if (sh > -8) {
+            uint64_t B0_0 = sh >= 0 ? ((col[0] >> uint(sh)) & 0xFFul) : ((col[0] << uint(-sh)) & 0xFFul);
+            uint64_t B0_1 = sh >= 0 ? ((col[1] >> uint(sh)) & 0xFFul) : ((col[1] << uint(-sh)) & 0xFFul);
+            uint64_t B0_2 = sh >= 0 ? ((col[2] >> uint(sh)) & 0xFFul) : ((col[2] << uint(-sh)) & 0xFFul);
+            uint64_t B0_3 = sh >= 0 ? ((col[3] >> uint(sh)) & 0xFFul) : ((col[3] << uint(-sh)) & 0xFFul);
+            uint64_t B0_4 = sh >= 0 ? ((col[4] >> uint(sh)) & 0xFFul) : ((col[4] << uint(-sh)) & 0xFFul);
+            uint64_t B0_5 = sh >= 0 ? ((col[5] >> uint(sh)) & 0xFFul) : ((col[5] << uint(-sh)) & 0xFFul);
+            uint64_t B0_6 = sh >= 0 ? ((col[6] >> uint(sh)) & 0xFFul) : ((col[6] << uint(-sh)) & 0xFFul);
+            uint64_t B0_7 = sh >= 0 ? ((col[7] >> uint(sh)) & 0xFFul) : ((col[7] << uint(-sh)) & 0xFFul);
+            uint64_t B0_8 = sh >= 0 ? ((col[8] >> uint(sh)) & 0xFFul) : ((col[8] << uint(-sh)) & 0xFFul);
+            uint64_t B0_9 = sh >= 0 ? ((col[9] >> uint(sh)) & 0xFFul) : ((col[9] << uint(-sh)) & 0xFFul);
+            uint64_t P = B0_0 | (B0_1 << 8u) | (B0_2 << 16u) | (B0_3 << 24u) | (B0_4 << 32u) | (B0_5 << 40u) | (B0_6 << 48u) | (B0_7 << 56u);
+            uint64_t Q = B0_8 | (B0_9 << 8u);
+            uint64_t T = transpose8x8(P);
+            uint64_t T2 = transpose8x8(Q);
+            rp1 |= ((T >> 0u) & 0xFFul | (((T2 >> 0u) & 0xFFul) << 8)) << 10u;
+            rp1 |= ((T >> 8u) & 0xFFul | (((T2 >> 8u) & 0xFFul) << 8)) << 0u;
+            rp0 |= ((T >> 16u) & 0xFFul | (((T2 >> 16u) & 0xFFul) << 8)) << 50u;
+            rp0 |= ((T >> 24u) & 0xFFul | (((T2 >> 24u) & 0xFFul) << 8)) << 40u;
+            rp0 |= ((T >> 32u) & 0xFFul | (((T2 >> 32u) & 0xFFul) << 8)) << 30u;
+            rp0 |= ((T >> 40u) & 0xFFul | (((T2 >> 40u) & 0xFFul) << 8)) << 20u;
+            rp0 |= ((T >> 48u) & 0xFFul | (((T2 >> 48u) & 0xFFul) << 8)) << 10u;
+            rp0 |= ((T >> 56u) & 0xFFul | (((T2 >> 56u) & 0xFFul) << 8)) << 0u;
+          } }
+        { int sh = len - 16;
+          if (sh > -8) {
+            uint64_t B1_0 = sh >= 0 ? ((col[0] >> uint(sh)) & 0xFFul) : ((col[0] << uint(-sh)) & 0xFFul);
+            uint64_t B1_1 = sh >= 0 ? ((col[1] >> uint(sh)) & 0xFFul) : ((col[1] << uint(-sh)) & 0xFFul);
+            uint64_t B1_2 = sh >= 0 ? ((col[2] >> uint(sh)) & 0xFFul) : ((col[2] << uint(-sh)) & 0xFFul);
+            uint64_t B1_3 = sh >= 0 ? ((col[3] >> uint(sh)) & 0xFFul) : ((col[3] << uint(-sh)) & 0xFFul);
+            uint64_t B1_4 = sh >= 0 ? ((col[4] >> uint(sh)) & 0xFFul) : ((col[4] << uint(-sh)) & 0xFFul);
+            uint64_t B1_5 = sh >= 0 ? ((col[5] >> uint(sh)) & 0xFFul) : ((col[5] << uint(-sh)) & 0xFFul);
+            uint64_t B1_6 = sh >= 0 ? ((col[6] >> uint(sh)) & 0xFFul) : ((col[6] << uint(-sh)) & 0xFFul);
+            uint64_t B1_7 = sh >= 0 ? ((col[7] >> uint(sh)) & 0xFFul) : ((col[7] << uint(-sh)) & 0xFFul);
+            uint64_t B1_8 = sh >= 0 ? ((col[8] >> uint(sh)) & 0xFFul) : ((col[8] << uint(-sh)) & 0xFFul);
+            uint64_t B1_9 = sh >= 0 ? ((col[9] >> uint(sh)) & 0xFFul) : ((col[9] << uint(-sh)) & 0xFFul);
+            uint64_t P = B1_0 | (B1_1 << 8u) | (B1_2 << 16u) | (B1_3 << 24u) | (B1_4 << 32u) | (B1_5 << 40u) | (B1_6 << 48u) | (B1_7 << 56u);
+            uint64_t Q = B1_8 | (B1_9 << 8u);
+            uint64_t T = transpose8x8(P);
+            uint64_t T2 = transpose8x8(Q);
+            rp2 |= ((T >> 0u) & 0xFFul | (((T2 >> 0u) & 0xFFul) << 8)) << 30u;
+            rp2 |= ((T >> 8u) & 0xFFul | (((T2 >> 8u) & 0xFFul) << 8)) << 20u;
+            rp2 |= ((T >> 16u) & 0xFFul | (((T2 >> 16u) & 0xFFul) << 8)) << 10u;
+            rp2 |= ((T >> 24u) & 0xFFul | (((T2 >> 24u) & 0xFFul) << 8)) << 0u;
+            rp1 |= ((T >> 32u) & 0xFFul | (((T2 >> 32u) & 0xFFul) << 8)) << 50u;
+            rp1 |= ((T >> 40u) & 0xFFul | (((T2 >> 40u) & 0xFFul) << 8)) << 40u;
+            rp1 |= ((T >> 48u) & 0xFFul | (((T2 >> 48u) & 0xFFul) << 8)) << 30u;
+            rp1 |= ((T >> 56u) & 0xFFul | (((T2 >> 56u) & 0xFFul) << 8)) << 20u;
+          } }
+        { int sh = len - 24;
+          if (sh > -8) {
+            uint64_t B2_0 = sh >= 0 ? ((col[0] >> uint(sh)) & 0xFFul) : ((col[0] << uint(-sh)) & 0xFFul);
+            uint64_t B2_1 = sh >= 0 ? ((col[1] >> uint(sh)) & 0xFFul) : ((col[1] << uint(-sh)) & 0xFFul);
+            uint64_t B2_2 = sh >= 0 ? ((col[2] >> uint(sh)) & 0xFFul) : ((col[2] << uint(-sh)) & 0xFFul);
+            uint64_t B2_3 = sh >= 0 ? ((col[3] >> uint(sh)) & 0xFFul) : ((col[3] << uint(-sh)) & 0xFFul);
+            uint64_t B2_4 = sh >= 0 ? ((col[4] >> uint(sh)) & 0xFFul) : ((col[4] << uint(-sh)) & 0xFFul);
+            uint64_t B2_5 = sh >= 0 ? ((col[5] >> uint(sh)) & 0xFFul) : ((col[5] << uint(-sh)) & 0xFFul);
+            uint64_t B2_6 = sh >= 0 ? ((col[6] >> uint(sh)) & 0xFFul) : ((col[6] << uint(-sh)) & 0xFFul);
+            uint64_t B2_7 = sh >= 0 ? ((col[7] >> uint(sh)) & 0xFFul) : ((col[7] << uint(-sh)) & 0xFFul);
+            uint64_t B2_8 = sh >= 0 ? ((col[8] >> uint(sh)) & 0xFFul) : ((col[8] << uint(-sh)) & 0xFFul);
+            uint64_t B2_9 = sh >= 0 ? ((col[9] >> uint(sh)) & 0xFFul) : ((col[9] << uint(-sh)) & 0xFFul);
+            uint64_t P = B2_0 | (B2_1 << 8u) | (B2_2 << 16u) | (B2_3 << 24u) | (B2_4 << 32u) | (B2_5 << 40u) | (B2_6 << 48u) | (B2_7 << 56u);
+            uint64_t Q = B2_8 | (B2_9 << 8u);
+            uint64_t T = transpose8x8(P);
+            uint64_t T2 = transpose8x8(Q);
+            rp3 |= ((T >> 0u) & 0xFFul | (((T2 >> 0u) & 0xFFul) << 8)) << 50u;
+            rp3 |= ((T >> 8u) & 0xFFul | (((T2 >> 8u) & 0xFFul) << 8)) << 40u;
+            rp3 |= ((T >> 16u) & 0xFFul | (((T2 >> 16u) & 0xFFul) << 8)) << 30u;
+            rp3 |= ((T >> 24u) & 0xFFul | (((T2 >> 24u) & 0xFFul) << 8)) << 20u;
+            rp3 |= ((T >> 32u) & 0xFFul | (((T2 >> 32u) & 0xFFul) << 8)) << 10u;
+            rp3 |= ((T >> 40u) & 0xFFul | (((T2 >> 40u) & 0xFFul) << 8)) << 0u;
+            rp2 |= ((T >> 48u) & 0xFFul | (((T2 >> 48u) & 0xFFul) << 8)) << 50u;
+            rp2 |= ((T >> 56u) & 0xFFul | (((T2 >> 56u) & 0xFFul) << 8)) << 40u;
+          } }
+        { int sh = len - 32;
+          if (sh > -8) {
+            uint64_t B3_0 = sh >= 0 ? ((col[0] >> uint(sh)) & 0xFFul) : ((col[0] << uint(-sh)) & 0xFFul);
+            uint64_t B3_1 = sh >= 0 ? ((col[1] >> uint(sh)) & 0xFFul) : ((col[1] << uint(-sh)) & 0xFFul);
+            uint64_t B3_2 = sh >= 0 ? ((col[2] >> uint(sh)) & 0xFFul) : ((col[2] << uint(-sh)) & 0xFFul);
+            uint64_t B3_3 = sh >= 0 ? ((col[3] >> uint(sh)) & 0xFFul) : ((col[3] << uint(-sh)) & 0xFFul);
+            uint64_t B3_4 = sh >= 0 ? ((col[4] >> uint(sh)) & 0xFFul) : ((col[4] << uint(-sh)) & 0xFFul);
+            uint64_t B3_5 = sh >= 0 ? ((col[5] >> uint(sh)) & 0xFFul) : ((col[5] << uint(-sh)) & 0xFFul);
+            uint64_t B3_6 = sh >= 0 ? ((col[6] >> uint(sh)) & 0xFFul) : ((col[6] << uint(-sh)) & 0xFFul);
+            uint64_t B3_7 = sh >= 0 ? ((col[7] >> uint(sh)) & 0xFFul) : ((col[7] << uint(-sh)) & 0xFFul);
+            uint64_t B3_8 = sh >= 0 ? ((col[8] >> uint(sh)) & 0xFFul) : ((col[8] << uint(-sh)) & 0xFFul);
+            uint64_t B3_9 = sh >= 0 ? ((col[9] >> uint(sh)) & 0xFFul) : ((col[9] << uint(-sh)) & 0xFFul);
+            uint64_t P = B3_0 | (B3_1 << 8u) | (B3_2 << 16u) | (B3_3 << 24u) | (B3_4 << 32u) | (B3_5 << 40u) | (B3_6 << 48u) | (B3_7 << 56u);
+            uint64_t Q = B3_8 | (B3_9 << 8u);
+            uint64_t T = transpose8x8(P);
+            uint64_t T2 = transpose8x8(Q);
+            rp5 |= ((T >> 0u) & 0xFFul | (((T2 >> 0u) & 0xFFul) << 8)) << 10u;
+            rp5 |= ((T >> 8u) & 0xFFul | (((T2 >> 8u) & 0xFFul) << 8)) << 0u;
+            rp4 |= ((T >> 16u) & 0xFFul | (((T2 >> 16u) & 0xFFul) << 8)) << 50u;
+            rp4 |= ((T >> 24u) & 0xFFul | (((T2 >> 24u) & 0xFFul) << 8)) << 40u;
+            rp4 |= ((T >> 32u) & 0xFFul | (((T2 >> 32u) & 0xFFul) << 8)) << 30u;
+            rp4 |= ((T >> 40u) & 0xFFul | (((T2 >> 40u) & 0xFFul) << 8)) << 20u;
+            rp4 |= ((T >> 48u) & 0xFFul | (((T2 >> 48u) & 0xFFul) << 8)) << 10u;
+            rp4 |= ((T >> 56u) & 0xFFul | (((T2 >> 56u) & 0xFFul) << 8)) << 0u;
+          } }
+        { int sh = len - 40;
+          if (sh > -8) {
+            uint64_t B4_0 = sh >= 0 ? ((col[0] >> uint(sh)) & 0xFFul) : ((col[0] << uint(-sh)) & 0xFFul);
+            uint64_t B4_1 = sh >= 0 ? ((col[1] >> uint(sh)) & 0xFFul) : ((col[1] << uint(-sh)) & 0xFFul);
+            uint64_t B4_2 = sh >= 0 ? ((col[2] >> uint(sh)) & 0xFFul) : ((col[2] << uint(-sh)) & 0xFFul);
+            uint64_t B4_3 = sh >= 0 ? ((col[3] >> uint(sh)) & 0xFFul) : ((col[3] << uint(-sh)) & 0xFFul);
+            uint64_t B4_4 = sh >= 0 ? ((col[4] >> uint(sh)) & 0xFFul) : ((col[4] << uint(-sh)) & 0xFFul);
+            uint64_t B4_5 = sh >= 0 ? ((col[5] >> uint(sh)) & 0xFFul) : ((col[5] << uint(-sh)) & 0xFFul);
+            uint64_t B4_6 = sh >= 0 ? ((col[6] >> uint(sh)) & 0xFFul) : ((col[6] << uint(-sh)) & 0xFFul);
+            uint64_t B4_7 = sh >= 0 ? ((col[7] >> uint(sh)) & 0xFFul) : ((col[7] << uint(-sh)) & 0xFFul);
+            uint64_t B4_8 = sh >= 0 ? ((col[8] >> uint(sh)) & 0xFFul) : ((col[8] << uint(-sh)) & 0xFFul);
+            uint64_t B4_9 = sh >= 0 ? ((col[9] >> uint(sh)) & 0xFFul) : ((col[9] << uint(-sh)) & 0xFFul);
+            uint64_t P = B4_0 | (B4_1 << 8u) | (B4_2 << 16u) | (B4_3 << 24u) | (B4_4 << 32u) | (B4_5 << 40u) | (B4_6 << 48u) | (B4_7 << 56u);
+            uint64_t Q = B4_8 | (B4_9 << 8u);
+            uint64_t T = transpose8x8(P);
+            uint64_t T2 = transpose8x8(Q);
+            rp6 |= ((T >> 0u) & 0xFFul | (((T2 >> 0u) & 0xFFul) << 8)) << 30u;
+            rp6 |= ((T >> 8u) & 0xFFul | (((T2 >> 8u) & 0xFFul) << 8)) << 20u;
+            rp6 |= ((T >> 16u) & 0xFFul | (((T2 >> 16u) & 0xFFul) << 8)) << 10u;
+            rp6 |= ((T >> 24u) & 0xFFul | (((T2 >> 24u) & 0xFFul) << 8)) << 0u;
+            rp5 |= ((T >> 32u) & 0xFFul | (((T2 >> 32u) & 0xFFul) << 8)) << 50u;
+            rp5 |= ((T >> 40u) & 0xFFul | (((T2 >> 40u) & 0xFFul) << 8)) << 40u;
+            rp5 |= ((T >> 48u) & 0xFFul | (((T2 >> 48u) & 0xFFul) << 8)) << 30u;
+            rp5 |= ((T >> 56u) & 0xFFul | (((T2 >> 56u) & 0xFFul) << 8)) << 20u;
+          } }
+        uint64_t hh = (uint64_t(0x14650FB0u) << 32) | uint64_t(0x739D0383u);
+        uint64_t prime = (uint64_t(0x100u) << 32) | uint64_t(0x000001B3u);
+        hh = (hh ^ hw0) * prime;
+        hh = (hh ^ hw1) * prime;
+        hh = (hh ^ hw2) * prime;
+        hh = (hh ^ flb) * prime;
+        hh = (hh ^ rp0) * prime;
+        hh = (hh ^ rp1) * prime;
+        hh = (hh ^ rp2) * prime;
+        hh = (hh ^ rp3) * prime;
+        hh = (hh ^ rp4) * prime;
+        hh = (hh ^ rp5) * prime;
+        hh = (hh ^ rp6) * prime;
+
+        // ---- accumulated (bound form; same operations as the eval form) ----
+        precise double rw = double(attack) * tab.t[165];
+        if (sDepth == 0) {
+            precise double conv = tab.t[169] * double(max(attack - sPending, 0));
+            rw += conv;
+        }
+        int ck = -1;
+        if (lines > 0) {
+            if (pc_) ck = 8;
+            else if (spin == 1) ck = 4;
+            else if (spin == 2) ck = lines == 1 ? 5 : (lines == 2 ? 6 : 7);
+            else ck = lines == 1 ? 0 : (lines == 2 ? 1 : (lines == 3 ? 2 : 3));
+        }
+        if (ck >= 0) rw += tab.t[156 + ck];
+        if (ck == 4) {
+            double delta = lines == 1 ? tab.t[174] : (lines == 2 ? tab.t[175] : (lines == 3 ? tab.t[176] : 0.0lf));
+            if (delta != 0.0lf) rw += delta;
+        }
+        if (sChain != 0 && lines > 0 && !difficult && !pc_) rw += tab.t[166];
+        if (kind_b == 2 && spin == 0 && sTslot > 0) rw += tab.t[167];
+        precise double acc = sReward + sScale * (rw - tab.t[170] * double(danger));
+
+        // ---- all-exact bound (stage-2B mode 6 arithmetic, verbatim) ----
+        int hcUsed = tab.t[148] < 0.0lf ? holes : 4 * holes;
+        int tsUsed = tab.t[155] > 0.0lf ? 2 : 0;
+        precise double dotHi = 0.0lf;
+        { precise double term = tab.t[145 + 0] * double(maxh); dotHi += term; }
+        { precise double term = tab.t[145 + 1] * double(danger); dotHi += term; }
+        { precise double term = tab.t[145 + 2] * double(holes); dotHi += term; }
+        { precise double term = tab.t[145 + 3] * double(hcUsed); dotHi += term; }
+        { precise double term = tab.t[145 + 4] * double(holeRows); dotHi += term; }
+        { precise double term = tab.t[145 + 5] * double(bump); dotHi += term; }
+        { precise double term = tab.t[145 + 6] * double(bumpSq); dotHi += term; }
+        { precise double term = tab.t[145 + 7] * double(rt); dotHi += term; }
+        { precise double term = tab.t[145 + 8] * double(wellDepth); dotHi += term; }
+        { precise double term = tab.t[145 + 9] * double(extraWells); dotHi += term; }
+        { precise double term = tab.t[145 + 10] * double(tsUsed); dotHi += term; }
+        precise double phiHi = 0.0lf;
+        precise double phiEx = 0.0lf;
+        if (tab.t[177] != 0.0lf) {
+            phiHi = stock_phi(dchain, combo, pending, maxh, tslot, wellDepth, sMult, true);
+            phiEx = stock_phi(dchain, combo, pending, maxh, tslot, wellDepth, sMult, false);
+        }
+        double b2bState = (tab.t[171] != 0.0lf && dchain >= 1) ? tab.t[171] : 0.0lf;
+        precise double factor = sScale * tab.t[168];
+        precise double u = acc + factor * (dotHi + b2bState + phiHi) + 1e-6lf;
+        precise double dHc = factor * tab.t[148] * double(holeCover - hcUsed);
+        precise double dTs2 = factor * tab.t[155] * double(tslot - tsUsed);
+        precise double dPhi = factor * (phiEx - phiHi);
+        precise double uAll = u + dHc + dTs2 + dPhi;
+
+        // ---- pack + write the 16-word record (bxp_a form) ----
+        uint64_t flo = 0ul;
+        flo |= (uint64_t(uint(maxh)) & 0x7Ful) << 0;
+        flo |= (uint64_t(uint(danger)) & 0x3FFul) << 7;
+        flo |= (uint64_t(uint(holes)) & 0x1FFul) << 17;
+        flo |= (uint64_t(uint(holeCover)) & 0x7FFul) << 26;
+        flo |= (uint64_t(uint(holeRows)) & 0x3Ful) << 37;
+        flo |= (uint64_t(uint(bump)) & 0x1FFul) << 43;
+        flo |= (uint64_t(uint(rt)) & 0x1FFul) << 52;
+        flo |= (uint64_t(uint(wellDepth)) & 0x7ul) << 61;
+        uint fhi = uint(bumpSq) | (uint(extraWells) << 14) | (uint(tslot) << 18);
+        uint scA = uint(spin) | (uint(lines) << 2) | ((dead ? 1u : 0u) << 8) | ((pc_ ? 1u : 0u) << 9)
+            | (uint(attack) << 10) | (uint(gc) << 20);
+        uint scB = uint(combo + 1) | (uint(dchain) << 6) | (uint(pending) << 14) | (uint(landed) << 20);
+        uvec2 ub = unpackDouble2x32(uAll);
+        uint rb = child * 4u;
+        rec.q[rb + 0u] = uvec4(uint(hh & 0xFFFFFFFFul), uint(hh >> 32), ub.x, ub.y);
+        rec.q[rb + 1u] = uvec4(0u, 0u, 0u, 0u);
+        rec.q[rb + 2u] = uvec4(0u, 0u, uint(flo & 0xFFFFFFFFul), uint(flo >> 32));
+        rec.q[rb + 3u] = uvec4(fhi, scA, scB, ii);
+        STASH(li * 5u + 0u) = uint(flo & 0xFFFFFFFFul);
+        STASH(li * 5u + 1u) = uint(flo >> 32);
+        STASH(li * 5u + 2u) = fhi;
+        STASH(li * 5u + 3u) = scA;
+        STASH(li * 5u + 4u) = scB;
+
+        // ---- survivor compaction (static tau; bxp_a rule verbatim) ----
+        uint pos = child - pc.childBase;
+        if (uAll > tau || (uAll == tau && pos <= pc.tauPos)) {
+            survived = true;
+            uint s = atomicAdd(survCnt.w[0], 1u);
+            surv.w[pc.survBase + s] = child;
+        }
+    }
+    // ---- local survivor enumeration (uniform subgroup position) ----
+    uvec4 bal = subgroupBallot(survived);
+    uint nSurvL = popc64(packUint2x32(bal.xy));
+    uint mySlot = subgroupExclusiveAdd(survived ? 1u : 0u);
+    if (survived) SURVL(mySlot) = li;
+    barrier();
+    memoryBarrier();
+    barrier();
+
+    // ================= in-wave evaluation (bxp_b arithmetic, verbatim) =================
+    for (uint j0 = 0u; j0 < nSurvL; j0 += 64u) {
+        uint j = j0 + lane;
+        if (j < nSurvL) {
+            uint li2 = SURVL(j);
+            uint child = sChildOff + li2;
+            uint flo_lo = STASH(li2 * 5u + 0u);
+            uint flo_hi = STASH(li2 * 5u + 1u);
+            uint fhi = STASH(li2 * 5u + 2u);
+            uint scA = STASH(li2 * 5u + 3u);
+            uint scB = STASH(li2 * 5u + 4u);
+            uint64_t flo = (uint64_t(flo_hi) << 32) | uint64_t(flo_lo);
+            int maxh = int((flo >> 0) & 0x7Ful);
+            int danger = int((flo >> 7) & 0x3FFul);
+            int holes = int((flo >> 17) & 0x1FFul);
+            int holeCover = int((flo >> 26) & 0x7FFul);
+            int holeRows = int((flo >> 37) & 0x3Ful);
+            int bump = int((flo >> 43) & 0x1FFul);
+            int rt = int((flo >> 52) & 0x1FFul);
+            int wellDepth = int((flo >> 61) & 0x7ul);
+            int bumpSq = int(fhi & 0x3FFFu);
+            int extraWells = int((fhi >> 14) & 0xFu);
+            int tslot = int((fhi >> 18) & 0x3u);
+            int spin = int(scA & 0x3u);
+            int lines = int((scA >> 2) & 0x3Fu);
+            bool pc_ = ((scA >> 9) & 0x1u) != 0u;
+            int attack = int((scA >> 10) & 0x3FFu);
+            int combo = int(scB & 0x3Fu) - 1;
+            int dchain = int((scB >> 6) & 0xFFu);
+            int pending = int((scB >> 14) & 0x3Fu);
+            bool difficult = lines > 0 && (lines == 4 || spin != 0 || pc_);
+
+            precise double reward = double(attack) * tab.t[165];
+            if (sDepth == 0) {
+                precise double conv = tab.t[169] * double(max(attack - sPending, 0));
+                reward += conv;
+            }
+            int ck = -1;
+            if (lines > 0) {
+                if (pc_) ck = 8;
+                else if (spin == 1) ck = 4;
+                else if (spin == 2) ck = lines == 1 ? 5 : (lines == 2 ? 6 : 7);
+                else ck = lines == 1 ? 0 : (lines == 2 ? 1 : (lines == 3 ? 2 : 3));
+            }
+            if (ck >= 0) reward += tab.t[156 + ck];
+            if (ck == 4) {
+                double delta = lines == 1 ? tab.t[174] : (lines == 2 ? tab.t[175] : (lines == 3 ? tab.t[176] : 0.0lf));
+                if (delta != 0.0lf) reward += delta;
+            }
+            if (sChain != 0 && lines > 0 && !difficult && !pc_) reward += tab.t[166];
+            if (sKind == 2 && spin == 0 && sTslot > 0) reward += tab.t[167];
+            precise double accumulated = sReward + sScale * (reward - tab.t[170] * double(danger));
+            precise double phi = 0.0lf;
+            if (tab.t[177] != 0.0lf) {
+                phi = stock_phi(dchain, combo, pending, maxh, tslot, wellDepth, sMult, false);
+            }
+            precise double dot = 0.0lf;
+            { precise double term = double(maxh) * tab.t[145 + 0]; dot += term; }
+            { precise double term = double(danger) * tab.t[145 + 1]; dot += term; }
+            { precise double term = double(holes) * tab.t[145 + 2]; dot += term; }
+            { precise double term = double(holeCover) * tab.t[145 + 3]; dot += term; }
+            { precise double term = double(holeRows) * tab.t[145 + 4]; dot += term; }
+            { precise double term = double(bump) * tab.t[145 + 5]; dot += term; }
+            { precise double term = double(bumpSq) * tab.t[145 + 6]; dot += term; }
+            { precise double term = double(rt) * tab.t[145 + 7]; dot += term; }
+            { precise double term = double(wellDepth) * tab.t[145 + 8]; dot += term; }
+            { precise double term = double(extraWells) * tab.t[145 + 9]; dot += term; }
+            { precise double term = double(tslot) * tab.t[145 + 10]; dot += term; }
+            double b2bState = (tab.t[171] != 0.0lf && dchain >= 1) ? tab.t[171] : 0.0lf;
+            precise double br = dot;
+            br += b2bState;
+            br += 0.0lf;
+            br += 0.0lf;
+            br += phi;
+            br -= 0.0lf;
+            precise double sd = sScale * tab.t[168];
+            precise double value = accumulated + sd * br;
+
+            uvec2 vb = unpackDouble2x32(value);
+            uint64_t vbits;
+            if (value == 0.0lf) vbits = 0ul;
+            else vbits = (uint64_t(vb.y) << 32) | uint64_t(vb.x);
+            uint64_t ord = (vbits >> 63) != 0ul ? ~vbits : (vbits | 0x8000000000000000ul);
+            uint64_t keyK = ~ord;
+
+            uvec2 ab = unpackDouble2x32(accumulated);
+            uint rb = child * 4u;
+            rec.q[rb + 1u] = uvec4(vb.x, vb.y, ab.x, ab.y);
+            rec.q[rb + 2u] = uvec4(uint(keyK & 0xFFFFFFFFul), uint(keyK >> 32), flo_lo, flo_hi);
+        }
+    }
+
+    // ================= plc byproduct (bxp_a input format) =================
+    if (sEmitPlc != 0u && lane < sNChild) {
+        uint r = PLACE(lane);
+        uint child = sChildOff + lane;
+        plc.w[child * 2u] = uint(sKind) | ((r & 3u) << 8) | (((r >> 4) & 0xFFu) << 16) | (((r >> 12) & 0xFFu) << 24);
+        plc.w[child * 2u + 1u] = (r >> 20) & 7u;
+    }
+
+    if (lane == 0u) status.w[ii] = (sErr & 0xFFu) | ((iters & 0xFFu) << 8) | (sNChild << 16);
+}
+
+// ================= selection stage bodies =================
+// Ports of the stage-3 final forms (3B v5 + 3C integrated dedupe)
+// into the resident kernel. Differences from the basic forms are
+// structural only: child-direct iteration (list positions replaced
+// by ply-local child offsets — order-isomorphic, so every tie-break
+// resolves identically), 64-lane workgroup-0 scans instead of
+// 1024/256-lane ones, and LDS key staging dropped (keys read from
+// the global ord caches; the kept arrays alias BPX's shared, which
+// is dead by S3). Semantics follow the originals line for line.
+#define PFXIDX 188800u
+shared uint p_p0;
+shared uint p_digit;
+shared uint p_acc;
+shared uint p_total;
+shared uint p_nextIdxA;
+shared uint p_snext;
+shared uint p_cand;
+shared bool p_narrow;
+shared bool p_arm;
+shared uint64_t j_nextOrd;
+shared uint j_nextIdx;
+shared uint j_hasNext;
+shared uint h_nAlive, h_nReps, h_nSel, h_nEval, h_rounds, h_nSurv;
+
+uint pfMsb64(uint64_t x) {
+  uint hi = uint(x >> 32);
+  return hi != 0u ? 32u + uint(findMSB(hi)) : uint(findMSB(uint(x)));
+}
+uint64_t selKeyOf(uint keysOff, uint i) {
+  return (uint64_t(state.u[keysOff + 2u * i + 1u]) << 32) | uint64_t(state.u[keysOff + 2u * i]);
+}
+uint selIdOf(bool ev, uint i) { return ev ? state.u[EVLIST + 2u * i] : state.u[REPSGEN + i]; }
+uint64_t selKeyGet(uint i) { return i < 64u ? sF[i] : packUint2x32(uvec2(pool[2u * (i - 64u)], pool[2u * (i - 64u) + 1u])); }
+void selKeySet(uint i, uint64_t v) { if (i < 64u) sF[i] = v; else { uvec2 u = unpackUint2x32(v); pool[2u * (i - 64u)] = u.x; pool[2u * (i - 64u) + 1u] = u.y; } }
+
+// ---- prefix-P: sel_prefix4's adaptive radix select at 64 lanes ----
+// Output: PREFIXB/PFXIDX = [keys > T in index order] ++ [keys == T
+// in index order, first `need`]; STATS pfx size / nGt; next-rep
+// capture (STATS next key/idx/hasNext) = the element at rank b.
+void prefixP(uint keysOff, uint n, uint b, bool ev, uint64_t mn, uint64_t mx) {
+  uint lane = gl_LocalInvocationIndex;
+  for (uint j = lane * 4u; j < lane * 4u + 4u; j++) pool[j] = 0u;
+  if (ev && state.u[STATS + ST_EVST0 + 0u] == n && state.u[STATS + ST_EVST0 + 1u] == b
+      && state.u[STATS + ST_EVST0 + 2u] == uint(mn) && state.u[STATS + ST_EVST0 + 3u] == uint(mn >> 32)
+      && state.u[STATS + ST_EVST0 + 4u] == uint(mx) && state.u[STATS + ST_EVST0 + 5u] == uint(mx >> 32)
+      && state.u[STATS + ST_EVST0 + 6u] == state.u[STATS + ST_EVGEN]) {
+    if (lane == 0u) {
+      p_T = (uint64_t(state.u[STATS + ST_EVST0 + 8u]) << 32) | uint64_t(state.u[STATS + ST_EVST0 + 7u]);
+      p_need = state.u[STATS + ST_EVST0 + 9u];
+    }
+    barrier();
+    return;
+  }
+  if (b >= n) {
+    for (uint i = lane; i < n; i += 64u) {
+      state.u[PREFIXB + i] = selIdOf(ev, i);
+      state.u[PFXIDX + i] = i;
+    }
+    barrier();
+    if (lane == 0u) {
+      state.u[STATS + ST_PFXSZ] = n;
+      state.u[STATS + ST_NGT] = n;
+      state.u[STATS + ST_HASNEXT] = 0u;
+    }
+    barrier();
+    return;
+  }
+  if (lane == 0u) {
+    uint64_t xr = mn ^ mx;
+    p_rem = b;
+    if (xr == 0ul) {
+      p_p0 = 8u;
+      p_T = mn;
+      p_need = b;
+      p_prefix = mn;
+    } else {
+      uint p0 = (63u - pfMsb64(xr)) >> 3;
+      p_p0 = p0;
+      p_prefix = (p0 == 0u) ? 0ul : (mn >> (64u - 8u * p0));
+    }
+    p_nextIdxA = 0xFFFFFFFFu;
+    p_tauIdx = 0xFFFFFFFFu;
+    p_narrow = false;
+    p_arm = false;
+    p_cand = 0u;
+  }
+  barrier();
+  if (p_p0 < 8u) {
+    for (uint p = p_p0; p < 8u; p++) {
+      uint shift = 56u - 8u * p;
+      if (p_narrow) {
+        for (uint t = lane; t < p_cand; t += 64u) {
+          uint i = state.u[TABFP + t];
+          uint64_t key = selKeyOf(keysOff, i);
+          if ((key >> (shift + 8u)) == p_prefix)
+            atomicAdd(pool[uint((key >> shift) & 0xFFul)], 1u);
+        }
+      } else {
+        for (uint i = lane; i < n; i += 64u) {
+          uint64_t key = selKeyOf(keysOff, i);
+          if (p == 0u || (key >> (shift + 8u)) == p_prefix) {
+            atomicAdd(pool[uint((key >> shift) & 0xFFul)], 1u);
+            if (p_arm) {
+              uint s = atomicAdd(p_cand, 1u);
+              state.u[TABFP + s] = i;
+            }
+          }
+        }
+      }
+      barrier();
+      uint ls = pool[lane * 4u] + pool[lane * 4u + 1u] + pool[lane * 4u + 2u] + pool[lane * 4u + 3u];
+      uint incl = subgroupInclusiveAdd(ls);
+      uint total = subgroupBroadcast(incl, 63u);
+      if (lane == 63u) p_total = incl;
+      uint run = incl - ls;
+      for (uint j = 0u; j < 4u; j++) {
+        uint bin = lane * 4u + j;
+        uint hd = pool[bin];
+        run += hd;
+        uint greater = total - run;
+        if (greater < p_rem && p_rem <= greater + hd) { p_digit = bin; p_acc = greater; p_snext = hd; }
+      }
+      barrier();
+      if (lane == 0u) {
+        p_prefix = (p_prefix << 8) | uint64_t(p_digit);
+        p_rem -= p_acc;
+        if (p == 7u) { p_T = p_prefix; p_need = p_rem; }
+      }
+      for (uint j = lane * 4u; j < lane * 4u + 4u; j++) pool[j] = 0u;
+      barrier();
+      if (!p_narrow && p_arm) {
+        if (lane == 0u) { p_narrow = true; p_arm = false; }
+        barrier();
+      } else if (!p_narrow && !p_arm && p + 2u < 8u && p_snext <= 512u && n > 512u) {
+        if (lane == 0u) { p_cand = 0u; p_arm = true; }
+        barrier();
+      }
+    }
+  }
+  uint64_t T = p_T;
+  uint need = p_need;
+  // ---- r10fus: one key scan; 2-bit classes staged in TABFP scratch ----
+  uint K = (n + 63u) / 64u;
+  uint lo = lane * K;
+  uint hi = min(n, lo + K);
+  uint cntA = 0u, cntB = 0u;
+  uint64_t bestKey = 0ul;
+  uint bestIdx = 0xFFFFFFFFu;
+  uint clsW = 0u;
+  for (uint i = lo; i < hi; i++) {
+    uint64_t k = selKeyOf(keysOff, i);
+    uint c = 0u;
+    if (k > T) { cntA++; c = 2u; }
+    else if (k == T) { cntB++; c = 1u; }
+    else if (bestIdx == 0xFFFFFFFFu || k > bestKey) { bestKey = k; bestIdx = i; }
+    uint t = i - lo;
+    clsW |= c << (2u * (t & 15u));
+    if ((t & 15u) == 15u || i + 1u == hi) {
+      state.u[TABFP + 16384u + lane * 8u + (t >> 4)] = clsW;
+      clsW = 0u;
+    }
+  }
+  pool[256u + lane] = subgroupInclusiveAdd(cntA);
+  pool[320u + lane] = subgroupInclusiveAdd(cntB);
+  uint offA = pool[256u + lane] - cntA;
+  uint offB = pool[320u + lane] - cntB;
+  uint totA = pool[256u + 63u];
+  barrier();
+  uint wA = offA, rB = offB;
+  uint curW = 0u;
+  for (uint i = lo; i < hi; i++) {
+    uint t = i - lo;
+    if ((t & 15u) == 0u) curW = state.u[TABFP + 16384u + lane * 8u + (t >> 4)];
+    uint c = (curW >> (2u * (t & 15u))) & 3u;
+    if (c == 2u) {
+      state.u[PREFIXB + wA] = selIdOf(ev, i);
+      state.u[PFXIDX + wA] = i;
+      wA++;
+    } else if (c == 1u) {
+      if (rB == need - 1u) p_tauIdx = i;
+      if (rB < need) {
+        state.u[PREFIXB + totA + rB] = selIdOf(ev, i);
+        state.u[PFXIDX + totA + rB] = i;
+      }
+      if (rB == need) p_nextIdxA = i;
+      rB++;
+    }
+  }
+  uint bkLo = uint(bestKey);
+  uint bkHi = uint(bestKey >> 32);
+  uint bIdx = bestIdx;
+  for (uint off = 32u; off > 0u; off >>= 1) {
+    uint oLo = subgroupShuffleXor(bkLo, off);
+    uint oHi = subgroupShuffleXor(bkHi, off);
+    uint oIx = subgroupShuffleXor(bIdx, off);
+    if (oIx != 0xFFFFFFFFu && (bIdx == 0xFFFFFFFFu || oHi > bkHi || (oHi == bkHi && (oLo > bkLo || (oLo == bkLo && oIx < bIdx))))) {
+      bkLo = oLo; bkHi = oHi; bIdx = oIx;
+    }
+  }
+  barrier();
+  if (lane == 0u) {
+    state.u[STATS + ST_PFXSZ] = totA + need;
+    state.u[STATS + ST_NGT] = totA;
+    if (p_nextIdxA != 0xFFFFFFFFu) {
+      state.u[STATS + ST_NKEYLO] = uint(T);
+      state.u[STATS + ST_NKEYHI] = uint(T >> 32);
+      state.u[STATS + ST_NIDX] = p_nextIdxA;
+      state.u[STATS + ST_HASNEXT] = 1u;
+    } else if (bIdx != 0xFFFFFFFFu) {
+      state.u[STATS + ST_NKEYLO] = bkLo;
+      state.u[STATS + ST_NKEYHI] = bkHi;
+      state.u[STATS + ST_NIDX] = bIdx;
+      state.u[STATS + ST_HASNEXT] = 1u;
+    } else {
+      state.u[STATS + ST_HASNEXT] = 0u;
+    }
+  }
+  barrier();
+  if (ev && lane == 0u) {
+    state.u[STATS + ST_EVST0 + 0u] = n;
+    state.u[STATS + ST_EVST0 + 1u] = b;
+    state.u[STATS + ST_EVST0 + 2u] = uint(mn);
+    state.u[STATS + ST_EVST0 + 3u] = uint(mn >> 32);
+    state.u[STATS + ST_EVST0 + 4u] = uint(mx);
+    state.u[STATS + ST_EVST0 + 5u] = uint(mx >> 32);
+    state.u[STATS + ST_EVST0 + 6u] = state.u[STATS + ST_EVGEN];
+    state.u[STATS + ST_EVST0 + 7u] = uint(p_T);
+    state.u[STATS + ST_EVST0 + 8u] = uint(p_T >> 32);
+    state.u[STATS + ST_EVST0 + 9u] = p_need;
+  }
+}
+
+// ---- S2: dedupe phase A (rec_dedup_m form, child-direct) ----
+void dedupeA(uint ply) {
+  uint childBase = plyCB(ply);
+  uint nch = plyNch(ply);
+  uint tid = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
+  uint tt = g_nwg * 64u;
+  for (uint coff = tid; coff < nch; coff += tt) {
+    uint child = childBase + coff;
+    if (childDead(child)) continue;
+    uint64_t fp = (uint64_t(recw.w[child * 16u + 1u]) << 32) | uint64_t(recw.w[child * 16u + 0u]);
+    uint64_t ord = recOrdU(child);
+    uint slot = uint(sm64(fp)) & 16383u;
+    bool found = false;
+    for (uint it = 0u; it <= 16383u; it++) {
+      uint64_t cur = atomicCompSwap(tabfp.v[slot], EMPTY64, fp);
+      if (cur == EMPTY64 || cur == fp) { found = true; break; }
+      slot = (slot + 1u) & 16383u;
+    }
+    if (found) {
+      state.u[SLOTOF + coff] = slot;
+      atomicMax(tabord.v[slot], ord);
+    } else {
+      state.u[SLOTOF + coff] = 0xFFFFFFFFu;
+    }
+  }
+}
+
+// ---- S3 head: dedupe phase B (min generation among max-ord) ----
+void dedupeB(uint ply) {
+  uint childBase = plyCB(ply);
+  uint nch = plyNch(ply);
+  uint tid = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
+  uint tt = g_nwg * 64u;
+  for (uint coff = tid; coff < nch; coff += tt) {
+    uint child = childBase + coff;
+    if (childDead(child)) continue;
+    uint slot = state.u[SLOTOF + coff];
+    if (slot == 0xFFFFFFFFu) continue;
+    uint64_t tmax = tabord.v[slot];
+    if (recOrdU(child) == tmax) atomicMin(state.u[TABMETA + 2u * slot], coff);
+  }
+}
+
+// ---- emit + order (WG 0): representatives in generation order ----
+void emitOrder(uint ply) {
+  uint lane = gl_LocalInvocationIndex;
+  uint childBase = plyCB(ply);
+  uint nch = plyNch(ply);
+  uint K = (nch + 63u) / 64u;
+  uint lo = lane * K;
+  uint hi = min(nch, lo + K);
+  uint myRep = 0u, myAlive = 0u;
+  for (uint coff = lo; coff < hi; coff++) {
+    uint child = childBase + coff;
+    if (childDead(child)) continue;
+    myAlive++;
+    uint slot = state.u[SLOTOF + coff];
+    if (slot == 0xFFFFFFFFu) continue;
+    if (recOrdU(child) == tabord.v[slot] && coff == state.u[TABMETA + 2u * slot]) myRep++;
+  }
+  eo_a[lane] = subgroupInclusiveAdd(myRep);
+  eo_b[lane] = subgroupInclusiveAdd(myAlive);
+  barrier();
+  uint off = eo_a[lane] - myRep;
+  for (uint coff = lo; coff < hi; coff++) {
+    uint child = childBase + coff;
+    if (childDead(child)) continue;
+    uint slot = state.u[SLOTOF + coff];
+    if (slot == 0xFFFFFFFFu) continue;
+    if (recOrdU(child) == tabord.v[slot] && coff == state.u[TABMETA + 2u * slot])
+      state.u[REPSGEN + off++] = child;
+  }
+  if (lane == 0u) {
+    state.u[STATS + ST_NREPS] = eo_a[63];
+    state.u[STATS + ST_NALIVE] = eo_b[63];
+  }
+  barrier();
+}
+
+// ---- emitOrder grid phase (p2): canonical emitOrder split over
+// contiguous coff blocks, one per WG. REPSGEN order is identical:
+// blocks ascend, and inside a WG the lane sub-ranges ascend, so the
+// concatenation is exactly the canonical coff-ascending sequence.
+// Counts/offsets scratch: REPSORD[0..384), dead until cacheStage
+// refills REPSORD later in the ply (layout supports nwg <= 128). ----
+#define EO_REPC (REPSORD)
+#define EO_ALVC (REPSORD + 128u)
+#define EO_ROFF (REPSORD + 256u)
+bool emitOrderPX(uint ply, inout uint bk) {
+  uint wg = gl_WorkGroupID.x;
+  uint lane = gl_LocalInvocationIndex;
+  uint childBase = plyCB(ply);
+  uint nch = plyNch(ply);
+  uint nwg = g_nwg;
+  uint base = nch / nwg, rem = nch % nwg;
+  uint blo = wg * base + min(wg, rem);
+  uint bhi = blo + base + (wg < rem ? 1u : 0u);
+  uint nb = bhi - blo;
+  uint K = (nb + 63u) / 64u;
+  uint lo = blo + lane * K;
+  uint hi = min(bhi, lo + K);
+  uint myRep = 0u, myAlive = 0u;
+  for (uint coff = lo; coff < hi; coff++) {
+    uint child = childBase + coff;
+    if (childDead(child)) continue;
+    myAlive++;
+    uint slot = state.u[SLOTOF + coff];
+    if (slot == 0xFFFFFFFFu) continue;
+    if (recOrdU(child) == tabord.v[slot] && coff == state.u[TABMETA + 2u * slot]) myRep++;
+  }
+  eo_a[lane] = subgroupInclusiveAdd(myRep);
+  eo_b[lane] = subgroupInclusiveAdd(myAlive);
+  barrier();
+  if (lane == 0u) {
+    state.u[EO_REPC + wg] = eo_a[63];
+    state.u[EO_ALVC + wg] = eo_b[63];
+  }
+  if (gbar(bk++)) return true;
+  // r6g1: strided fan-in -- 64 lanes cover up to 128 entries
+  // (EO scratch layout limit). nwg <= 64: same mapping and
+  // summation order as the original one-lane-per-entry form.
+  if (wg == 0u) {
+    for (uint e = lane; e < nwg; e += 64u) {
+      uint r = 0u, a = 0u;
+      for (uint w = 0u; w < e; w++) {
+        r += state.u[EO_REPC + w];
+        a += state.u[EO_ALVC + w];
+      }
+      state.u[EO_ROFF + e] = r;
+      if (e == nwg - 1u) {
+        state.u[STATS + ST_NREPS] = r + state.u[EO_REPC + e];
+        state.u[STATS + ST_NALIVE] = a + state.u[EO_ALVC + e];
+      }
+    }
+  }
+  if (gbar(bk++)) return true;
+  uint off = state.u[EO_ROFF + wg] + eo_a[lane] - myRep;
+  for (uint coff = lo; coff < hi; coff++) {
+    uint child = childBase + coff;
+    if (childDead(child)) continue;
+    uint slot = state.u[SLOTOF + coff];
+    if (slot == 0xFFFFFFFFu) continue;
+    if (recOrdU(child) == tabord.v[slot] && coff == state.u[TABMETA + 2u * slot])
+      state.u[REPSGEN + off++] = child;
+  }
+  return false;
+}
+
+// ---- repsOrd cache + min/max (sel_cache2 form) ----
+void cacheStage(uint ply) {
+  uint nReps = state.u[STATS + ST_NREPS];
+  uint tid = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
+  uint tt = g_nwg * 64u;
+  for (uint j = tid; j < nReps; j += tt) {
+    uint child = state.u[REPSGEN + j];
+    uint64_t k = recOrdU(child);
+    state.u[REPSORD + 2u * j] = uint(k);
+    state.u[REPSORD + 2u * j + 1u] = uint(k >> 32);
+    atomicMin(mmu.v[0], k);
+    atomicMax(mmu.v[1], k);
+  }
+}
+
+// ---- one B&B round head (WG 0): prefix + chunk build ----
+void prefixAndChunk(uint ply, uint bcur) {
+  uint lane = gl_LocalInvocationIndex;
+  uint nReps = state.u[STATS + ST_NREPS];
+  prefixP(REPSORD, nReps, bcur, false, mmu.v[0], mmu.v[1]);
+  if (lane == 0u) c_cnt = 0u;
+  barrier();
+  uint childBase = plyCB(ply);
+  uint nEval0 = state.u[STATS + ST_NEVAL];
+  for (uint j = lane; j < bcur; j += 64u) {
+    uint child = state.u[PREFIXB + j];
+    uint coff = child - childBase;
+    uint old = atomicOr(state.u[EVALCH + coff], 1u);
+    if (old == 0u) {
+      uint s = atomicAdd(c_cnt, 1u);
+      state.u[CHUNKB + s] = child;
+      surv.w[OEVAL + ply * 8192u + nEval0 + s] = child;
+    }
+  }
+  barrier();
+  if (lane == 0u) {
+    state.u[STATS + ST_CN] = c_cnt;
+    state.u[STATS + ST_NEVAL] = nEval0 + c_cnt;
+  }
+  barrier();
+}
+
+// ---- pass B: bxp_b.comp main body, mechanically extracted ----
+// (bindings renamed: inst->inst48, plc->plcin, surv->chunkb;
+// helpers ln1p125/clip6/clip8/s2surge/combo_raw/stock_phi are the
+// BPX section's own copies, which bpxl.comp carries verbatim.)
+void passBOne(uint si) {
+    uint child = chunkb.w[si];
+    uint rb = child * 4u;
+    uvec4 q2 = rec.q[rb + 2u];
+    uvec4 q3 = rec.q[rb + 3u];
+
+    // ---- unpack features ----
+    uint64_t flo = (uint64_t(q2.w) << 32) | uint64_t(q2.z);
+    int maxh = int((flo >> 0) & 0x7Ful);
+    int danger = int((flo >> 7) & 0x3FFul);
+    int holes = int((flo >> 17) & 0x1FFul);
+    int holeCover = int((flo >> 26) & 0x7FFul);
+    int holeRows = int((flo >> 37) & 0x3Ful);
+    int bump = int((flo >> 43) & 0x1FFul);
+    int rt = int((flo >> 52) & 0x1FFul);
+    int wellDepth = int((flo >> 61) & 0x7ul);
+    uint fhi = q3.x;
+    int bumpSq = int(fhi & 0x3FFFu);
+    int extraWells = int((fhi >> 14) & 0xFu);
+    int tslot = int((fhi >> 18) & 0x3u);
+
+    // ---- unpack scalars ----
+    uint scA = q3.y;
+    int spin = int(scA & 0x3u);
+    int lines = int((scA >> 2) & 0x3Fu);
+    bool pc_ = ((scA >> 9) & 0x1u) != 0u;
+    int attack = int((scA >> 10) & 0x3FFu);
+    uint scB = q3.z;
+    int combo = int(scB & 0x3Fu) - 1;
+    int dchain = int((scB >> 6) & 0xFFu);
+    int pending = int((scB >> 14) & 0x3Fu);
+    bool difficult = lines > 0 && (lines == 4 || spin != 0 || pc_);
+
+    // ---- parent instance scalars ----
+    uint ii = q3.w;
+    uint ib = ii * 48u;
+    int sDepth = int(inst48.w[ib + 1u]);
+    int sChain = int(inst48.w[ib + 38u]);
+    int sPending = int(inst48.w[ib + 39u]);
+    int sTslot = int(inst48.w[ib + 41u]);
+    double sReward = packDouble2x32(uvec2(inst48.w[ib + 42u], inst48.w[ib + 43u]));
+    double sMult = packDouble2x32(uvec2(inst48.w[ib + 44u], inst48.w[ib + 45u]));
+    double sScale = packDouble2x32(uvec2(inst48.w[ib + 46u], inst48.w[ib + 47u]));
+    int kind = int(plcin.w[child * 2u] & 0xFFu);
+
+    // ---- full evaluation (stage-2B eval arithmetic, verbatim) ----
+    precise double reward = double(attack) * tab.t[165];
+    if (sDepth == 0) {
+        precise double conv = tab.t[169] * double(max(attack - sPending, 0));
+        reward += conv;
+    }
+    int ck = -1;
+    if (lines > 0) {
+        if (pc_) ck = 8;
+        else if (spin == 1) ck = 4;
+        else if (spin == 2) ck = lines == 1 ? 5 : (lines == 2 ? 6 : 7);
+        else ck = lines == 1 ? 0 : (lines == 2 ? 1 : (lines == 3 ? 2 : 3));
+    }
+    if (ck >= 0) reward += tab.t[156 + ck];
+    if (ck == 4) {
+        double delta = lines == 1 ? tab.t[174] : (lines == 2 ? tab.t[175] : (lines == 3 ? tab.t[176] : 0.0lf));
+        if (delta != 0.0lf) reward += delta;
+    }
+    if (sChain != 0 && lines > 0 && !difficult && !pc_) reward += tab.t[166];
+    if (kind == 2 && spin == 0 && sTslot > 0) reward += tab.t[167];
+    precise double accumulated = sReward + sScale * (reward - tab.t[170] * double(danger));
+    precise double phi = 0.0lf;
+    if (tab.t[177] != 0.0lf) {
+        phi = stock_phi(dchain, combo, pending, maxh, tslot, wellDepth, sMult, false);
+    }
+    precise double dot = 0.0lf;
+    { precise double term = double(maxh) * tab.t[145 + 0]; dot += term; }
+    { precise double term = double(danger) * tab.t[145 + 1]; dot += term; }
+    { precise double term = double(holes) * tab.t[145 + 2]; dot += term; }
+    { precise double term = double(holeCover) * tab.t[145 + 3]; dot += term; }
+    { precise double term = double(holeRows) * tab.t[145 + 4]; dot += term; }
+    { precise double term = double(bump) * tab.t[145 + 5]; dot += term; }
+    { precise double term = double(bumpSq) * tab.t[145 + 6]; dot += term; }
+    { precise double term = double(rt) * tab.t[145 + 7]; dot += term; }
+    { precise double term = double(wellDepth) * tab.t[145 + 8]; dot += term; }
+    { precise double term = double(extraWells) * tab.t[145 + 9]; dot += term; }
+    { precise double term = double(tslot) * tab.t[145 + 10]; dot += term; }
+    double b2bState = (tab.t[171] != 0.0lf && dchain >= 1) ? tab.t[171] : 0.0lf;
+    precise double br = dot;
+    br += b2bState;
+    br += 0.0lf;
+    br += 0.0lf;
+    br += phi;
+    br -= 0.0lf;
+    precise double sd = sScale * tab.t[168];
+    precise double value = accumulated + sd * br;
+
+    // ---- K (production ord_key, verbatim from stage-2B) ----
+    uvec2 vb = unpackDouble2x32(value);
+    uint64_t vbits;
+    if (value == 0.0lf) vbits = 0ul;
+    else vbits = (uint64_t(vb.y) << 32) | uint64_t(vb.x);
+    uint64_t ord = (vbits >> 63) != 0ul ? ~vbits : (vbits | 0x8000000000000000ul);
+    uint64_t keyK = ~ord;
+
+    // ---- write back (words 4-9; preserve feature words in q2.zw) ----
+    uvec2 ab = unpackDouble2x32(accumulated);
+    rec.q[rb + 1u] = uvec4(vb.x, vb.y, ab.x, ab.y);
+    rec.q[rb + 2u] = uvec4(uint(keyK & 0xFFFFFFFFul), uint(keyK >> 32), q2.z, q2.w);
+}
+
+void passBStage(uint ply) {
+  uint cn = state.u[STATS + ST_CN];
+  uint tid = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
+  uint tt = g_nwg * 64u;
+  for (uint si = tid; si < cn; si += tt) passBOne(si);
+}
+
+// ---- judgePrePX (round-2 B): the EVLIST build of canonical
+// judgeStage, distributed over all WGs with ZERO added grid
+// barriers (the bk sequence is unchanged). Phase 1 (per-WG EVALCH
+// counts) rides the A_r->B_r window: EVALCH membership is final
+// before A_r (prefixAndChunk), only the value bits wait for B_r.
+// Phase 2 (the build) rides the B_r->C_r window; each WG's start
+// offset is a redundant sum of JP_CNT[<wg] (no rendezvous), blocks
+// concatenate in wg order, and inside a block slots are assigned by
+// the same shared-atomic wave mechanism as canonical, so EVLIST
+// comes out coff-ascending, byte-identical to canonical's order.
+// WG0's tau half then waits on the one-way JP_DONE counter (same
+// spin/error machinery as gbar, but not a gbar). Scratch: TABMETA
+// head (dead after dedupe; the jpx variant drill-passed JP_CNT in
+// the same place). ----
+#define JP_CNT  (TABMETA)
+#define JP_DONE (TABMETA + 128u)
+
+void judgeBlock(uint nch, uint wg, out uint blo, out uint bhi) {
+  uint base = nch / g_nwg, rem = nch % g_nwg;
+  blo = wg * base + min(wg, rem);
+  bhi = blo + base + (wg < rem ? 1u : 0u);
+}
+
+void judgePreCount(uint ply) {
+  uint wg = gl_WorkGroupID.x;
+  uint lane = gl_LocalInvocationIndex;
+  uint nch = plyNch(ply);
+  uint blo, bhi;
+  judgeBlock(nch, wg, blo, bhi);
+  if (lane == 0u) j_cnt = 0u;
+  barrier();
+  uint mine = 0u;
+  for (uint coff = blo + lane; coff < bhi; coff += 64u)
+    if (state.u[EVALCH + coff] != 0u) mine++;
+  if (mine != 0u) atomicAdd(j_cnt, mine);
+  barrier();
+  if (lane == 0u) state.u[JP_CNT + wg] = j_cnt;
+  if (wg == 0u && lane == 0u) {
+    mmv.v[0] = 0xFFFFFFFFFFFFFFFFul;
+    mmv.v[1] = 0ul;
+    state.u[JP_DONE] = 0u;
+    state.u[STATS + ST_EVGEN] += 1u;
+  }
+  barrier();
+}
+
+void judgeBuildPX2(uint ply) {
+  uint wg = gl_WorkGroupID.x;
+  uint lane = gl_LocalInvocationIndex;
+  uint childBase = plyCB(ply);
+  uint nch = plyNch(ply);
+  uint blo, bhi;
+  judgeBlock(nch, wg, blo, bhi);
+  uint off = 0u;
+  for (uint w = 0u; w < wg; w++) off += state.u[JP_CNT + w];
+  if (lane == 0u) j_cnt = 0u;
+  barrier();
+  for (uint coff = blo + lane; coff < bhi; coff += 64u) {
+    if (state.u[EVALCH + coff] == 0u) continue;
+    uint child = childBase + coff;
+    uint s = off + atomicAdd(j_cnt, 1u);
+    state.u[EVLIST + 2u * s] = child;
+    state.u[EVLIST + 2u * s + 1u] = coff;
+    uint64_t vb = recValBits(child);
+    uint64_t k = ordOfBits(vb);
+    state.u[EVORD + 2u * s] = uint(k);
+    state.u[EVORD + 2u * s + 1u] = uint(k >> 32);
+    atomicMin(mmv.v[0], k);
+    atomicMax(mmv.v[1], k);
+  }
+  barrier();
+  if (lane == 0u) {
+    memoryBarrierBuffer();
+    atomicAdd(state.u[JP_DONE], 1u);
+  }
+}
+
+// ---- B&B judge, tau half (WG 0): selg's host loop, on device ----
+// Computes tau from the evaluated set (built by judgeBuildPX2),
+// applies selg's stop rule against the next unevaluated
+// representative captured by this round's prefix-P. c_cnt (dead in
+// this window; prefixAndChunk resets it next round) carries the
+// JP_DONE spin-error flag across the WG barrier.
+bool judgeTauStage(uint ply) {
+  uint lane = gl_LocalInvocationIndex;
+  uint childBase = plyCB(ply);
+  if (lane == 0u) {
+    j_nextOrd = (uint64_t(state.u[STATS + ST_NKEYHI]) << 32) | uint64_t(state.u[STATS + ST_NKEYLO]);
+    j_nextIdx = state.u[STATS + ST_NIDX];
+    j_hasNext = state.u[STATS + ST_HASNEXT];
+    c_cnt = 0u;
+    uint s = 0u;
+    while (state.u[JP_DONE] < g_nwg) {
+      if (atomicOr(ctrl.u[30u], 0u) != 0u) { c_cnt = 1u; break; }
+      if (++s > g_spin) {
+        atomicOr(ctrl.u[30u], 1u);
+        atomicOr(ctrl.u[1u], 1u);
+        c_cnt = 1u;
+        break;
+      }
+    }
+    memoryBarrierBuffer();
+  }
+  barrier();
+  if (c_cnt != 0u) return true;
+  uint nEval = state.u[STATS + ST_NEVAL];
+  uint nReps = state.u[STATS + ST_NREPS];
+  if (lane == 0u) state.u[STATS + ST_ROUNDS] += 1u;
+  bool stop = false;
+  if (nEval >= nReps) {
+    stop = true;
+  } else if (nEval >= 96u) {
+    uint64_t tauBits;
+    uint tauCoff;
+    uint64_t tauOrd;
+    if (nEval <= 96u) {
+      uint64_t bestK = 0xFFFFFFFFFFFFFFFFul;
+      uint bestI = 0u;
+      for (uint i = 0u; i < nEval; i++) {
+        uint64_t k = selKeyOf(EVORD, i);
+        if (k < bestK || (k == bestK && i > bestI)) { bestK = k; bestI = i; }
+      }
+      tauOrd = bestK;
+      tauCoff = state.u[EVLIST + 2u * bestI + 1u];
+      tauBits = recValBits(state.u[EVLIST + 2u * bestI]);
+    } else {
+      prefixP(EVORD, nEval, 96u, true, mmv.v[0], mmv.v[1]);
+      uint ti = p_tauIdx;
+      tauOrd = p_T;
+      tauCoff = state.u[EVLIST + 2u * ti + 1u];
+      tauBits = recValBits(state.u[EVLIST + 2u * ti]);
+    }
+    if (lane == 0u) {
+      state.u[STATS + ST_TAULO] = uint(tauBits);
+      state.u[STATS + ST_TAUHI] = uint(tauBits >> 32);
+      state.u[STATS + ST_TAUCOFF] = tauCoff;
+    }
+    if (j_hasNext == 0u) {
+      stop = true;
+    } else {
+      uint nextCoff = state.u[REPSGEN + j_nextIdx] - childBase;
+      if (j_nextOrd < tauOrd) stop = true;
+      else if (j_nextOrd == tauOrd) stop = (nextCoff > tauCoff);
+      else stop = false;
+    }
+  }
+  if (lane == 0u) state.u[STATS + ST_STOP] = stop ? 1u : 0u;
+  barrier();
+  return false;
+}
+
+// PROBE r3bt1 helpers: comparator identical to the LDS bitonic
+// (key descending, orderPk ascending on ties).
+bool btPrecedes(uint akh, uint akl, uint aord, uint bkh, uint bkl, uint bord) {
+  if (akh != bkh) return akh > bkh;
+  if (akl != bkl) return akl > bkl;
+  return aord < bord;
+}
+// ---- final sort (WG 0): sel_sort3 form over the eval cache ----
+void sortStage(uint ply) {
+  uint lane = gl_LocalInvocationIndex;
+  uint nEval = state.u[STATS + ST_NEVAL];
+  uint keep = min(nEval, 96u);
+  if (nEval > 96u) {
+    prefixP(EVORD, nEval, 96u, true, mmv.v[0], mmv.v[1]);
+    for (uint i = lane; i < 96u; i += 64u) {
+      uint src = state.u[PFXIDX + i];
+      selKeySet(i, selKeyOf(EVORD, src));
+      sOrderPk[i] = state.u[EVLIST + 2u * src + 1u];
+      sFitW[i] = state.u[EVLIST + 2u * src];
+    }
+  } else {
+    for (uint i = lane; i < nEval; i += 64u) {
+      selKeySet(i, selKeyOf(EVORD, i));
+      sOrderPk[i] = state.u[EVLIST + 2u * i + 1u];
+      sFitW[i] = state.u[EVLIST + 2u * i];
+    }
+  }
+  for (uint i = keep + lane; i < 128u; i += 64u) {
+    selKeySet(i, 0ul);
+    sOrderPk[i] = 0xFFFFFFFFu;
+    sFitW[i] = 0u;
+  }
+  barrier();
+  // PROBE r3bt1: register + subgroup-shuffle bitonic. Same (k, j)
+  // network and comparator as the LDS form. For pair (i, i^j) with
+  // i the low index, the "first" element goes to the low position
+  // iff ((i & k) == 0). ea = element lane, eb = element lane + 64.
+  uint bkhA, bklA, boA, bfA, bkhB, bklB, boB, bfB;
+  {
+    uint64_t k0 = selKeyGet(lane);
+    bkhA = uint(k0 >> 32); bklA = uint(k0); boA = sOrderPk[lane]; bfA = sFitW[lane];
+    uint64_t k1 = selKeyGet(lane + 64u);
+    bkhB = uint(k1 >> 32); bklB = uint(k1); boB = sOrderPk[lane + 64u]; bfB = sFitW[lane + 64u];
+  }
+  for (uint k = 2u; k <= 128u; k <<= 1) {
+    for (uint j = k >> 1; j > 0u; j >>= 1) {
+      if (j == 64u) {
+        bool up = ((lane & k) == 0u);
+        bool aFirst = btPrecedes(bkhA, bklA, boA, bkhB, bklB, boB);
+        if (aFirst != up) {
+          uint t;
+          t = bkhA; bkhA = bkhB; bkhB = t;
+          t = bklA; bklA = bklB; bklB = t;
+          t = boA; boA = boB; boB = t;
+          t = bfA; bfA = bfB; bfB = t;
+        }
+      } else if (j == 32u && gl_SubgroupSize < 64u) {
+        selKeySet(lane, packUint2x32(uvec2(bklA, bkhA)));
+        sOrderPk[lane] = boA; sFitW[lane] = bfA;
+        selKeySet(lane + 64u, packUint2x32(uvec2(bklB, bkhB)));
+        sOrderPk[lane + 64u] = boB; sFitW[lane + 64u] = bfB;
+        barrier();
+        {
+          uint pl = lane ^ 32u;
+          uint64_t pk = selKeyGet(pl);
+          uint pkh = uint(pk >> 32), pkl = uint(pk);
+          uint po = sOrderPk[pl], pf = sFitW[pl];
+          bool up = (((lane & ~32u) & k) == 0u);
+          bool isLow = ((lane & 32u) == 0u);
+          bool mineFirst = btPrecedes(bkhA, bklA, boA, pkh, pkl, po);
+          if (mineFirst != (up == isLow)) { bkhA = pkh; bklA = pkl; boA = po; bfA = pf; }
+        }
+        {
+          uint idx = lane + 64u;
+          uint pl = idx ^ 32u;
+          uint64_t pk = selKeyGet(pl);
+          uint pkh = uint(pk >> 32), pkl = uint(pk);
+          uint po = sOrderPk[pl], pf = sFitW[pl];
+          bool up = (((idx & ~32u) & k) == 0u);
+          bool isLow = ((idx & 32u) == 0u);
+          bool mineFirst = btPrecedes(bkhB, bklB, boB, pkh, pkl, po);
+          if (mineFirst != (up == isLow)) { bkhB = pkh; bklB = pkl; boB = po; bfB = pf; }
+        }
+      } else {
+        {
+          uint pkh = subgroupShuffleXor(bkhA, j);
+          uint pkl = subgroupShuffleXor(bklA, j);
+          uint po = subgroupShuffleXor(boA, j);
+          uint pf = subgroupShuffleXor(bfA, j);
+          bool up = (((lane & ~j) & k) == 0u);
+          bool isLow = ((lane & j) == 0u);
+          bool mineFirst = btPrecedes(bkhA, bklA, boA, pkh, pkl, po);
+          if (mineFirst != (up == isLow)) { bkhA = pkh; bklA = pkl; boA = po; bfA = pf; }
+        }
+        {
+          uint pkh = subgroupShuffleXor(bkhB, j);
+          uint pkl = subgroupShuffleXor(bklB, j);
+          uint po = subgroupShuffleXor(boB, j);
+          uint pf = subgroupShuffleXor(bfB, j);
+          uint idx = lane + 64u;
+          bool up = (((idx & ~j) & k) == 0u);
+          bool isLow = ((idx & j) == 0u);
+          bool mineFirst = btPrecedes(bkhB, bklB, boB, pkh, pkl, po);
+          if (mineFirst != (up == isLow)) { bkhB = pkh; bklB = pkl; boB = po; bfB = pf; }
+        }
+      }
+    }
+  }
+  selKeySet(lane, packUint2x32(uvec2(bklA, bkhA)));
+  sOrderPk[lane] = boA; sFitW[lane] = bfA;
+  selKeySet(lane + 64u, packUint2x32(uvec2(bklB, bkhB)));
+  sOrderPk[lane + 64u] = boB; sFitW[lane + 64u] = bfB;
+  barrier();
+  for (uint i = lane; i < keep; i += 64u) state.u[SELB + i] = sFitW[i];
+  barrier();
+  if (lane == 0u) {
+    state.u[STATS + ST_NSEL] = keep;
+    h_nAlive = state.u[STATS + ST_NALIVE];
+    h_nReps = state.u[STATS + ST_NREPS];
+    h_nSel = keep;
+    h_nEval = nEval;
+    h_rounds = state.u[STATS + ST_ROUNDS];
+  }
+  barrier();
+}
+
+// ---- S4a: materialization (sel_mat form, global gout stride 30) ----
+void matStage(uint ply) {
+  uint nSel = state.u[STATS + ST_NSEL];
+  uint tid = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
+  uint tt = g_nwg * 64u;
+  for (uint idx = tid; idx < nSel; idx += tt) {
+    uint child = state.u[SELB + idx];
+    surv.w[OSEL + ply * 96u + idx] = child;
+    uint rb = child * 16u;
+    uint ii = recw.w[rb + 15u];
+    uint i48 = ii * 48u;
+    uint ob = OARENA + ply * 4224u + idx * 44u;
+    uint loc = child * 30u;
+    for (uint i = 0u; i < 30u; i++) surv.w[ob + i] = gout.w[loc + i];
+    surv.w[ob + 30u] = inst48.w[i48 + 5u];
+    surv.w[ob + 31u] = inst48.w[i48 + 6u];
+    uint scB = recw.w[rb + 14u];
+    surv.w[ob + 32u] = (scB >> 6) & 0xFFu;
+    surv.w[ob + 33u] = uint(int(scB & 63u) - 1);
+    surv.w[ob + 34u] = (scB >> 14) & 63u;
+    surv.w[ob + 35u] = recw.w[rb + 4u];
+    surv.w[ob + 36u] = recw.w[rb + 5u];
+    surv.w[ob + 37u] = ii;
+    surv.w[ob + 38u] = child;
+    for (uint i = 39u; i < 44u; i++) surv.w[ob + i] = 0u;
+  }
+}
+
+// ---- S1: BPX-L over this ply's instances (strided by workgroup) ----
+shared uint sTick;
+void stageS1(uint ply) {
+  pc.childBase = plyCB(ply);
+  pc.tauLo = uni.u[16u + ply * 8u + 4u];
+  pc.tauHi = uni.u[16u + ply * 8u + 5u];
+  pc.tauPos = uni.u[16u + ply * 8u + 6u];
+  pc.survBase = OSURV + ply * 8192u;
+  pc.base = 0u;
+  pc.n = 0u;
+  pc.reserved = 0u;
+  uint i0 = plyI0(ply);
+  uint ni = plyNi(ply);
+  uint lane = gl_LocalInvocationIndex;
+  // r4tk1: dynamic ticket assignment (STATS+40, zeroed by
+  // resetScratch, published by the B0/B4 gbar). Replaces the
+  // strided loop so the B1 rendezvous is priced by total
+  // work, not by the unluckiest WG's strided draw.
+  for (;;) {
+    if (lane == 0u) sTick = atomicAdd(state.u[STATS + ST_TICKET], 1u);
+    barrier();
+    uint inst = sTick;
+    if (inst >= ni) break;
+    g_bpxII = i0 + inst;
+    bpxMain();
+  }
+}
+
+// ---- resident main: 3-point basis + selection sync points ----
+void main() {
+  g_nwg = pcu.nwg;
+  g_gsize = pcu.gsize;
+  g_flags = pcu.flags;
+  g_spin = pcu.spin;
+  uint wg = gl_WorkGroupID.x;
+  uint lane = gl_LocalInvocationIndex;
+  uint nPlies = uni.u[0];
+  resetScratch();
+  uint bk = 0u;
+  if (gbar(bk++)) return; // B0
+  for (uint ply = 0u; ply < nPlies; ply++) {
+    stageS1(ply);
+    if (gbar(bk++)) return; // B1
+    if (wg == 0u && lane == 0u) h_nSurv = survCnt.w[0];
+    dedupeA(ply);
+    if (gbar(bk++)) return; // B2 = dedupe barrier 1
+    dedupeB(ply);
+    if (gbar(bk++)) return; // X1 = dedupe barrier 2
+    if (emitOrderPX(ply, bk)) return;
+    if (gbar(bk++)) return; // X2
+    cacheStage(ply);
+    if (gbar(bk++)) return; // X3
+    uint nReps = state.u[STATS + ST_NREPS];
+    if (nReps > 0u) {
+      uint b = 256u;
+      for (uint r = 0u; r < 24u; r++) {
+        uint bcur = min(b, nReps);
+        if (wg == 0u) prefixAndChunk(ply, bcur);
+        if (gbar(bk++)) return; // A_r
+        judgePreCount(ply);
+        passBStage(ply);
+        if (gbar(bk++)) return; // B_r
+        judgeBuildPX2(ply);
+        if (wg == 0u) { if (judgeTauStage(ply)) return; }
+        if (gbar(bk++)) return; // C_r
+        if (state.u[STATS + ST_STOP] != 0u) break;
+        b *= 2u;
+      }
+      if (wg == 0u) sortStage(ply);
+    } else {
+      if (wg == 0u && lane == 0u) {
+        h_nAlive = 0u;
+        h_nReps = 0u;
+        h_nSel = 0u;
+        h_nEval = 0u;
+        h_rounds = 0u;
+      }
+    }
+    if (gbar(bk++)) return; // X5
+    matStage(ply);
+    if (wg == 0u && lane == 0u) {
+      uint hb = OHEAD + ply * 16u;
+      surv.w[hb + 0u] = h_nAlive;
+      surv.w[hb + 1u] = h_nReps;
+      surv.w[hb + 2u] = h_nSel;
+      surv.w[hb + 3u] = h_nEval;
+      surv.w[hb + 4u] = h_rounds;
+      surv.w[hb + 5u] = h_nSurv;
+      surv.w[hb + 6u] = plyCB(ply);
+      surv.w[hb + 7u] = plyNch(ply);
+      surv.w[hb + 8u] = uni.u[16u + ply * 8u + 7u];
+      for (uint i = 9u; i < 16u; i++) surv.w[hb + i] = 0u;
+    }
+    resetScratch();
+    if (ply + 1u < nPlies) {
+      if (gbar(bk++)) return; // B4
+    }
+  }
+  if (gbar(bk++)) return; // publication
+  if (wg == 0u && lane == 0u) {
+    ctrl.u[3u] = state.u[SELB];
+    ctrl.u[4u] = nPlies;
+    memoryBarrierBuffer();
+    ctrl.u[0u] = 1u;
+  }
+}

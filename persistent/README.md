@@ -110,3 +110,16 @@ d9541de8e7c9e43a1946de41440f0b74074189626f44e89672d2a1e802af4a60  pfload.c
 a3661f5944c1f3a55c6794a064c55a6d673b6381d95dc4b220aa80622db1e57a  pfload_gd.c
 a388dff80c3f44ae382432bb79cbb19de6c7fa13cbbe2482e4a0cbd7ad313bc6  tables.glsl
 ```
+
+## ラウンド10 採用候補（2026-11-20 追加）
+
+土台 `pfl_r7c1`（G=72）からの独立変種。3つとも drill PASSED（ビット同一）で、リソースは土台と同一（SGPR 108 / VGPR 120 / spill 0）。数値はすべて混合クロック窓での同窓 ABAB 相対値であり、絶対値の確定はしていない。3変種を合成したファイルはまだ作っていない（合成とその検証は未実施）。main へは未着地。
+
+- `pfl_r10efan.comp` — emitOrderPX の fan-in を2サブグループスキャンに置換。ABAB −321.1/−534.1 µs。勝ち幅の大きい側の機構が未解明なため、保守側の主張は約 −300 µs（約 −7.4%）。生成は `gen_r10b.py`。
+- `pfl_r10fr.comp` — prefixP compaction の走査融合と蝶型全リダクション。ABAB −96.5 µs（−2.5%、両ブロック同符号で安定）。生成は `gen_r10.py`。
+- `pfl_r10snp.comp` — sortStage のペイロードなしネットワーク（fit ≡ plyCB(ply) + ord の恒等式を利用）。ABAB −44.9/−19.7 µs、平均 −32.3 µs。生成は `gen_r10c.py`。
+
+sha256:
+- `pfl_r10efan.comp` 015ccd93c5d072c4c22aade41da9c73c412b7b91e8a16522853705ffe06f7b6a
+- `pfl_r10fr.comp` 7a3675c52330a0add92b4770b39d3df9d941bb6f62e2e4f78c92d123a0e3c2e2
+- `pfl_r10snp.comp` 4918024fcac984fab597e7a50b32eee9da537846703b0293131322a48d0f3685
