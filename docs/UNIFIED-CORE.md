@@ -1,5 +1,11 @@
 # UNIFIED-CORE.md — Single-Core Search Design
 
+> Status (2026-11-20): design record of the unified TS core. The implementation
+> (`src/ai/bot/`) was removed from the repo in Phase C (2026-11-19) when the
+> engine went GPU-only; the semantics designed here are what the GPU engine in
+> `gpu/` implements, and the evaluation shapes are vendored in `tools/s2-lab/`.
+> Kept as the design record — file paths below refer to the removed tree.
+
 Target: one search core, one movegen, one feature set in `src/`; guideline/TBP vs S2
 differ ONLY in data (a rules-profile table + per-ruleset weights).
 

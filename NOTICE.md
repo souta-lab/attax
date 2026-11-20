@@ -13,6 +13,7 @@ be run and verified. It is **not** covered by the AGPL, and no rights to Hoiko
 itself are granted by this repository. All rights to Hoiko remain with its
 author.
 
-Everything else in this repository — the bot (`src/ai/bot/`), the rules engine
-(`src/core/`), the versus controller (`src/versus/`), the TBP adapter (`tbp/`),
-the benchmark and UI code — is AGPL-3.0 as stated above.
+Everything else in this repository — the bot (the GPU search in `gpu/` and its
+lab driver in `tools/s2-lab/`), the rules engine (`src/core/`), the versus
+controller (`src/versus/`), the benchmark records and UI code — is AGPL-3.0 as
+stated above.

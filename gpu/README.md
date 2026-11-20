@@ -100,8 +100,10 @@ assembled output passed the full adoption gate below
 (229,063 beam nodes / 52,669 finished nodes), `cmp_results` IDENTICAL,
 bench wall median 4.180 ms/decision with no other GPU tenant.
 The same gate re-passed after the serve-mode addition, in both `run`
-and `serve` modes. Remaining before main hookup: the lab-side codec
-and driver (DESIGN.md §3.2–3.3) and the engine-selection switch.
+and `serve` modes. The main hookup has since landed: the lab-side codec
+and driver (DESIGN.md §3.2–3.3) live in `tools/s2-lab/`, and there is
+no engine-selection switch — this engine is the only engine (see the
+Phase C note under Configuration).
 
 2026-11-19 (stage 1C, BP movegen), same tree and device, sclk 2320
 under load, no other GPU tenant: **stage-1C gate passed** — with

@@ -53,10 +53,10 @@ is in [`scripts/`](scripts/).
 - [TBP](#tbp)
 - [License](#license)
 - [Why it is strong](#-why-it-is-strong)
-- [GPU movegen (provisional)](#-gpu-movegen-provisional)
+- [GPU engine](#-gpu-engine)
 - [Fairness](#%EF%B8%8F-fairness)
 - [Caveats / not measured](#%EF%B8%8F-caveats--not-measured)
-- [The bot](#-the-bot-srcaibot)
+- [The bot](#-the-bot-gpu)
 - [Layout](#%EF%B8%8F-layout)
 - [Develop](#%EF%B8%8F-develop)
 - [Reproducing the benchmarks](#-reproducing-the-benchmarks)
@@ -222,17 +222,19 @@ One bot ships in three profiles. The guideline side shares a single weight table
 a single search; the profiles differ in what the bot is allowed to see and which
 rules profile scores its locks.
 
-The **published profile** is the default build: a 20-row view of the board, the
-current piece plus a 5-piece preview, beam width 96, guideline rules. This is the
-build the live page runs. (The Hoiko and clys results above were measured with the
-previous width-48 default.)
+The **published profile** is the default configuration: a 20-row view of the board, the
+current piece plus a 5-piece preview, beam width 96, guideline rules. (The Hoiko and clys
+results above were measured with the previous width-48 default.) The live page no longer
+runs the bot itself — since 2026-11-19 the engine is the native GPU search and no browser
+front-end for it exists yet; the page shows the measured records and their replays.
 
 The **competition profile** widens the view to the full 40-row board, widens the
 beam to 96, and enables exact 7-bag speculation (SPECULATE): after the known queue,
 the search plays one additional ply over the exact remaining-bag distribution
-instead of a single guessed piece. It is env-gated in the rig adapter
-(`tools/cc2-rematch/attax-tbp.ts`: `ATTAX_ROWS=40`, `ATTAX_WIDTH=96`,
-`ATTAX_SPECULATE=1`) and is off by default everywhere else. This build is
+instead of a single guessed piece. It was env-gated in the TBP rig adapter
+(`ATTAX_ROWS=40`, `ATTAX_WIDTH=96`, `ATTAX_SPECULATE=1`) that drove the TS
+reference search; that adapter was removed with the CPU search on 2026-11-19, and
+the matches it played stand as records. This build is
 **attax v2** — the one that played the width-48 official Cold Clear 2 match; **attax v3**
 (below) played the width-96 matches under the same profile settings.
 
@@ -268,48 +270,33 @@ as-is. That baseline is the reference point for further S2 tuning.
   (about 50% more). Against clys, Attax instead won on survival despite lower attack
   per piece.
 
-## ⚡ GPU movegen (provisional)
+## ⚡ GPU engine
 
-The search's move generator — the breadth-first search over the engine's own inputs —
-now also runs as a Vulkan compute kernel, measured on an AMD RX 6400:
+The search runs as a native Vulkan engine in [`gpu/`](gpu/) — the step-26 host and
+shader set, driven from the S2 lab (`tools/s2-lab/`) in serve mode. It is the only
+engine: the TS and Rust CPU searches were removed from the repo on 2026-11-19, and
+there is **no fallback** — the lab driver probes for a usable Vulkan device at
+startup and stops if there is none, rather than silently degrading to a path tens
+of times slower. The engine implements exactly config O (width 96, the evaluation
+tables vendored in `tools/s2-lab/` and `gpu/tables.bin`).
+
+The move generator — the breadth-first search over the engine's own inputs — runs
+as a Vulkan compute kernel, measured on an AMD RX 6400:
 
 - **1,205,713 BFS/s**, 23.6× the previous GPU implementation (51,115 BFS/s).
 - **Equivalence, not approximation.** The kernel's output was cross-checked in full
-  against the CPU reference: 38,611 positions, 851,287 placements and 5,355,062
-  discoverer-key pairs — **0 mismatches**. The GPU returns exactly what the CPU
-  search returns.
+  against the CPU reference implementation (the Rust search, since removed from
+  this repo and kept in the lab PC archive): 38,611 positions, 851,287 placements
+  and 5,355,062 discoverer-key pairs — **0 mismatches**. The GPU returns exactly
+  what the CPU search returned.
 - At the measured 2,299 movegen calls per decision, the kernel alone converts to
   ≈ **524 decisions/s (T1)**. This is a conversion from the movegen stage, **not** a
-  measured end-to-end engine rate: full-pipeline integration (M4) is in progress,
-  with a decision-latency target of ≤3 ms. Provisional until the integrated engine
-  is measured.
+  measured end-to-end engine rate.
 
 In the TBP arena Attax already holds the strongest measured record — official Cold
 Clear 2 **81–19** and intetrigence **50–1**, both at beam width 96 under the
-fair-conditions rigs described above. If the integrated GPU engine completes at the
-converted rate, it would also be the fastest in that arena; that is the outlook,
-not yet a measurement.
-
-## Fresh-seed generalization check
-
-A separate validation command draws new random seeds outside the published benchmark
-and tuning ranges **after the candidate policy has been fixed**:
-
-```sh
-bun run bench:cross-seed --count 200 --jobs 4 --out bench-results/cross-seed.jsonl
-```
-
-Each selected seed is played from both seats against Hoiko. Only a win in **both**
-orientations counts as a successful independent seed; draws, unfinished matches, and
-seat disagreements are reported as failures. The script saves the full seed list,
-match records and 95% Wilson interval in an adjacent summary file, and exits with a
-nonzero status unless every seed passes. You can rerun a failed set with
-`bun scripts/benchmark.ts --seeds <saved-comma-separated-seeds> --sides both`
-to investigate it, but performance claims should come from a new random batch.
-
-A 100% result on a finite sample is a measurement, not a guarantee against every
-possible seed or opponent. The reported 195–5 figure above remains unchanged until
-a fresh full benchmark supports a new headline.
+fair-conditions rigs described above (played by the TS reference search, removed
+with the CPU path in 2026-11-19; see [TBP](#tbp)).
 
 ## ⚖️ Fairness
 
@@ -320,14 +307,17 @@ a fresh full benchmark supports a new headline.
   engine (`src/core`) and tick loop as the live page.
 - **Time usage.** Against Hoiko, each side locks one piece per 120 ms of game time
   regardless of think time.
-- **Rules audited.** `scripts/audit-rules.ts` checks that the engine awards Hoiko exactly
+- **Rules audited.** The rules audit (run by the since-removed `scripts/audit-rules.ts`
+  against the benchmark harness) checked that the engine awards Hoiko exactly
   the clear Hoiko's own search predicted for each move. Before the overhaul it did not:
   the T-spin front-corner table (commit `dcbe108`) had rotations 0 and 2 swapped, so every
   T-spin double Hoiko made (51 of 51 in the audit) was scored as a mini (attack 1
   instead of 4). Fixed in `src/core/tspin.ts`; all numbers here are after the fix.
-- **Every placement is legal.** The bot executes with `placeMinoAt`, so
-  `tests/bot-movegen.test.ts` drives the real engine to prove each placement (and each
-  claimed T-spin) is reachable with ordinary inputs, and that none are missed.
+- **Every placement is legal.** The removed TS implementation executed with
+  `placeMinoAt`, and its movegen test drove the real engine to prove each placement
+  (and each claimed T-spin) reachable with ordinary inputs, with none missed; the
+  GPU engine's movegen is held to the full-corpus equivalence check described
+  under [GPU engine](#-gpu-engine).
 - **Held-out seeds.** Tuning only ever used seeds 2001+.
 
 ## ⚠️ Caveats / not measured
@@ -342,16 +332,25 @@ a fresh full benchmark supports a new headline.
   the independent units are 50 seat-swapped seed pairs. Stochastic search and time slicing
   mean fresh runs can differ. Realtime input execution and network latency were not measured.
 - **One weight set.** All results are for a single, fixed set of hand-set weights.
+- **The 195–5 headline stands** until a fresh full benchmark supports a new one.
+  A 100% result on a finite sample is a measurement, not a guarantee against every
+  possible seed or opponent.
 
-## 🤖 The bot (`src/ai/bot/`)
+## 🤖 The bot (`gpu/`)
 
-> Dated note (2026-11-19): this section describes the unified TS core that
-> produced the measured records above. That implementation was removed from
-> the repo when the engine went GPU-only; the same semantics — movegen,
-> features, weights, beam search — now run as the Vulkan search in `gpu/`,
-> with the evaluation tables vendored in `tools/s2-lab/`. The TBP adapter
-> described below was removed at the same time (GPU front-end pending); its
-> section is kept as the record of the intetrigence match setup.
+The bot is the Vulkan GPU search in [`gpu/`](gpu/): a single-file C host
+(`gpu/host/vkrunner_s26.c`) plus the pinned shader set in `gpu/shaders/`, run in
+serve mode and driven by the lab driver in [`tools/s2-lab/`](tools/s2-lab/).
+It implements the unified search semantics — movegen, features, weights, beam
+search (width 96) over the current piece plus the 5-piece preview, with hold —
+with the evaluation tables vendored in `tools/s2-lab/` and `gpu/tables.bin`.
+There is no CPU implementation of the search in this repo and no fallback: with
+no usable Vulkan device the driver stops at startup.
+
+The measured records above were produced by the unified TS core (`src/ai/bot/`),
+removed from the repo on 2026-11-19 when the engine went GPU-only; the GPU
+engine is gated bit-identical to that lineage on the verified corpora. The
+removed implementation, kept here as the semantics record:
 
 - `movegen.ts` — breadth-first search over the engine's own inputs (shift, soft drop,
   rotate with first-fit SRS kicks) from the current position; returns every distinct
@@ -370,44 +369,18 @@ a fresh full benchmark supports a new headline.
 
 ## TBP
 
-Attax also runs as a Tetris Bot Protocol (TBP) process for external match hosts.
-With Bun installed, run from the repository root:
+Attax previously ran as a Tetris Bot Protocol (TBP) process for external match
+hosts, through an adapter (`tbp/attax-tbp.ts`) over the TS search. The adapter
+was removed on 2026-11-19 (Phase C) when the engine went GPU-only, and there is
+currently no TBP front-end for the GPU engine. The TBP matches it played —
+including the Cold Clear 2 records above, played by the TS reference search on
+this path — stand as measured records.
 
-```sh
-bun tbp/attax-tbp.ts
-```
-
-For hosts that take an executable path, use `tbp/attax-tbp.sh` (Bun must be on
-`PATH`). The launcher works from any working directory. Stdin and stdout carry
-newline-delimited TBP JSON; optional `ATTAX_TBP_LOG=/path/to/decisions.jsonl` records
-decisions separately. The adapter calls the same `createBot().findBestMove` fighter
-as the arena, with the default preview and beam width.
-
-The worked example is the [intetrigence match report](tbp/intetrigence-match.md):
-it describes the external-arena command, rules, timing and verification of the
-original match. The adapter keeps its original coordinate translation and ranked
-suggestions. By default it sees the bottom 20 rows of the board and receives no
-pending-garbage information; setting `ATTAX_TBP_ROWS=40` exposes the full 40-row
-board, for referees that spawn pieces above row 20.
-
-The host contract is simple. The adapter tracks the piece queue from `start` and
-`new_piece` messages only, so a host must keep the queue non-empty when it asks
-for a suggestion: send `new_piece` as pieces are consumed, or resync with a fresh
-`start` (a resync is also required after garbage changes the board, since TBP
-carries no pending-garbage information). If the queue does run dry, the adapter
-answers with an empty suggestion and stays alive; no host message, malformed or
-otherwise, can make it throw or exit. Normal operation resumes on the next
-`start` or `new_piece`.
-
-To smoke-test against an already-built intetrigence referee, without network access:
-
-```sh
-python3 tbp/smoke.py /path/to/intetrigence/target/release/intetrigence
-```
-
-This plays two games with seats swapped, checks every accepted Attax move against
-its first suggestion, and runs the referee's replay verifier.
-See [the recorded smoke result](tbp/SMOKE.md).
+The [intetrigence match report](tbp/intetrigence-match.md) and the
+[recorded smoke result](tbp/SMOKE.md) remain as the record of that setup: the
+external-arena command, rules, timing, verification, and the host contract the
+adapter implemented (queue tracking from `start`/`new_piece`, the 20-row
+default view, `ATTAX_TBP_ROWS=40` for the full board).
 
 ## License
 
@@ -431,20 +404,31 @@ asset paths; it works from any subpath, e.g. `/tetris/`). Rust: `bun run test:ru
 
 ## 🔁 Reproducing the benchmarks
 
-### vs Hoiko (in this repo)
+### vs Hoiko
+
+The Hoiko headline was produced by the in-repo benchmark harness
+(`scripts/benchmark.ts`, with the rules audit in `scripts/audit-rules.ts`),
+which was removed with the CPU search on 2026-11-19; it cannot be re-run from
+this tree. The raw records in [`bench-results/`](bench-results/) are the
+reproduction artifact. What still runs from this repo is the page pipeline:
 
 ```sh
 bun install
-# headline: 200 seeds × both seats (seats replay identically)
-bun scripts/benchmark.ts --seeds 1001-1200 --sides both --jobs 4 --out bench-results/bot-vs-hoiko.jsonl
-# control: Attax limited to 2 previews
-bun scripts/benchmark.ts --seeds 1001-1100 --sides both --preview 2 --jobs 4 --out bench-results/bot-vs-hoiko.preview2.jsonl
-# rules audit: the engine awards Hoiko exactly what Hoiko's search predicted
-bun scripts/audit-rules.ts --seeds 3001-3020 --out bench-results/rules-audit.json
-# page data + site
 bun scripts/build-results.ts      # -> src/data/results.json (what the page shows)
 bun run build                     # -> dist/
 ```
+
+### Current matches (S2 lab)
+
+Current matches run through the GPU lab driver, which requires a machine with
+a usable Vulkan device and stops at startup without one (no fallback):
+
+```sh
+bun tools/s2-lab/run-match.mjs --games 1 --seed 42 --out /tmp/attax-s2.jsonl
+```
+
+See [`tools/s2-lab/README.md`](tools/s2-lab/README.md) for the lab's own
+requirements (the external lab checkout and the champion artifact).
 
 ## 🏷️ Renaming
 

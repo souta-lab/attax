@@ -23,7 +23,7 @@ Champion self-play smoke, through the same lab factories/referee:
 
 ```sh
 bun tools/s2-lab/run-match.mjs --games 1 --seed 42 --champion-vs-champion --out /tmp/champion-smoke.jsonl
-bun test tools/s2-lab/contracts.test.ts
+bun test tools/s2-lab/gpu-codec.test.ts
 ```
 
 This is the lab's **legacy placement arena**, with its synthetic paced clock,
@@ -33,14 +33,21 @@ not run realtime INPUT controls or certify official game fidelity. The
 champion keeps its complete default profile, 2048 selections and persistent
 per-game WASM session; THINK TIME, MULTITHREAD and RG remain off.
 
-The lab searches with the shared core, `src/ai/bot/search.ts`, under rules
-profile `"s2"`: unchanged beam/weights, exact difficult-chain state, staged S2
-awards/classifier, amount-only root garbage, and a mandatory root-witness
-filter in the runner. The former private copy (`tools/s2-lab/search.ts`) was
-deleted in unify chunk 3b; `s2-input.ts` keeps the lab's input shape (numeric
+Attax's decisions come from the GPU engine: `run-match.mjs` builds the attax
+decider from `gpu-player.ts` (the Vulkan serve host in `gpu/`), reached through
+the projection in `lab-decision.ts` (`projectAttax` / `wrapGpuDecider`), under
+rules profile `"s2"` (config O: unchanged beam/weights, exact difficult-chain
+state, staged S2 awards/classifier, amount-only root garbage, and the referee
+root-witness applied as a post-filter over the result block's root candidates).
+There is no CPU search and **no fallback**: `gpuEngineInfo()` probes the
+pinned assets and the Vulkan device before the first game, and the run stops
+at startup on a machine without a usable device (Souta's ruling, 2026-11-19;
+the TS search that previously powered this lab was removed from the repo in
+Phase C the same day). `s2-input.ts` keeps the lab's input shape (numeric
 exact chain in `b2b`) and its single mapping onto the shared input
-(`toSharedInput`). `shared-parity.test.ts` pins both the shared search and the
-player's own decision path to the pre-port goldens in `tools/unify/`.
+(`toSharedInput`); the evaluation shapes the codec needs are vendored in
+`features.ts` / `weights.ts` / `state.ts` / `search-types.ts`, and the codec
+is pinned by `gpu-codec.test.ts` and the standalone gate `gpu-gate.ts`.
 
 See [STAGE2-REPORT.md](../../STAGE2-REPORT.md) for conversions, smoke evidence,
 known limits, and the restricted Git metadata handoff.

@@ -43,8 +43,8 @@ const method = h("section", { class: "method", attrs: { id: "method" } }, [
       ]
     : []),
   h("p", { class: "fine" }, [
-    "Reproduce: ",
-    h("code", { text: "bun scripts/benchmark.ts --seeds 1001-1200 --sides both --jobs 4" }),
+    "Rebuild this page's data from the raw records: ",
+    h("code", { text: "bun run results" }),
     ` · data generated ${RESULTS.generatedAt.slice(0, 10)} at commit ${RESULTS.commit}.`,
   ]),
 ]);
@@ -72,7 +72,7 @@ const header = h("header", { class: "site" }, [
 const watch = h("section", { class: "watch", attrs: { id: "watch" } }, [
   h("h2", { text: "Watch them play" }),
   h("p", {
-    text: `Attax and Hoiko run live in your browser on the same seed. Benchmark games replay exactly as recorded.`,
+    text: `Benchmark games replay exactly as recorded. Live play is unavailable for now: the engine moved to a native GPU search in 2026-11 and a browser front-end for it does not exist yet.`,
   }),
   arena.root,
 ]);

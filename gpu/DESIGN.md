@@ -6,6 +6,16 @@ engine path in attax main **now**, on the step-26 configuration
 the BP+BX unified architecture. BP+BX development continues; its landing
 target is this productized path (same host boundary, new kernels).
 
+> **Status (2026-11-20): landed, with the engine rule changed after this
+> design was written.** The fallback arrangement in §1, §5 item 4 and §6
+> was **not** adopted: by Souta's ruling of 2026-11-19 the GPU search is
+> the only engine and there is no fallback (see AGENTS.md, "Search engine
+> rule"). The Rust and TS searches were removed from the repo in Phase C
+> (2026-11-19); the Rust search survives only as the
+> identity-verification reference in the PC archive. The boundary, format
+> and gate sections below are the landed design; the engine-selection
+> passages are kept as the record of the superseded plan.
+
 ## 1. What "GPU-only" means here
 
 - The Vulkan path targets real GPUs only. llvmpipe is dropped as an
