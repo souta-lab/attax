@@ -1,0 +1,187 @@
+// matboards_w — wide survivor-board reconstruction (BASIC-CEILING
+// lane, 2026-11-20). Same contract as matboards.comp (rebuild the 30
+// board+flags words that bxp_a1 -DGATE_OUT writes into gout, for each
+// selected survivor, from the parent instance + the child's
+// placement), but parallelized: ONE WORKGROUP PER SURVIVOR instead of
+// one 64-lane workgroup looping over all survivors serially (the
+// serial form cost +469 us/decision and lost to the GATE_OUT tax it
+// removed; BASIC-TAX-REMOVAL section 3.2).
+//
+// The transform is done in ROW space, which is exactly equivalent to
+// bxp_a1's column space:
+//  - the parent board is stored as row masks already (instance words
+//    7.., 2 rows/word) plus per-row flag bytes (words 27..), so no
+//    transpose is needed;
+//  - placement sets bits in individual rows;
+//  - a "full line" is a row with mask 0x3FF; deleting full levels in
+//    column space moves a surviving row r to r + (number of full rows
+//    with index > r) (levels are counted from the bottom:
+//    level = len-1-row), flags follow their rows;
+//  - landed garbage shifts every row up by `landed` (new row r takes
+//    old row r+landed) and fills the bottom `landed` rows with the
+//    garbage mask (all columns except the well = argmin column
+//    height, first index on ties), flag bytes of garbage rows = 1.
+// gout layout is identical to A1's GATE_OUT: 64-word stride,
+// group-local index (child - childBase); words 0..19 packed row
+// pairs, words 20..29 garbage-flag bytes. sel_mat consumes it
+// unchanged. The harness dispatches nSel workgroups (BX_MBW=1);
+// workgroup k handles survivor k.
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 64) in;
+
+#include "bx_shapes.glsl"
+
+// Instance input (binding 0), 48 words / instance (host-packed).
+layout(std430, binding = 0) readonly buffer Inst { uint w[]; } inst;
+// Child placements (binding = 1), 2 words / child.
+layout(std430, binding = 1) readonly buffer Place { uint w[]; } plc;
+// Production record (binding 2), 4 uvec4 / child; word 15 = parent idx.
+layout(std430, binding = 2) readonly buffer Rec { uvec4 q[]; } rec;
+// Survivor list (binding 3): selected global child indices.
+layout(std430, binding = 3) readonly buffer Sel { uint w[]; } sel;
+// Gate output (binding 4), 64 words / child (group-local).
+layout(std430, binding = 4) buffer GateOut { uint w[]; } gout;
+layout(push_constant) uniform PC { uint childBase; uint nSel; } pc;
+
+shared uint sRow[64];
+shared uint sRow2[64];
+shared uint sFlg[64];
+shared uint sFlg2[64];
+shared uint sFullFlag[64];
+shared uint sLines;
+shared uint sLanded;
+shared uint sWell;
+shared uint sHeight[10];
+
+uint vget4(uvec4 v, int i) { return i == 0 ? v.x : (i == 1 ? v.y : (i == 2 ? v.z : v.w)); }
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    uint k = gl_WorkGroupID.x;
+    if (k >= pc.nSel) return;
+    uint child = sel.w[k];
+    uint ii = rec.q[child * 4u + 3u].w;
+    uint ib = ii * 48u;
+    int depth = int(inst.w[ib + 1u]);
+    int len = int(inst.w[ib + 2u]);
+    int pending = int(inst.w[ib + 39u]);
+    int due = int(inst.w[ib + 40u]);
+
+    // ---- load parent rows + flag bits (row space = storage space) ----
+    if (lane < uint(len)) {
+        uint r = lane;
+        uint pw = inst.w[ib + 7u + (r >> 1)];
+        uint rm = (r & 1u) == 0u ? (pw & 0xFFFFu) : (pw >> 16);
+        sRow[r] = rm & 0x3FFu;
+        uint fw = inst.w[ib + 27u + (r >> 2)];
+        sFlg[r] = ((fw >> ((r & 3u) * 8u)) & 0xFFu) != 0u ? 1u : 0u;
+    }
+
+    // ---- placement (decode identical to bxp_a1 / matboards) ----
+    uint pw0 = plc.w[child * 2u];
+    int kind = int(pw0 & 0xFFu);
+    int rot = int((pw0 >> 8) & 0xFFu);
+    int px = int((pw0 >> 16) & 0xFFu);
+    if (px >= 128) px -= 256;
+    int py = int((pw0 >> 24) & 0xFFu);
+    if (py >= 128) py -= 256;
+    uint si = uint(kind) * 4u + uint(rot & 3);
+    ivec4 hd = SHAPE_HDR[si];
+    uvec4 srw = SHAPE_ROWS[si];
+    int shift = px + hd.x;
+    if (lane < uint(len)) {
+        uint r = lane;
+        for (int i = 0; i < hd.w; i++) {
+            if (int(r) == py + hd.z + i) {
+                uint bits = vget4(srw, i);
+                while (bits != 0u) {
+                    int b = findLSB(bits);
+                    int x = shift + b;
+                    if (x >= 0 && x < 10) sRow[r] |= 1u << uint(x);
+                    bits &= bits - 1u;
+                }
+            }
+        }
+        sFullFlag[r] = sRow[r] == 0x3FFu ? 1u : 0u;
+    }
+    barrier();
+    if (lane == 0u) {
+        uint lines = 0u;
+        for (int r = 0; r < len; r++) lines += sFullFlag[uint(r)];
+        sLines = lines;
+        int landed = 0;
+        if (lines == 0u) landed = min(depth == 0 ? due : pending, pending);
+        sLanded = uint(landed);
+    }
+    barrier();
+
+    // ---- compression: surviving row r moves to r + (#full rows > r) ----
+    if (lane < uint(len)) {
+        sRow2[lane] = 0u;
+        sFlg2[lane] = 0u;
+    }
+    barrier();
+    if (lane < uint(len) && sFullFlag[lane] == 0u) {
+        uint dest = lane;
+        for (uint i = lane + 1u; i < uint(len); i++) dest += sFullFlag[i];
+        sRow2[dest] = sRow[lane];
+        sFlg2[dest] = sFlg[lane];
+    }
+    barrier();
+
+    // ---- landed garbage ----
+    if (sLanded > 0u) {
+        if (lane < 10u) {
+            uint h = 0u;
+            for (int r = 0; r < len; r++) {
+                if (((sRow2[uint(r)] >> lane) & 1u) != 0u) { h = uint(len - r); break; }
+            }
+            sHeight[lane] = h;
+        }
+        barrier();
+        if (lane == 0u) {
+            uint well = 0u;
+            for (uint x = 1u; x < 10u; x++) if (sHeight[x] < sHeight[well]) well = x;
+            sWell = well;
+        }
+        barrier();
+        if (lane < uint(len)) {
+            uint r = lane;
+            uint src = r + sLanded;
+            if (src < uint(len)) {
+                sRow[r] = sRow2[src];
+                sFlg[r] = sFlg2[src];
+            } else {
+                sRow[r] = 0x3FFu & ~(1u << sWell);
+                sFlg[r] = 1u;
+            }
+        }
+    } else {
+        if (lane < uint(len)) {
+            sRow[lane] = sRow2[lane];
+            sFlg[lane] = sFlg2[lane];
+        }
+    }
+    barrier();
+
+    // ---- GATE_OUT write-out (identical indexing to bxp_a1) ----
+    uint ob = (child - pc.childBase) * 64u;
+    if (lane < 20u) {
+        uint j = lane;
+        uint r0 = 2u * j < uint(len) ? sRow[2u * j] : 0u;
+        uint r1 = 2u * j + 1u < uint(len) ? sRow[2u * j + 1u] : 0u;
+        gout.w[ob + j] = r0 | (r1 << 16);
+    }
+    if (lane >= 20u && lane < 30u) {
+        uint j = lane - 20u;
+        uint fw = 0u;
+        for (uint q = 0u; q < 4u; q++) {
+            uint r = 4u * j + q;
+            uint fv = r < uint(len) ? sFlg[r] : 0u;
+            fw |= fv << (8u * q);
+        }
+        gout.w[ob + 20u + j] = fw;
+    }
+}

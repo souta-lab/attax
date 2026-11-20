@@ -1,0 +1,284 @@
+// BASIC-CEILING lane A4 variant of sel_sort3f: for 96 < nEval <= 1024
+// replace the radix-select + compaction with a single full bitonic
+// sort over the staged (key, gen, child) triples in LDS.
+// Bit-identical by construction: the base path's output is the first
+// `keep` entries of the total order (key desc, gen asc) -- its radix
+// select keeps exactly {k > T} plus the first `need` of {k == T} in
+// generation order, which is the top-keep set under that total order
+// (gen is unique, so the order is strict), and its LDS bitonic tail
+// sorts the kept set by the same order. Sorting all n entries by the
+// same total order and taking the first keep gives the same sequence.
+// Padding uses the base tail's own convention (key 0, gen 0xFFFFFFFF):
+// real keys are ord-transformed doubles, hence >= 0, and a real key
+// of exactly 0 carries a real gen < 0xFFFFFFFF, so pads sort after
+// every real entry. nEval > 1024 and nEval <= 96 keep the base paths.
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Rec { uint v[]; } rec;
+layout(std430, binding = 1) readonly buffer Eval { uvec2 v[]; } ev; // (child, gen)
+layout(std430, binding = 2) buffer Selected { uint v[]; } sel;
+layout(std430, binding = 3) buffer Stats { uint v[]; } stats; // out [0]=nSelected
+layout(push_constant) uniform PC { uint nEval; } pc;
+
+shared uint s_hist[1024];
+shared uint s_scan[256];
+shared uint s_part[256];
+shared uint s_sub[8];
+shared uint s_sub2[8];
+shared uint64_t s_keys[4096];
+shared uint s_gens[1024];
+shared uint s_childs[1024];
+shared uint64_t s_prefix;
+shared uint s_rem;
+shared uint64_t s_T;
+shared uint s_need;
+shared uint s_digit;
+shared uint s_acc;
+shared uint s_p0;
+shared uint64_t s_key[128];
+shared uint s_gen[128];
+shared uint s_child[128];
+
+shared uint64_t s_mmnS[8];
+shared uint64_t s_mmxS[8];
+shared uint64_t s_mmn;
+shared uint64_t s_mmx;
+
+// ord(value) key of eval entry i, recomputed from the record words
+// (identical to sel_evcache2's transform).
+uint64_t keyOf(uint i) {
+    uint child = ev.v[i].x;
+    uint64_t bits = (uint64_t(rec.v[child * 16u + 5u]) << 32) | uint64_t(rec.v[child * 16u + 4u]);
+    return (bits >> 63) != 0ul ? ~bits : (bits | 0x8000000000000000ul);
+}
+
+uint64_t subMin64(uint64_t x) {
+    uint h = subgroupMin(uint(x >> 32));
+    uint l = subgroupMin((uint(x >> 32) == h) ? uint(x) : 0xFFFFFFFFu);
+    return (uint64_t(h) << 32) | uint64_t(l);
+}
+
+uint64_t subMax64(uint64_t x) {
+    uint h = subgroupMax(uint(x >> 32));
+    uint l = subgroupMax((uint(x >> 32) == h) ? uint(x) : 0u);
+    return (uint64_t(h) << 32) | uint64_t(l);
+}
+
+void scan256() {
+    uint lid = gl_LocalInvocationIndex;
+    uint incl = subgroupInclusiveAdd(s_scan[lid]);
+    if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) s_sub[gl_SubgroupID] = incl;
+    barrier();
+    if (lid == 0u) {
+        uint run = 0u;
+        uint nsub = 256u / gl_SubgroupSize;
+        for (uint s2 = 0u; s2 < nsub; s2++) { uint t = s_sub[s2]; s_sub[s2] = run; run += t; }
+    }
+    barrier();
+    s_scan[lid] = incl + s_sub[gl_SubgroupID];
+    barrier();
+}
+
+void scan256x2() {
+    uint lid = gl_LocalInvocationIndex;
+    uint inclA = subgroupInclusiveAdd(s_part[lid]);
+    uint inclB = subgroupInclusiveAdd(s_scan[lid]);
+    if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) { s_sub[gl_SubgroupID] = inclA; s_sub2[gl_SubgroupID] = inclB; }
+    barrier();
+    if (lid == 0u) {
+        uint runA = 0u, runB = 0u;
+        uint nsub = 256u / gl_SubgroupSize;
+        for (uint s2 = 0u; s2 < nsub; s2++) {
+            uint tA = s_sub[s2]; s_sub[s2] = runA; runA += tA;
+            uint tB = s_sub2[s2]; s_sub2[s2] = runB; runB += tB;
+        }
+    }
+    barrier();
+    s_part[lid] = inclA + s_sub[gl_SubgroupID];
+    s_scan[lid] = inclB + s_sub2[gl_SubgroupID];
+    barrier();
+}
+
+uint msb64(uint64_t x) {
+    uint hi = uint(x >> 32);
+    return hi != 0u ? 32u + uint(findMSB(hi)) : uint(findMSB(uint(x)));
+}
+
+void main() {
+    uint lid = gl_LocalInvocationIndex;
+    uint n = pc.nEval;
+    uint keep = min(n, 96u);
+    if (lid == 0u) stats.v[0] = keep;
+    if (n > 96u && n <= 1024u) {
+        // ---- A4 path: stage triples, full bitonic, take first keep ----
+        for (uint i = lid; i < n; i += 256u) {
+            s_keys[i] = keyOf(i);
+            s_gens[i] = ev.v[i].y;
+            s_childs[i] = ev.v[i].x;
+        }
+        uint N2 = 128u;
+        while (N2 < n) N2 <<= 1;
+        for (uint i = n + lid; i < N2; i += 256u) { s_keys[i] = 0ul; s_gens[i] = 0xFFFFFFFFu; s_childs[i] = 0u; }
+        barrier();
+        for (uint k = 2u; k <= N2; k <<= 1) {
+            for (uint j = k >> 1; j > 0u; j >>= 1) {
+                for (uint i = lid; i < N2; i += 256u) {
+                    uint ix = i ^ j;
+                    if (ix > i) {
+                        bool up = ((i & k) == 0u);
+                        uint64_t ka = s_keys[i], kb = s_keys[ix];
+                        bool aFirst = (ka > kb) || (ka == kb && s_gens[i] < s_gens[ix]);
+                        if (aFirst != up) {
+                            s_keys[i] = kb; s_keys[ix] = ka;
+                            uint t = s_gens[i]; s_gens[i] = s_gens[ix]; s_gens[ix] = t;
+                            t = s_childs[i]; s_childs[i] = s_childs[ix]; s_childs[ix] = t;
+                        }
+                    }
+                }
+                barrier();
+            }
+        }
+        for (uint i = lid; i < keep; i += 256u) sel.v[i] = s_childs[i];
+        return;
+    }
+    if (n <= 96u) {
+        for (uint i = lid; i < n; i += 256u) {
+            s_key[i] = keyOf(i);
+            s_gen[i] = ev.v[i].y;
+            s_child[i] = ev.v[i].x;
+        }
+    } else {
+        // ---- stage keys into LDS (when they fit) ----
+        bool useLds = n <= 4096u;
+        if (useLds) {
+            for (uint i = lid; i < n; i += 256u) s_keys[i] = keyOf(i);
+        }
+        // ---- min/max reduced in-kernel -> first varying digit ----
+        {
+            uint64_t lmn = ~0ul, lmx = 0ul;
+            for (uint i = lid; i < n; i += 256u) {
+                uint64_t k = useLds ? s_keys[i] : keyOf(i);
+                lmn = min(lmn, k); lmx = max(lmx, k);
+            }
+            lmn = subMin64(lmn); lmx = subMax64(lmx);
+            if (gl_SubgroupInvocationID == 0u) { s_mmnS[gl_SubgroupID] = lmn; s_mmxS[gl_SubgroupID] = lmx; }
+            barrier();
+            if (lid == 0u) {
+                uint nsub = 256u / gl_SubgroupSize;
+                uint64_t mn = s_mmnS[0], mx = s_mmxS[0];
+                for (uint s2 = 1u; s2 < nsub; s2++) { mn = min(mn, s_mmnS[s2]); mx = max(mx, s_mmxS[s2]); }
+                s_mmn = mn; s_mmx = mx;
+            }
+            barrier();
+            if (lid == 0u) {
+                uint64_t mn = s_mmn, mx = s_mmx;
+                uint64_t xr = mn ^ mx;
+                s_rem = 96u;
+                if (xr == 0ul) {
+                    s_T = mn;
+                    s_need = 96u;
+                    s_p0 = 8u;
+                    s_prefix = mn;
+                } else {
+                    uint p0 = (63u - msb64(xr)) >> 3;
+                    s_p0 = p0;
+                    s_prefix = (p0 == 0u) ? 0ul : (mn >> (64u - 8u * p0));
+                }
+            }
+            barrier();
+        }
+        // ---- radix select of the rank-96 threshold ----
+        for (uint p = s_p0; p < 8u; p++) {
+            uint shift = 56u - 8u * p;
+            s_hist[lid] = 0u; s_hist[lid + 256u] = 0u; s_hist[lid + 512u] = 0u; s_hist[lid + 768u] = 0u;
+            barrier();
+            uint slice = (lid >> 6) * 256u;
+            for (uint i = lid; i < n; i += 256u) {
+                uint64_t key = useLds ? s_keys[i] : keyOf(i);
+                if (p == 0u || (key >> (shift + 8u)) == s_prefix) {
+                    atomicAdd(s_hist[slice + uint((key >> shift) & 0xFFul)], 1u);
+                }
+            }
+            barrier();
+            s_scan[lid] = s_hist[lid] + s_hist[lid + 256u] + s_hist[lid + 512u] + s_hist[lid + 768u];
+            barrier();
+            scan256();
+            {
+                uint total = s_scan[255];
+                uint hd = s_scan[lid] - (lid > 0u ? s_scan[lid - 1u] : 0u);
+                uint greater = total - s_scan[lid];
+                if (greater < s_rem && s_rem <= greater + hd) { s_digit = lid; s_acc = greater; }
+            }
+            barrier();
+            if (lid == 0u) {
+                s_prefix = (s_prefix << 8) | uint64_t(s_digit);
+                s_rem -= s_acc;
+                if (p == 7u) { s_T = s_prefix; s_need = s_rem; }
+            }
+            barrier();
+        }
+        uint64_t T = s_T;
+        uint need = s_need;
+        // ---- merged compaction into the LDS kept arrays ----
+        uint K = (n + 255u) / 256u;
+        uint lo = lid * K;
+        uint hi = min(n, lo + K);
+        uint cntA = 0u, cntB = 0u;
+        for (uint i = lo; i < hi; i++) {
+            uint64_t k = useLds ? s_keys[i] : keyOf(i);
+            cntA += (k > T) ? 1u : 0u;
+            cntB += (k == T) ? 1u : 0u;
+        }
+        s_part[lid] = cntA;
+        s_scan[lid] = cntB;
+        barrier();
+        scan256x2();
+        uint totA = s_part[255];
+        uint offA = s_part[lid] - cntA;
+        uint offB = s_scan[lid] - cntB;
+        uint wA = offA, rB = offB;
+        for (uint i = lo; i < hi; i++) {
+            uint64_t k = useLds ? s_keys[i] : keyOf(i);
+            if (k > T) {
+                s_key[wA] = k;
+                s_gen[wA] = ev.v[i].y;
+                s_child[wA] = ev.v[i].x;
+                wA++;
+            } else if (k == T) {
+                if (rB < need) {
+                    uint pos = totA + rB;
+                    s_key[pos] = k;
+                    s_gen[pos] = ev.v[i].y;
+                    s_child[pos] = ev.v[i].x;
+                }
+                rB++;
+            }
+        }
+    }
+    // pad to 128 with empty keys (sort to the end)
+    for (uint i = keep + lid; i < 128u; i += 256u) { s_key[i] = 0ul; s_gen[i] = 0xFFFFFFFFu; s_child[i] = 0u; }
+    barrier();
+    // bitonic sort over 128 by (key desc, gen asc) — as v1
+    for (uint k = 2u; k <= 128u; k <<= 1) {
+        for (uint j = k >> 1; j > 0u; j >>= 1) {
+            for (uint i = lid; i < 128u; i += 256u) {
+                uint ix = i ^ j;
+                if (ix > i) {
+                    bool up = ((i & k) == 0u);
+                    uint64_t ka = s_key[i], kb = s_key[ix];
+                    bool aFirst = (ka > kb) || (ka == kb && s_gen[i] < s_gen[ix]);
+                    if (aFirst != up) {
+                        s_key[i] = kb; s_key[ix] = ka;
+                        uint t = s_gen[i]; s_gen[i] = s_gen[ix]; s_gen[ix] = t;
+                        t = s_child[i]; s_child[i] = s_child[ix]; s_child[ix] = t;
+                    }
+                }
+            }
+            barrier();
+        }
+    }
+    for (uint i = lid; i < keep; i += 256u) sel.v[i] = s_child[i];
+}

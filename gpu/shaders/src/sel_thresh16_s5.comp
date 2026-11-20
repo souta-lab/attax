@@ -1,0 +1,120 @@
+// B3 variant F1 of sel_thresh16_s5 (production; base source
+// reconstructed and byte-matched to the shipped SPV): after the
+// block sums are cleared, zero exactly the bins binhist recorded
+// in the touch list this ply (both halves of binall) and reset
+// the list, replacing the host's per-ply 512 KiB fill. The zeroing
+// runs after every binall read of this kernel (phase 2 reads are
+// complete before scan2 returns; a buffer barrier + workgroup
+// barrier separate them from the stores below).
+#version 450
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "s2_common.glsl"
+
+layout(std430, set = 0, binding = 0) buffer BinAll { uint w[]; } binall;
+layout(std430, set = 0, binding = 1) buffer StateBuf { uint w[]; } state;
+layout(std430, set = 0, binding = 2) buffer ArgsBuf { uint w[]; } args;
+layout(std430, set = 0, binding = 3) buffer SelCtl { uint w[]; } selctl;
+layout(std430, set = 0, binding = 4) buffer BitArgs { uint w[]; } bitargs;
+layout(std430, set = 0, binding = 5) buffer Blk { uint w[]; } blk;
+layout(std430, set = 0, binding = 6) buffer ScanArgs { uint w[]; } scanargs;
+layout(std430, set = 0, binding = 7) buffer Touch { uint w[]; } touch;
+layout(push_constant) uniform Push { uint ply; } pc;
+
+shared uint sS[256];
+shared uint sT[256];
+shared uint sR[256];
+
+void scan2() {
+    barrier();
+    for (uint stride = 1u; stride < 256u; stride <<= 1u) {
+        uint aS = (gl_LocalInvocationID.x >= stride) ? sS[gl_LocalInvocationID.x - stride] : 0u;
+        uint aT = (gl_LocalInvocationID.x >= stride) ? sT[gl_LocalInvocationID.x - stride] : 0u;
+        barrier();
+        sS[gl_LocalInvocationID.x] += aS;
+        sT[gl_LocalInvocationID.x] += aT;
+        barrier();
+    }
+}
+
+void main() {
+    uint t = gl_LocalInvocationID.x;
+    uint n = state.w[ST_N_CHILD + pc.ply];
+    uint selSum = blk.w[256u + t];
+    uint totSum = blk.w[t];
+    sS[t] = selSum;
+    sT[t] = totSum;
+    scan2();
+    uint total = sS[255];
+    uint rend = n;
+    if (total >= S2_WIDTH) {
+        // Crossing block and bin are found redundantly by every
+        // thread from the scanned shared arrays. (An earlier version
+        // published them through single-writer shared scalars; that
+        // pattern diverged on llvmpipe at larger ply counts while
+        // RADV executed it as intended.)
+        sR[t] = (sS[t] < S2_WIDTH) ? 1u : 0u;
+        for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+            barrier();
+            if (t < stride) sR[t] += sR[t + stride];
+        }
+        barrier();
+        uint blk = sR[0];
+        uint beforeSel = (blk == 0u) ? 0u : sS[blk - 1u];
+        uint beforeTot = (blk == 0u) ? 0u : sT[blk - 1u];
+        uint need = S2_WIDTH - beforeSel;
+        // Phase 2: cooperative rescan of the crossing block.
+        uint p = blk * 256u + t;
+        uint vS = binall.w[65536u + p];
+        uint vT = binall.w[p];
+        sS[t] = vS;
+        sT[t] = vT;
+        scan2();
+        sR[t] = (sS[t] < need) ? 1u : 0u;
+        for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+            barrier();
+            if (t < stride) sR[t] += sR[t + stride];
+        }
+        barrier();
+        uint jj = sR[0];
+        rend = beforeTot + sT[jj];
+    }
+    bool bitonic = (rend <= 1024u) && (rend > 0u);
+    if (!bitonic) rend = n;
+    if (t == 0u) {
+        state.w[ST_SURV_TOTAL + pc.ply] = total;
+        selctl.w[pc.ply] = rend;
+        bitargs.w[pc.ply * 3u + 0u] = bitonic ? 1u : 0u;
+        bitargs.w[pc.ply * 3u + 1u] = 1u;
+        bitargs.w[pc.ply * 3u + 2u] = 1u;
+        if (bitonic) {
+            uint a = (pc.ply * ARG_KINDS + ARG_TILE) * 3u;
+            args.w[a + 0u] = 0u;
+            args.w[a + 1u] = 1u;
+            args.w[a + 2u] = 1u;
+        }
+        // The sort's scan stage dispatches indirectly from this
+        // slot (the one stage of rec_sort that is not already
+        // indirect): 0 groups on the bitonic path, 1 on fallback.
+        // Written here, before every sort, every ply.
+        scanargs.w[pc.ply * 3u + 0u] = bitonic ? 0u : 1u;
+        scanargs.w[pc.ply * 3u + 1u] = 1u;
+        scanargs.w[pc.ply * 3u + 2u] = 1u;
+    }
+    // Clear the block sums for the next ply.
+    blk.w[t] = 0u;
+    blk.w[256u + t] = 0u;
+    // B3: zero the bins binhist touched this ply (both halves)
+    // and reset the touch list for the next ply.
+    uint cnt = touch.w[0];
+    memoryBarrierBuffer();
+    barrier();
+    for (uint j = t; j < cnt; j += 256u) {
+        uint b = touch.w[1u + j];
+        binall.w[b] = 0u;
+        binall.w[65536u + b] = 0u;
+    }
+    barrier();
+    if (t == 0u) touch.w[0] = 0u;
+}
