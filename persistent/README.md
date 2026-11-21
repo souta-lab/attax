@@ -18,6 +18,7 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 | **r11** | `gen_r11.py` | S1 を BP (`S1a`, 3バリア BFS) と 100% レーン稼働 BX＋直接 in-wave 評価＋融合 `dedupeA` (`S1b`) に分離／`emitOrderPX` Pass 2 融合 4096-bin `floatBucket12`＋全72WG 並列バケット選択（WG0 `prefixP` 撤廃）／インクリメンタル Top-96＋展開 wave64 bitonic merge（`judgePreCount`/`judgeBuildPX2`/`sortStage`/`gbar X5` 撤廃）／touched-slot `resetScratch`／並列 setup・`candK` キックゲート・`sh<maxh` 空ハッシュ省略・`passB` 生存者スキップ・並列 `matStage`・`surv` 非 coherent 化 |
 | **r13_sub1ms** | `gen_r13_sub1ms.py` | **Top-1 一致契約・実測サブ 1 ms（新チェックポイント）**: B&B ループ撤廃・1-shot 直接評価＋TOUCHED-slot Top-96／評価演算 FP64→FP32 化（RDNA2 FP64 1/16 律速解除・`tab.t` 初回 FP32 キャッシュ）／1 発 64-bit `atomicMax((vord32<<32)\|~coff)` で `dedupeB` と `gbar(X1)` を完全消滅／列直接 64-bit FNV-1a ハッシュ／`maxBin` 始点降順コアレス 64-bin ブロックスキャン＋2 ワード `bitonic128_2w`／`bpxMainBP` の純ビットボード BFS 化（`RANK/KB/WP/ordSet/RREC/posSetA/PLACE` 撤廃、1 バリア/iter＋直接 twin-dedupe 出力）／除算レス `matStage`／NVIDIA NVVM 互換修正／`-DPROD_MODE=0\|1` 切替対応 |
 | **r14_sub800** | `gen_r14_sub800.py` | **`r13` 100% ビット完全一致・VGPR 120→80（144 wave64 スロット解放）・実測 679 µs (@G=96) / 734 µs (@G=72)**: `stageS1b` 32-bit 特徴量＆T-slot 化（`col[0..9]` 20 VGPR 早期解放）／遅延 `classify_spin_g`（96% スキップ）／融合ピース配置＋`O(1)` `row_transitions` 差分／固定レジスタ `pmask` 列更新／1 ワード `SLOTOF`（`REPSGEN` 撤廃）／16 ワード 64B アライン 32-bit `PSTATE`（約 1 億グローバルロード削減）／重複ヒット事前リードチェック／`bpxMainBP` 12 レーン並列コアレス setup＋ゼロバリア直接 `rowAt_g`＋ビットボード `& ~` twin-dedupe（非 twin 57% バリア省略・O ミノ spin ループ省略）／`stageS1` 第 1 波直接チケット割当／`tbin` ブロードキャスト `gbar` 撤廃（3 gbar/ply 化）／2 ブロック展開 MLP スキャン＋Full-128 初回ロード |
+| **r15_serve** | `gen_r15_serve.py` | **ライブ常駐 `serve` エンジン化＋S2/Guideline(TBP) デュアルプロファイル対応（実測 Guideline GPU 0.697 ms / 中央値 0.620 ms、S2 GPU 0.766 ms / 中央値 0.715 ms @G=96）**: `pfl_r14_sub800.comp` 上に 108w `DecisionRecord` 直接入力・ライブ ply 間ループ・Guideline/TBP ルール切替（`flags & 2`、180°キック無効・T-spin 限定・Guideline 攻撃表/lock-out 消滅/lift/stock_phi=0）・`stageS0`/`BEAM_A/B`/`gbar(B0a)` 撤廃（`matStage` で全 96 WG 並列 `PSTATE` 直接構築）・`bpxMainBP` 10 ロード `subgroupOr` 化・`stageS1b` 並列 3-chunk prefix sum・`rec.q` コアレス `uvec4` ストアを統合。`pfserve.c` が `vkrunner_s26 serve` 互換プロトコルで TBP (`tbp/attax-tbp.ts`) に直接供給 |
 
 ## 測定状態（正直な記述）
 
@@ -64,6 +65,14 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
   - 連続 180 判断実行（`bench2320`、実測）:
     - **`G=72`**（72 スロット空き）: **`-DPROD_MODE=1` 734.5 µs/判断**（中央値 **740.6 µs/判断**、wall **753.7 µs/判断**、`pfl_r7c1` 比 **5.29×**、`pfl_r13_sub1ms` 比 **−152.7 µs / −17.2%**）、`-DPROD_MODE=0` **777.9 µs/判断**（中央値 **785.0 µs/判断**）
     - **`G=96`**（48 スロット空き）: **`-DPROD_MODE=1` 679.2 µs/判断**（中央値 **686.2 µs/判断**、wall **698.7 µs/判断**、`pfl_r7c1` 比 **5.72×**、`pfl_r13_sub1ms` 比 **−208.0 µs / −23.4%**）
+- **r15_serve（最新ライブ `serve` 確定形・S2/Guideline 両対応・TBP 既定バックエンド）**: RX 6400 (RADV NAVI24) @ **G=96**。
+  - リソース（RADV shaderstats）: **SGPR 108 / VGPR 80 / SpillSGPR 5 / SpillVGPR 0 / LDS 3,072 B / Scratch 0**（144 wave64 スロット常駐枠）。
+  - 180 判断コーパス `vkrunner_s26` 正本比 一致検証（`pfserve run` vs `vkrunner_s26 run`）:
+    - **S2**: **180/180 (`100.00%`) セル完全一致**、評価値差 `< 1e-2` **180/180**（最大差 `0.000370`）、ノード数一致 **176/180**。
+    - **Guideline (TBP)**: **179/180 (`99.44%`) セル完全一致**、評価値差 `< 1e-2` **180/180**（最大差 `0.000761`）、ノード数一致 **178/180**（唯一の差分 dec 29 は評価値差 `0.000104` の同値タイ）。
+  - `pfserve bench`（180 判断 × 3 reps、0 non-ok）:
+    - **Guideline (TBP)**: **GPU span 平均 0.697 ms（中央値 0.620 ms、最小 0.551 ms）**、Wall 平均 **0.958 ms（中央値 0.708 ms）**。
+    - **S2**: **GPU span 平均 0.766 ms（中央値 0.715 ms、最小 0.168 ms）**、Wall 平均 **1.022 ms（中央値 0.813 ms）**。
 
 詳細な測定記録は同梱の `PERSISTENT-R6-2026-11-20.md`（r6g1 の
 フルゲート詳細は同記録 §6 が引く `PERSISTENT-R6-GCEIL-2026-11-20.md`、
@@ -73,6 +82,9 @@ attax の永続形（常駐カーネル形）の、2026-11-20 時点の**確定�
 
 確定形と生成系:
 
+- `pfl_r15_serve.comp` — ライブ `serve` 確定形（S2/Guideline 両対応、`VGPRs: 80`、コンパイル済み SPIR-V は `../gpu/shaders/pfl_r15_serve.spv`）
+- `gen_r15_serve.py` — `pfl_r14_sub800.comp` → `pfl_r15_serve.comp` 生成器
+- `pfserve.c` — ライブ常駐 `serve`/`bench`/`run` ホスト（`bash gpu/build.sh` で `persistent/pfserve` をビルド、`tbp/attax-tbp.ts` の既定バックエンド）
 - `pfl_r14_sub800.comp` — 確定スタックそのもの（最新・実測 679 µs @G=96 / 734 µs @G=72、`VGPRs: 80`、`pfl_r13_sub1ms.comp` と 100% ビット完全一致、`-DPROD_MODE=0|1` 切替対応）
 - `gen_r14_sub800.py` — `pfl_r13_sub1ms.comp` → `pfl_r14_sub800.comp` 生成器
 - `pfl_r13_sub1ms.comp` — チェックポイント確定形（実測 887 µs、`gen_r14_sub800.py` の入力および `dumpsel` 完全一致基準）
@@ -108,6 +120,7 @@ python3 gen_r7cons.py                # -> pfl_r7c1.comp       (sha256 adc2d9a669
 python3 gen_r11.py                   # -> pfl_r11.comp        (sha256 c1d44823b17f…)
 python3 gen_r13_sub1ms.py            # -> pfl_r13_sub1ms.comp (sha256 090f1044bf19…)
 python3 gen_r14_sub800.py            # -> pfl_r14_sub800.comp (sha256 c221180bf44c…)
+python3 gen_r15_serve.py             # -> pfl_r15_serve.comp  (sha256 591295e636d0…)
 ```
 
 注意: `gen_r13_sub1ms.py` の入力は監査済み r11 の内容（sha256
@@ -169,6 +182,9 @@ cmp /tmp/sel_r13_prod.bin /tmp/sel_r14_w32.bin && echo "WAVE32 == WAVE64 BIT-IDE
 ## sha256
 
 ```
+591295e636d0f26efeb016d9ceccba3b98f9898fef9aabd206665782ba4e7fea  pfl_r15_serve.comp
+ae48b932cab486769823e424b354b048cd16af98c105912e6ca2dab81d2550db  gen_r15_serve.py
+8dba539faf12327cf591f45dfaae754ca510b437eabb852f5cdce66dbdded7da  pfserve.c
 c221180bf44ca2d6745431200ce2c60db29d5207ca13cf1e7fdc149c829074db  pfl_r14_sub800.comp
 eeedc77d86ac4a2df30e21d5c7d29b901a8b4d7dcceefb02eca31564e8110a4b  gen_r14_sub800.py
 090f1044bf19c4aed9666dd773149260da387b5f0425ec34fcdb55c156378456  pfl_r13_sub1ms.comp
