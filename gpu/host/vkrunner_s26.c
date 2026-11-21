@@ -2737,17 +2737,50 @@ static int pf_dispatch(uint32_t G, double *span_ms) {
     CK(vkQueueSubmit(pf_queue, 1, &si, VK_NULL_HANDLE));
     double deadline = t0 + 20.0;
     int fault = 0;
+    // PF_DEBUG2: host-side transition timestamps for the ctrl words, to
+    // separate "generation bump never became visible to the spinning
+    // lane-0s" from "one workgroup arrived at B0 a full spin budget
+    // late" (wiring record S11). No kernel change, poll loop only.
+    int dbg2 = getenv("PF_DEBUG2") != NULL;
+    double t_c28 = -1, t_c64 = -1, t_c128 = -1, t_c1 = -1;
     for (;;) {
         uint32_t done = __atomic_load_n(&ctrl[0], __ATOMIC_ACQUIRE);
         uint32_t err = __atomic_load_n(&ctrl[1], __ATOMIC_ACQUIRE);
+        if (dbg2) {
+            double tn = now_s();
+            if (t_c28 < 0 && __atomic_load_n(&ctrl[28], __ATOMIC_ACQUIRE) >= 12) t_c28 = (tn - t0) * 1e3;
+            if (t_c64 < 0 && __atomic_load_n(&ctrl[64], __ATOMIC_ACQUIRE) >= 1) t_c64 = (tn - t0) * 1e3;
+            if (t_c128 < 0 && __atomic_load_n(&ctrl[128], __ATOMIC_ACQUIRE) != 0) t_c128 = (tn - t0) * 1e3;
+            if (t_c1 < 0 && err) t_c1 = (tn - t0) * 1e3;
+        }
         if (err) { fault = 2; break; }
         if (done) break;
         if (now_s() > deadline) { fprintf(stderr, "serve-persistent: host poll timeout\n"); fault = 2; break; }
     }
+    if (dbg2) fprintf(stderr, "PFDBG2 trans ms: compl12=%.3f c64=%.3f c128=%.3f err=%.3f fault=%d\n",
+                      t_c28, t_c64, t_c128, t_c1, fault);
     CK(vkQueueWaitIdle(pf_queue));
     uint64_t tq[2] = { 0, 0 };
     CK(vkGetQueryPoolResults(pf_dev, pf_qpool, 0, 2, sizeof tq, tq, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     *span_ms = (double)(tq[1] - tq[0]) * pf_tsp_ns * 1e-6;
+    if (fault && getenv("PF_DEBUG")) {
+        // ctrl[64] counts completed grid barriers this dispatch, so it
+        // names the barrier the grid stalled at (wiring record S11).
+        fprintf(stderr, "PFDBG dispatch fault=%d ctrl0=%u ctrl1=%u ctrl64=%u ctrl128=%u span=%.3fms\n",
+                fault, ctrl[0], ctrl[1], ctrl[64], ctrl[128], *span_ms);
+        // Per-WG progress markers (instrumented kernel only; the stock
+        // kernel leaves ctrl[256..] zeroed). Marker meanings are listed
+        // in wiring record S11.
+        fprintf(stderr, "PFDBG markers:");
+        for (uint32_t wgi = 0; wgi < G; wgi++) fprintf(stderr, " %u", ctrl[256 + wgi]);
+        fprintf(stderr, "\n");
+        // Grid barrier arrival counters at the stall: ctrl[16+grp] is
+        // grp's cumulative arrival count (gsize per barrier), ctrl[28]
+        // the cumulative group-completion count (12 per barrier).
+        fprintf(stderr, "PFDBG arrivals:");
+        for (uint32_t gi = 0; gi < 12; gi++) fprintf(stderr, " %u", ctrl[16 + gi]);
+        fprintf(stderr, " | compl=%u\n", ctrl[28]);
+    }
     return fault;
 }
 
@@ -2838,13 +2871,19 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
             AOption opts[2];
             int no = a_options(&cur[j].node, seq, seq_len, opts);
             for (int o = 0; o < no; o++) {
-                if (ni >= PF_MAXINST || nch >= PF_MAXCHILD) { status = 2; break; }
+                if (ni >= PF_MAXINST || nch >= PF_MAXCHILD) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=capacity ni=%u nch=%u\n", dec_id, depth, ni, nch);
+                    status = 2; break;
+                }
                 int sr, sx, sy;
                 if (depth == 0) { sr = (int32_t)dec[96]; sx = (int32_t)dec[97]; sy = (int32_t)dec[98]; }
                 else { sr = 0; sx = 3; sy = 19; } // spawn_position(kind, 40)
                 int n = a_movegen(cur[j].node.rows, 40, opts[o].kind, sr, sx, sy, pf_plc_scratch, 64);
                 uint32_t cnt = n > 64 ? 64u : (uint32_t)n;
-                if (nch + cnt > PF_MAXCHILD) { status = 2; break; }
+                if (nch + cnt > PF_MAXCHILD) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=childcap nch=%u cnt=%u\n", dec_id, depth, nch, cnt);
+                    status = 2; break;
+                }
                 uint8_t rec[196];
                 a_build_record(rec, &cur[j].node, &opts[o], dec_id, (uint32_t)cur[j].label, cnt);
                 uint32_t *i48 = (uint32_t *)pf_inst48.ptr + (size_t)ni * 48;
@@ -2869,12 +2908,18 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
         PSNode *dead = NULL; uint32_t ndead = 0;
         if (nch > 0) {
             double span = 0.0;
-            if (pf_dispatch(G, &span)) { status = 2; break; }
+            if (pf_dispatch(G, &span)) {
+                if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=dispatch ni=%u nch=%u\n", dec_id, depth, ni, nch);
+                status = 2; break;
+            }
             gpu_span += span;
             uint32_t *stw = (uint32_t *)pf_status.ptr;
             uint32_t sum = 0;
             for (uint32_t i = 0; i < ni; i++) {
-                if ((stw[i] & 0xFFu) != 0) { status = 2; break; }
+                if ((stw[i] & 0xFFu) != 0) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=statusbyte inst=%u word=0x%08x\n", dec_id, depth, i, stw[i]);
+                    status = 2; break;
+                }
                 sum += stw[i] >> 16;
             }
             if (status) break;
@@ -2885,7 +2930,12 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
             nodes_total += nch;
             uint32_t *outw = (uint32_t *)pf_out.ptr;
             uint32_t nSel = outw[2];
-            if (nSel > 96) { status = 2; break; }
+            if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d ply ni=%u nch=%u nSel=%u nAlive=%u nReps=%u nEval=%u rounds=%u span=%.3f\n",
+                                            dec_id, depth, ni, nch, nSel, outw[0], outw[1], outw[3], outw[4], span);
+            if (nSel > 96) {
+                if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=nsel nSel=%u\n", dec_id, depth, nSel);
+                status = 2; break;
+            }
             const uint32_t *sel = outw + PF_OSEL;
             const uint32_t *arn = outw + PF_OARENA;
             uint32_t *recw = (uint32_t *)pf_rec.ptr;
@@ -2894,7 +2944,10 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
             next = malloc((size_t)(nSel ? nSel : 1) * sizeof(PSNode));
             for (uint32_t s = 0; s < nSel; s++) {
                 uint32_t ci = sel[s];
-                if (ci >= nch) { status = 2; break; }
+                if (ci >= nch) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=selrange s=%u ci=%u nch=%u\n", dec_id, depth, s, ci, nch);
+                    status = 2; break;
+                }
                 PFInst *in = &pf_insts[pf_child_inst[ci]];
                 int32_t label = depth == 0 ? (int32_t)ci + 1 : (int32_t)++arena_counter;
                 int32_t rlabel = depth == 0 ? (int32_t)ci + 1 : cur[in->node_idx].root_label;
@@ -2962,6 +3015,9 @@ static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, doubl
         }
         if (!have_best) status = 1;
     }
+
+    if (status == 2 && getenv("PF_DEBUG"))
+        fprintf(stderr, "PFDBG dec=%u final status=2 nhist=%d\n", dec_id, nhist);
 
     double wall = (now_s() - t_start) * 1e3;
     if (wall_ms) *wall_ms = wall;
