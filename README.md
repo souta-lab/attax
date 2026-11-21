@@ -19,7 +19,8 @@ a static web page that shows the measured head-to-head result and every benchmar
 clickable square. (The live browser arena is unavailable for now: the engine moved to a
 native GPU search in 2026-11 and a browser front-end for it does not exist yet.)
 
-Essentials in this repo: the bot is the GPU search in [`gpu/`](gpu/) (lab driver in
+Essentials in this repo: the bot is the GPU search in [`gpu/`](gpu/) and
+[`persistent/`](persistent/) (lab driver in
 [`tools/s2-lab/`](tools/s2-lab/)), raw benchmark records
 are in [`bench-results/`](bench-results/), the Hoiko-replica fidelity evidence is in
 [`evidence/hoiko-fullgame/`](evidence/hoiko-fullgame/), and the results builder
@@ -254,14 +255,17 @@ group in the shared table (including a conversion-shaping term the guideline sea
 never reads). Its latest measured result is the width-96 Sold Slear baseline
 above: **38.0%** (228–372) over 600 games in the lab (seeds 90001–90300, both
 seats), played by the Rust engine on current `main` (`6655fd7`) with config O
-as-is. That baseline is the reference point for further S2 tuning.
+as-is. That baseline is the reference point for further S2 tuning. Self-play
+tuning (SPSA) has since been run against it on the persistent engine; it has
+not yet produced a measurable improvement, so the baseline still stands.
 
 ## 🚀 Why it is strong
 
 - **Exact move generation.** A breadth-first search over the engine's real inputs (shift,
   soft drop, SRS rotation with kicks) finds every reachable resting placement and flags
   T-spin entries. Nothing reachable is missed, and nothing unreachable is played.
-- **Deep lookahead.** A width-48 beam search over the current piece plus 5 previews,
+- **Deep lookahead.** A beam search (width 96 in the current configuration) over
+  the current piece plus 5 previews,
   with hold, garbage cancellation and discounted rewards.
 - **Versus-tuned evaluation.** Dellacherie-style board terms plus versus terms (danger
   from incoming garbage, T-slot readiness), plus a direct attack reward, a back-to-back
@@ -279,6 +283,21 @@ there is **no fallback** — the lab driver probes for a usable Vulkan device at
 startup and stops if there is none, rather than silently degrading to a path tens
 of times slower. The engine implements exactly config O (width 96, the evaluation
 tables vendored in `tools/s2-lab/` and `gpu/tables.bin`).
+
+The engine ships in two execution forms over the one search semantics. The
+**production form** is the step-26 host above; after the composed landing stack
+(PR #44) it measured a same-window median of ≈ **3.10 ms per decision** (the
+same-window base was 3.29 ms; the pre-stack nominal figure was 3,268 µs per
+decision). The **persistent form** ([`persistent/`](persistent/)) keeps the
+kernel resident on the GPU and serves the same protocol from `pfserve`; its
+r15 build (PR #46) measured, on an AMD RX 6400 at G=96 over the 180-decision
+corpus, a GPU span mean of **0.671 ms per decision** (guideline profile) and
+**0.778 ms per decision** (S2 profile), with 0 non-ok results in both profiles.
+Against the production form's canonical output on that corpus, the persistent
+form's selected moves agreed **180/180** (S2) and **179/180** (guideline; the
+one difference is a value tie). The verification contract is selected-move
+agreement, not bit-identity of the full search record. The TBP adapter's
+default backend is now the persistent form (see [TBP](#tbp)).
 
 The move generator — the breadth-first search over the engine's own inputs — runs
 as a Vulkan compute kernel, measured on an AMD RX 6400:
@@ -341,6 +360,9 @@ with the CPU path in 2026-11-19; see [TBP](#tbp)).
 The bot is the Vulkan GPU search in [`gpu/`](gpu/): a single-file C host
 (`gpu/host/vkrunner_s26.c`) plus the pinned shader set in `gpu/shaders/`, run in
 serve mode and driven by the lab driver in [`tools/s2-lab/`](tools/s2-lab/).
+The persistent form in [`persistent/`](persistent/) (`pfserve.c` plus the
+`pfl_r15_serve` kernel) serves the same protocol from a resident kernel and is
+the TBP adapter's default backend.
 It implements the unified search semantics — movegen, features, weights, beam
 search (width 96) over the current piece plus the 5-piece preview, with hold —
 with the evaluation tables vendored in `tools/s2-lab/` and `gpu/tables.bin`.
@@ -369,12 +391,15 @@ removed implementation, kept here as the semantics record:
 
 ## TBP
 
-Attax previously ran as a Tetris Bot Protocol (TBP) process for external match
-hosts, through an adapter (`tbp/attax-tbp.ts`) over the TS search. The adapter
-was removed on 2026-11-19 (Phase C) when the engine went GPU-only, and there is
-currently no TBP front-end for the GPU engine. The TBP matches it played —
-including the Cold Clear 2 records above, played by the TS reference search on
-this path — stand as measured records.
+Attax runs as a Tetris Bot Protocol (TBP) process for external match hosts,
+through an adapter (`tbp/attax-tbp.ts`) over the GPU serve engine. The adapter
+was removed on 2026-11-19 (Phase C) when the engine went GPU-only, and was
+later restored wired to the GPU serve host; since PR #46 its default backend
+is the persistent form (`persistent/pfserve`), with
+`ATTAX_GPU_BACKEND=vkrunner` selecting the production host instead. The TBP
+matches played by the earlier TS path — including the Cold Clear 2 records
+above, played by the TS reference search on this path — stand as measured
+records.
 
 The [intetrigence match report](tbp/intetrigence-match.md) and the
 [recorded smoke result](tbp/SMOKE.md) remain as the record of that setup: the
@@ -395,6 +420,7 @@ src/versus    2-player controller          src/ui       DOM + canvas; arena runs
 gpu/          the bot (Vulkan search)      scripts      build-results
 src/ai/hoiko  Hoiko adapter + wasm         rust/        Hoiko replica source (wasm)
 src/bench     match records + summary      tools/       Hoiko oracle; S2 lab (GPU driver)
+persistent/   persistent serve form        tbp/         TBP adapter + match records
 ```
 
 ## 🛠️ Develop
