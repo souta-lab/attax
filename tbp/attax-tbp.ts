@@ -37,11 +37,9 @@ import { fileURLToPath } from "node:url";
 
 import { cellsFor } from "../src/core/pieces.js";
 import { BOT_DEFAULTS } from "../tools/s2-lab/defaults.js";
-import { decodeServeBlock, encodeDecisionRecordBytes } from "../tools/s2-lab/gpu-codec.js";
+import { encodeDecisionRecordBytes, parseServeBlock } from "../tools/s2-lab/gpu-codec.js";
 import { PINNED_TABLES_SHA256 } from "../tools/s2-lab/gpu-player.js";
-import type { SearchResult } from "../tools/s2-lab/search-types.js";
 import type { SearchInput } from "../tools/s2-lab/state.js";
-import { DEFAULT_WEIGHTS } from "../tools/s2-lab/weights.js";
 
 const LOG = process.env.ATTAX_TBP_LOG;
 
@@ -161,6 +159,7 @@ function attaxCellsToTbp(kind: Kind, rotation: number, x: number, y: number): [n
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
 const GPU_DIR = path.join(REPO_ROOT, "gpu");
+const PERSISTENT_DIR = path.join(REPO_ROOT, "persistent");
 
 const SERVE_ENV = {
   S22_PASSA: "off",
@@ -193,17 +192,27 @@ class TbpGpuServer {
 
   private doStart(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const runner = process.env.ATTAX_GPU_RUNNER ?? path.join(GPU_DIR, "vkrunner_s26");
+      const useVkrunner =
+        process.env.ATTAX_GPU_BACKEND === "vkrunner" ||
+        (process.env.ATTAX_GPU_RUNNER !== undefined &&
+          path.basename(process.env.ATTAX_GPU_RUNNER).startsWith("vkrunner"));
+      const runner =
+        process.env.ATTAX_GPU_RUNNER ??
+        (useVkrunner ? path.join(GPU_DIR, "vkrunner_s26") : path.join(PERSISTENT_DIR, "pfserve"));
       const tables = process.env.ATTAX_GPU_TABLES ?? path.join(GPU_DIR, "tables.bin");
-      const movegen = path.join(GPU_DIR, "shaders", "bpmg_b1.spv");
-      const expand = path.join(GPU_DIR, "shaders", "expand_s25_noba.spv");
+      const shaders = useVkrunner
+        ? [
+            path.join(GPU_DIR, "shaders", "bpmg_b1.spv"),
+            path.join(GPU_DIR, "shaders", "expand_s25_noba.spv"),
+          ]
+        : [path.join(GPU_DIR, "shaders", "pfl_r15_serve.spv")];
       if (!existsSync(runner)) {
         reject(
           new Error(`GPU engine binary not found at ${runner} — build with: bash gpu/build.sh`),
         );
         return;
       }
-      for (const spv of [movegen, expand]) {
+      for (const spv of shaders) {
         if (!existsSync(spv)) {
           reject(new Error(`GPU engine shader missing at ${spv}`));
           return;
@@ -221,7 +230,7 @@ class TbpGpuServer {
         return;
       }
 
-      const args = ["serve", movegen, expand, tables];
+      const args = ["serve", ...shaders, tables];
       if (process.env.ATTAX_GPU_DEVICE) args.push(process.env.ATTAX_GPU_DEVICE);
       const proc = spawn(runner, args, {
         stdio: ["pipe", "pipe", "pipe"],
@@ -443,37 +452,38 @@ async function suggest() {
   }
   const record = encodeDecisionRecordBytes(input);
   const block = await gpuServer.request(record);
-  const result: SearchResult | null = decodeServeBlock(block, DEFAULT_WEIGHTS);
+  const parsed = parseServeBlock(block);
   const ms = performance.now() - t0;
   const moves: TbpMove[] = [];
   let primary: unknown = null;
-  if (result !== null) {
-    const p = result.best.placement;
+  if (parsed.best !== null) {
+    const p = parsed.best.placement;
     primary = {
       kind: p.kind,
       rotation: p.rotation,
       x: p.x,
       y: p.y,
       tspin: p.tspin,
-      hold: result.best.usedHold,
+      hold: parsed.best.usedHold,
     };
     moves.push(...movesFor(p.kind, p.rotation, p.x, p.y, p.tspin));
-    for (const c of result.candidates.slice(1)) {
+    for (const c of parsed.candidates.slice(1)) {
       const q = c.placement;
       moves.push(...movesFor(q.kind, q.rotation, q.x, q.y, q.tspin));
     }
   }
+  const nodes = Number(parsed.nodes);
   const above = rows.slice(20).some((r) => r.some(Boolean));
   if (LOG) {
     appendFileSync(
       LOG,
-      `${JSON.stringify({ ms: +ms.toFixed(2), nodes: result?.nodes ?? 0, depth: result?.depth ?? 0, primary, first: moves[0] ?? null, cellsAboveRow20: above })}\n`,
+      `${JSON.stringify({ ms: +ms.toFixed(2), nodes, depth: parsed.depth, primary, first: moves[0] ?? null, cellsAboveRow20: above })}\n`,
     );
   }
   send({
     type: "suggestion",
     moves,
-    move_info: { nodes: result?.nodes ?? 0, nps: 0, extra: `attax ${ms.toFixed(1)}ms` },
+    move_info: { nodes, nps: 0, extra: `attax ${ms.toFixed(1)}ms` },
   });
 }
 
