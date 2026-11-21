@@ -2502,6 +2502,600 @@ static int cmd_serve(const char *mg_spv, const char *ex_spv, const char *tables_
     }
 }
 
+// ---- serve-persistent mode: the persistent-form kernel (pfl_r13 /
+// pfl_r14) as a serve engine, inputs assembled per ply by prod_adapter
+// (persistent/prod_adapter.c). Same stdin/stdout protocol and response
+// block bytes as cmd_serve. One kernel dispatch per ply (uni ply count
+// = 1, descriptor slot 0); survivors and dead children are read back
+// after each ply and the next ply's nodes are built on the host.
+// Kernel-side failure (ctrl err word, per-instance status err byte,
+// host/kernel child-count disagreement, poll timeout) is reported as
+// block status 2 — never a silent fallback.
+// The Vulkan setup below is pfload's, self-contained: vkrunner's
+// vk_setup device enables only shaderInt64, while the persistent
+// kernel also needs shaderFloat64, shaderBufferInt64Atomics and
+// subgroup size control. Wiring record:
+// ~/workspace/night-queue/PROD-ADAPTER-WIRING-2026-11-21.md
+#define PROD_ADAPTER_NO_HARNESS 1
+#define rd32 pa_rd32
+#define ri32 pa_ri32
+#define rd64 pa_rd64
+#define put32 pa_put32
+#define putf64 pa_putf64
+#define rdf64 pa_rdf64
+#include "../../persistent/prod_adapter.c"
+#undef rd32
+#undef ri32
+#undef rd64
+#undef put32
+#undef putf64
+#undef rdf64
+
+#define PF_MAXINST 256u   // instances per ply (<= 96 nodes x 2 options, headroom)
+#define PF_MAXCHILD 8192u // kernel per-ply layout limit (audit B)
+#define PF_STATE_WORDS 196992u
+#define PF_OUT_WORDS 663040u
+#define PF_OSEL 524800u
+#define PF_OARENA 527872u
+
+static VkDevice pf_dev; static VkQueue pf_queue; static VkCommandPool pf_pool;
+static VkPhysicalDeviceMemoryProperties pf_mp;
+typedef struct { VkBuffer buf; VkDeviceMemory mem; uint8_t *ptr; } PFBuf;
+static PFBuf pf_ctrl, pf_uni, pf_inst52, pf_inst48, pf_plcin, pf_plcout,
+             pf_tab, pf_rec, pf_state, pf_out, pf_gout, pf_status;
+static VkPipeline pf_pipe; static VkPipelineLayout pf_lay; static VkDescriptorSet pf_dset;
+static VkQueryPool pf_qpool; static double pf_tsp_ns;
+static VkCommandBuffer pf_cb;
+
+static int pf_find_type(uint32_t filter, VkMemoryPropertyFlags want) {
+    for (uint32_t i = 0; i < pf_mp.memoryTypeCount; i++)
+        if ((filter & (1u << i)) && (pf_mp.memoryTypes[i].propertyFlags & want) == want) return (int)i;
+    return -1;
+}
+static PFBuf pf_mkbuf(VkDeviceSize sz, int devlocal) {
+    PFBuf b = { 0, 0, NULL };
+    VkBufferCreateInfo ci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, sz, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_SHARING_MODE_EXCLUSIVE, 0, NULL };
+    CK(vkCreateBuffer(pf_dev, &ci, NULL, &b.buf));
+    VkMemoryRequirements mr; vkGetBufferMemoryRequirements(pf_dev, b.buf, &mr);
+    int t = devlocal ? pf_find_type(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                     : pf_find_type(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (t < 0 && !devlocal) t = pf_find_type(mr.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (t < 0) { fprintf(stderr, "serve-persistent: no memory type\n"); exit(1); }
+    VkMemoryAllocateInfo ai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, NULL, mr.size, (uint32_t)t };
+    CK(vkAllocateMemory(pf_dev, &ai, NULL, &b.mem));
+    CK(vkBindBufferMemory(pf_dev, b.buf, b.mem, 0));
+    if (!devlocal) CK(vkMapMemory(pf_dev, b.mem, 0, VK_WHOLE_SIZE, 0, (void **)&b.ptr));
+    return b;
+}
+
+// pfload vk_setup, adapted: device preference = want arg, then
+// ATTAX_GPU env, then "RX 6400", then any discrete GPU. No discrete
+// GPU = exit(1): no silent fallback (audit B condition).
+static void pf_vk_setup(const char *want) {
+    VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL, "vkrunner-pf", 1, "vkrunner-pf", 1, VK_API_VERSION_1_3 };
+    VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &app, 0, NULL, 0, NULL };
+    VkInstance vi; CK(vkCreateInstance(&ici, NULL, &vi));
+    uint32_t nd = 0; CK(vkEnumeratePhysicalDevices(vi, &nd, NULL)); VkPhysicalDevice ds[8]; CK(vkEnumeratePhysicalDevices(vi, &nd, ds));
+    VkPhysicalDevice ph = VK_NULL_HANDLE; VkPhysicalDeviceProperties pr;
+    const char *names[3] = { want, getenv("ATTAX_GPU"), "RX 6400" };
+    for (int n = 0; n < 3 && !ph; n++) {
+        if (!names[n] || !names[n][0]) continue;
+        for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (strstr(pr.deviceName, names[n])) { ph = ds[i]; break; } }
+    }
+    if (!ph) {
+        for (uint32_t i = 0; i < nd; i++) { vkGetPhysicalDeviceProperties(ds[i], &pr); if (pr.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) { ph = ds[i]; break; } }
+    }
+    if (!ph) { fprintf(stderr, "serve-persistent: no discrete Vulkan GPU found (no silent fallback)\n"); exit(1); }
+    VkPhysicalDeviceSubgroupSizeControlProperties ssc = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES, NULL };
+    VkPhysicalDeviceSubgroupProperties sub = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, &ssc };
+    VkPhysicalDeviceProperties2 p2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &sub };
+    vkGetPhysicalDeviceProperties2(ph, &p2);
+    uint32_t reqWave = 0;
+    const char *ws = getenv("ATTAX_WAVE");
+    if (ws && ws[0]) {
+        reqWave = (uint32_t)atoi(ws);
+        if (reqWave != 32 && reqWave != 64) { fprintf(stderr, "ATTAX_WAVE must be 32 or 64\n"); exit(1); }
+        if (reqWave < ssc.minSubgroupSize || reqWave > ssc.maxSubgroupSize) {
+            fprintf(stderr, "ATTAX_WAVE=%u unsupported by %s (min=%u max=%u)\n", reqWave, pr.deviceName, ssc.minSubgroupSize, ssc.maxSubgroupSize);
+            exit(1);
+        }
+    }
+    uint32_t effWave = reqWave ? reqWave : sub.subgroupSize;
+    if (effWave != 32 && effWave != 64) { fprintf(stderr, "serve-persistent: unsupported subgroupSize %u (need 32 or 64)\n", effWave); exit(1); }
+    fprintf(stderr, "serve-persistent: device %s subgroupSize %u (wave=%u)\n", pr.deviceName, sub.subgroupSize, effWave);
+    // Same startup banner as vk_setup (production serve): TbpGpuServer
+    // and the lab GpuServer wait for "selected: <device>" on stderr
+    // before sending decisions. During cmd_serve_persistent setup stdout
+    // is redirected to stderr, so this printf lands there exactly as in
+    // production serve (wiring record section 9.5 (i)).
+    printf("selected: %s (timestampPeriod %.1f ns)\n", pr.deviceName, pr.limits.timestampPeriod);
+    pf_tsp_ns = pr.limits.timestampPeriod;
+    vkGetPhysicalDeviceMemoryProperties(ph, &pf_mp);
+    uint32_t nq = 0; vkGetPhysicalDeviceQueueFamilyProperties(ph, &nq, NULL); VkQueueFamilyProperties qf[16]; vkGetPhysicalDeviceQueueFamilyProperties(ph, &nq, qf);
+    uint32_t qfi = 0; for (uint32_t i = 0; i < nq; i++) if (qf[i].queueFlags & VK_QUEUE_COMPUTE_BIT) { qfi = i; break; }
+    float prio = 1; VkDeviceQueueCreateInfo qci = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, NULL, 0, qfi, 1, &prio };
+    VkPhysicalDeviceFeatures feats = { 0 }; feats.shaderInt64 = VK_TRUE; feats.shaderFloat64 = VK_TRUE;
+    VkPhysicalDeviceSubgroupSizeControlFeatures sscf = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES, NULL, VK_TRUE, VK_FALSE };
+    VkPhysicalDeviceShaderAtomicInt64Features af = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES, &sscf };
+    af.shaderBufferInt64Atomics = VK_TRUE;
+    VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &af, 0, 1, &qci, 0, NULL, 0, NULL, &feats };
+    CK(vkCreateDevice(ph, &dci, NULL, &pf_dev));
+    vkGetDeviceQueue(pf_dev, qfi, 0, &pf_queue);
+    VkCommandPoolCreateInfo cpci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, NULL, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, qfi };
+    CK(vkCreateCommandPool(pf_dev, &cpci, NULL, &pf_pool));
+    VkCommandBufferAllocateInfo cai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, pf_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
+    CK(vkAllocateCommandBuffers(pf_dev, &cai, &pf_cb));
+    VkQueryPoolCreateInfo qpi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, NULL, 0, VK_QUERY_TYPE_TIMESTAMP, 2, 0 };
+    CK(vkCreateQueryPool(pf_dev, &qpi, NULL, &pf_qpool));
+}
+
+static void pf_buffers_setup(const char *tables_path, const char *spvp) {
+    pf_ctrl = pf_mkbuf(8192 * 4, 0);
+    pf_uni = pf_mkbuf(4096, 0);
+    pf_inst52 = pf_mkbuf((VkDeviceSize)PF_MAXINST * 52 * 4, 0);
+    pf_inst48 = pf_mkbuf((VkDeviceSize)PF_MAXINST * 48 * 4, 0);
+    pf_plcin = pf_mkbuf((VkDeviceSize)PF_MAXCHILD * 2 * 4, 0); memset(pf_plcin.ptr, 0, (size_t)PF_MAXCHILD * 2 * 4);
+    pf_plcout = pf_mkbuf((VkDeviceSize)PF_MAXCHILD * 2 * 4, 0);
+    pf_tab = pf_mkbuf(180 * 8, 0);
+    { FILE *tf = fopen(tables_path, "rb"); if (!tf) { perror(tables_path); exit(1); }
+      uint8_t thdr[8]; if (fread(thdr, 1, 8, tf) != 8) exit(1);
+      if (pa_rd32(thdr) != 0x4D345442u || pa_rd32(thdr + 4) != 180) { fprintf(stderr, "serve-persistent: bad tables header\n"); exit(1); }
+      if (fread(pf_tab.ptr, 8, 180, tf) != 180) exit(1); fclose(tf); }
+    // rec is host-visible here (pfload stages it through a copy); the
+    // readback volume per ply is small and correctness comes first.
+    pf_rec = pf_mkbuf((VkDeviceSize)PF_MAXCHILD * 64, 0);
+    pf_state = pf_mkbuf((VkDeviceSize)PF_STATE_WORDS * 4, 1);
+    pf_out = pf_mkbuf((VkDeviceSize)PF_OUT_WORDS * 4, 0);
+    // gout is read by matStage only for the arena rows/flags, which the
+    // host reconstructs itself (wiring record §3.5): a zeroed dummy.
+    pf_gout = pf_mkbuf((VkDeviceSize)PF_MAXCHILD * 30 * 4, 0); memset(pf_gout.ptr, 0, (size_t)PF_MAXCHILD * 30 * 4);
+    pf_status = pf_mkbuf((VkDeviceSize)PF_MAXINST * 4, 0);
+    // descriptor set: the same 19 bindings as pfload (state aliases
+    // included), so the kernel's layout contract is untouched.
+    VkDescriptorSetLayoutBinding bd[19];
+    for (int i = 0; i < 19; i++) { bd[i].binding = (uint32_t)i; bd[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; bd[i].descriptorCount = 1; bd[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; bd[i].pImmutableSamplers = NULL; }
+    VkDescriptorSetLayoutCreateInfo lci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, NULL, 0, 19, bd };
+    VkDescriptorSetLayout dsl; CK(vkCreateDescriptorSetLayout(pf_dev, &lci, NULL, &dsl));
+    VkPushConstantRange pcr = { VK_SHADER_STAGE_COMPUTE_BIT, 0, 16 };
+    VkPipelineLayoutCreateInfo plci = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, NULL, 0, 1, &dsl, 1, &pcr };
+    CK(vkCreatePipelineLayout(pf_dev, &plci, NULL, &pf_lay));
+    VkDescriptorPoolSize dps = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 19 };
+    VkDescriptorPoolCreateInfo dpi = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, NULL, 0, 1, 1, &dps };
+    VkDescriptorPool dp; CK(vkCreateDescriptorPool(pf_dev, &dpi, NULL, &dp));
+    VkDescriptorSetAllocateInfo sai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, NULL, dp, 1, &dsl };
+    CK(vkAllocateDescriptorSets(pf_dev, &sai, &pf_dset));
+    VkDescriptorBufferInfo ii_[19] = {
+        { pf_ctrl.buf, 0, VK_WHOLE_SIZE }, { pf_uni.buf, 0, VK_WHOLE_SIZE }, { pf_inst52.buf, 0, VK_WHOLE_SIZE },
+        { pf_inst48.buf, 0, VK_WHOLE_SIZE }, { pf_plcin.buf, 0, VK_WHOLE_SIZE }, { pf_tab.buf, 0, VK_WHOLE_SIZE },
+        { pf_rec.buf, 0, VK_WHOLE_SIZE }, { pf_state.buf, 0, VK_WHOLE_SIZE }, { pf_out.buf, 0, VK_WHOLE_SIZE },
+        { pf_gout.buf, 0, VK_WHOLE_SIZE }, { pf_status.buf, 0, VK_WHOLE_SIZE }, { pf_plcout.buf, 0, VK_WHOLE_SIZE },
+        { pf_state.buf, 188608ull * 4, VK_WHOLE_SIZE }, { pf_state.buf, 0, VK_WHOLE_SIZE },
+        { pf_state.buf, 32768ull * 4, VK_WHOLE_SIZE }, { pf_state.buf, 188480ull * 4, VK_WHOLE_SIZE },
+        { pf_state.buf, 188544ull * 4, VK_WHOLE_SIZE }, { pf_state.buf, 147456ull * 4, VK_WHOLE_SIZE },
+        { pf_rec.buf, 0, VK_WHOLE_SIZE }
+    };
+    VkWriteDescriptorSet wr[19];
+    for (int i = 0; i < 19; i++) { VkWriteDescriptorSet w = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, pf_dset, (uint32_t)i, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, NULL, &ii_[i], NULL }; wr[i] = w; }
+    vkUpdateDescriptorSets(pf_dev, 19, wr, 0, NULL);
+    // pipeline (pfload pipeline_setup, ATTAX_WAVE honored)
+    size_t slen; uint8_t *spv = slurp(spvp, &slen);
+    VkShaderModuleCreateInfo smi = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, NULL, 0, slen, (uint32_t *)spv };
+    VkShaderModule sm; CK(vkCreateShaderModule(pf_dev, &smi, NULL, &sm));
+    const char *ws2 = getenv("ATTAX_WAVE");
+    uint32_t rw2 = (ws2 && ws2[0]) ? (uint32_t)atoi(ws2) : 0u;
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rss = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO, NULL, rw2 };
+    VkComputePipelineCreateInfo cci = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, NULL, 0,
+        { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, rw2 ? &rss : NULL, 0, VK_SHADER_STAGE_COMPUTE_BIT, sm, "main", NULL }, pf_lay, VK_NULL_HANDLE, 0 };
+    CK(vkCreateComputePipelines(pf_dev, VK_NULL_HANDLE, 1, &cci, NULL, &pf_pipe));
+    free(spv);
+}
+
+typedef struct {
+    ANode node;
+    int32_t root_label; // arena label of the depth-1 ancestor child
+    int32_t label;      // this node's own arena label (0 = root)
+    double value;       // node value (survivors: arena value; dead: rec value)
+    int32_t s_kind, s_rot, s_x, s_y, s_srs, s_tspin, s_used_hold, s_lines, s_attack;
+    double s_reward;    // step reward: child accumulated - parent accumulated
+    int dead;
+} PSNode;
+typedef struct { int node_idx; AOption opt; uint32_t child_base; uint32_t nchild; } PFInst;
+typedef struct { PSNode *beam; uint32_t nbeam; PSNode *dead; uint32_t ndead; } PFPlyHist;
+static PFInst pf_insts[PF_MAXINST];
+static uint32_t pf_child_inst[PF_MAXCHILD];
+static APlc pf_plc_scratch[64];
+
+// One ply dispatch (pfload run_decision's protocol, one ply per
+// submission). Returns 0 ok, 2 on kernel error / poll timeout.
+static int pf_dispatch(uint32_t G, double *span_ms) {
+    uint32_t *ctrl = (uint32_t *)pf_ctrl.ptr;
+    // Zero the control block host-side before submitting: the poll
+    // loop must never see the previous dispatch's done/error.
+    memset(ctrl, 0, 8192 * 4);
+    CK(vkResetCommandBuffer(pf_cb, 0));
+    VkCommandBufferBeginInfo bgi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, NULL };
+    CK(vkBeginCommandBuffer(pf_cb, &bgi));
+    vkCmdFillBuffer(pf_cb, pf_ctrl.buf, 0, 8192 * 4, 0);
+    VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+    vkCmdPipelineBarrier(pf_cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, NULL, 0, NULL);
+    // The previous ply's dispatch wrote state/surv/rec through this
+    // same queue; make those writes visible to this dispatch's reads
+    // (wiring record §2 — pfload never needed this, serve does).
+    VkMemoryBarrier mbx = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+    vkCmdPipelineBarrier(pf_cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mbx, 0, NULL, 0, NULL);
+    vkCmdResetQueryPool(pf_cb, pf_qpool, 0, 2);
+    vkCmdBindPipeline(pf_cb, VK_PIPELINE_BIND_POINT_COMPUTE, pf_pipe);
+    vkCmdBindDescriptorSets(pf_cb, VK_PIPELINE_BIND_POINT_COMPUTE, pf_lay, 0, 1, &pf_dset, 0, NULL);
+    uint32_t pcw[4] = { G, G / 12, 0, 200000 };
+    vkCmdPushConstants(pf_cb, pf_lay, VK_SHADER_STAGE_COMPUTE_BIT, 0, 16, pcw);
+    vkCmdWriteTimestamp(pf_cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, pf_qpool, 0);
+    vkCmdDispatch(pf_cb, G, 1, 1);
+    vkCmdWriteTimestamp(pf_cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pf_qpool, 1);
+    CK(vkEndCommandBuffer(pf_cb));
+    double t0 = now_s();
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &pf_cb, 0, NULL };
+    CK(vkQueueSubmit(pf_queue, 1, &si, VK_NULL_HANDLE));
+    double deadline = t0 + 20.0;
+    int fault = 0;
+    // PF_DEBUG2: host-side transition timestamps for the ctrl words, to
+    // separate "generation bump never became visible to the spinning
+    // lane-0s" from "one workgroup arrived at B0 a full spin budget
+    // late" (wiring record S11). No kernel change, poll loop only.
+    int dbg2 = getenv("PF_DEBUG2") != NULL;
+    double t_c28 = -1, t_c64 = -1, t_c128 = -1, t_c1 = -1;
+    for (;;) {
+        uint32_t done = __atomic_load_n(&ctrl[0], __ATOMIC_ACQUIRE);
+        uint32_t err = __atomic_load_n(&ctrl[1], __ATOMIC_ACQUIRE);
+        if (dbg2) {
+            double tn = now_s();
+            if (t_c28 < 0 && __atomic_load_n(&ctrl[28], __ATOMIC_ACQUIRE) >= 12) t_c28 = (tn - t0) * 1e3;
+            if (t_c64 < 0 && __atomic_load_n(&ctrl[64], __ATOMIC_ACQUIRE) >= 1) t_c64 = (tn - t0) * 1e3;
+            if (t_c128 < 0 && __atomic_load_n(&ctrl[128], __ATOMIC_ACQUIRE) != 0) t_c128 = (tn - t0) * 1e3;
+            if (t_c1 < 0 && err) t_c1 = (tn - t0) * 1e3;
+        }
+        if (err) { fault = 2; break; }
+        if (done) break;
+        if (now_s() > deadline) { fprintf(stderr, "serve-persistent: host poll timeout\n"); fault = 2; break; }
+    }
+    if (dbg2) fprintf(stderr, "PFDBG2 trans ms: compl12=%.3f c64=%.3f c128=%.3f err=%.3f fault=%d\n",
+                      t_c28, t_c64, t_c128, t_c1, fault);
+    CK(vkQueueWaitIdle(pf_queue));
+    uint64_t tq[2] = { 0, 0 };
+    CK(vkGetQueryPoolResults(pf_dev, pf_qpool, 0, 2, sizeof tq, tq, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    *span_ms = (double)(tq[1] - tq[0]) * pf_tsp_ns * 1e-6;
+    if (fault && getenv("PF_DEBUG")) {
+        // ctrl[64] counts completed grid barriers this dispatch, so it
+        // names the barrier the grid stalled at (wiring record S11).
+        fprintf(stderr, "PFDBG dispatch fault=%d ctrl0=%u ctrl1=%u ctrl64=%u ctrl128=%u span=%.3fms\n",
+                fault, ctrl[0], ctrl[1], ctrl[64], ctrl[128], *span_ms);
+        // Per-WG progress markers (instrumented kernel only; the stock
+        // kernel leaves ctrl[256..] zeroed). Marker meanings are listed
+        // in wiring record S11.
+        fprintf(stderr, "PFDBG markers:");
+        for (uint32_t wgi = 0; wgi < G; wgi++) fprintf(stderr, " %u", ctrl[256 + wgi]);
+        fprintf(stderr, "\n");
+        // Grid barrier arrival counters at the stall: ctrl[16+grp] is
+        // grp's cumulative arrival count (gsize per barrier), ctrl[28]
+        // the cumulative group-completion count (12 per barrier).
+        fprintf(stderr, "PFDBG arrivals:");
+        for (uint32_t gi = 0; gi < 12; gi++) fprintf(stderr, " %u", ctrl[16 + gi]);
+        fprintf(stderr, " | compl=%u\n", ctrl[28]);
+    }
+    return fault;
+}
+
+// Build the serve node for one emitted child. arn44 = the child's
+// arena record when it survived selection, NULL for dead children
+// (their combo/chain/pending/value come from the rec scalars).
+static void pf_child_psnode(PSNode *dst, const PSNode *parent, const AOption *opt,
+                            const uint32_t *rw, const uint32_t *plcw2,
+                            const uint32_t *arn44, int32_t root_label, int32_t label, int dead) {
+    uint32_t pw0 = plcw2[0], pw1 = plcw2[1];
+    int kind = (int)(pw0 & 0xFFu), rot = (int)((pw0 >> 8) & 0xFFu);
+    int x = (int)(int8_t)(pw0 >> 16), y = (int)(int8_t)(pw0 >> 24);
+    AChildState cs; memset(&cs, 0, sizeof cs);
+    a_apply_placement(parent->node.rows, parent->node.flags, 40, kind, rot, x, y, cs.rows, cs.flags);
+    // Landed garbage (wiring record §6): the kernel reports the child's
+    // residual pending but no board; the landed rows are materialized
+    // host-side exactly as the reference search does (expand_s2), or the
+    // next ply's instance boards diverge from the kernel's child state.
+    a_land_garbage(cs.rows, cs.flags, 40, (int)((rw[13] >> 2) & 63u),
+                   parent->node.pending, (int)parent->node.depth, parent->node.due);
+    double accum = bits_f64((uint64_t)rw[6] | ((uint64_t)rw[7] << 32));
+    if (arn44) { cs.chain = (int32_t)arn44[32]; cs.combo = (int32_t)arn44[33]; cs.pending = (int32_t)arn44[34]; }
+    else { cs.chain = (int32_t)((rw[14] >> 6) & 0xFFu); cs.combo = (int32_t)(rw[14] & 63u) - 1; cs.pending = (int32_t)((rw[14] >> 14) & 63u); }
+    cs.feat_tslot = (int32_t)((rw[12] >> 18) & 3u);
+    cs.accumulated = accum;
+    memset(dst, 0, sizeof *dst);
+    a_child_node(&parent->node, opt, &cs, &dst->node);
+    dst->value = arn44 ? bits_f64((uint64_t)arn44[35] | ((uint64_t)arn44[36] << 32))
+                       : bits_f64((uint64_t)rw[4] | ((uint64_t)rw[5] << 32));
+    dst->root_label = root_label;
+    dst->label = label;
+    dst->s_kind = kind; dst->s_rot = rot; dst->s_x = x; dst->s_y = y;
+    dst->s_srs = (int32_t)pw1; dst->s_tspin = (int32_t)(rw[13] & 3u);
+    dst->s_used_hold = opt->used_hold;
+    dst->s_lines = (int32_t)((rw[13] >> 2) & 63u);
+    dst->s_attack = (int32_t)((rw[13] >> 10) & 1023u);
+    dst->s_reward = accum - parent->node.reward;
+    dst->dead = dead;
+}
+
+static void pf_exout(const PSNode *n, uint32_t *r) {
+    memset(r, 0, EX_OUT_STRIDE * 4);
+    for (int i = 0; i < 40; i++) { r[i] = n->node.rows[i]; r[40 + i] = n->node.flags[i]; }
+    r[80] = 40; r[81] = (uint32_t)n->node.hold; r[82] = n->node.next; r[83] = (uint32_t)n->node.chain;
+    r[84] = (uint32_t)n->node.combo; r[85] = (uint32_t)n->node.pending;
+    r[86] = 0; // lift: no persistent-form source (wiring record §5.3)
+    r[87] = (uint32_t)n->node.tslot;
+    uint64_t rb; memcpy(&rb, &n->node.reward, 8); r[88] = (uint32_t)rb; r[89] = (uint32_t)(rb >> 32);
+    uint64_t vb; memcpy(&vb, &n->value, 8); r[90] = (uint32_t)vb; r[91] = (uint32_t)(vb >> 32);
+    r[92] = n->dead ? 1u : 0u; r[93] = (uint32_t)n->root_label; r[94] = n->node.depth;
+    r[95] = (uint32_t)n->s_kind; r[96] = (uint32_t)n->s_rot; r[97] = (uint32_t)n->s_x; r[98] = (uint32_t)n->s_y;
+    r[99] = (uint32_t)n->s_srs; r[100] = (uint32_t)n->s_tspin; r[101] = (uint32_t)n->s_used_hold;
+    r[102] = (uint32_t)n->s_lines; r[103] = (uint32_t)n->s_attack;
+    uint64_t sb; memcpy(&sb, &n->s_reward, 8); r[104] = (uint32_t)sb; r[105] = (uint32_t)(sb >> 32);
+}
+
+static uint32_t pf_dec_counter = 0;
+static int run_decision_pf(const uint32_t *dec, Out *out, double *wall_ms, double *gpu_ms, uint32_t G) {
+    double t_start = now_s();
+    int32_t root_due = (int32_t)dec[104];
+    int status = 0;
+    double gpu_span = 0.0;
+    uint64_t nodes_total = 0;
+
+    ANode root; memset(&root, 0, sizeof root);
+    for (int i = 0; i < 40; i++) { root.rows[i] = (uint16_t)(dec[i] & 0xFFFFu); root.flags[i] = (uint8_t)(dec[40 + i] & 0xFFu); }
+    root.hold = (int32_t)dec[99]; root.next = 0; root.can_hold = dec[100] != 0;
+    root.combo = (int32_t)dec[101]; root.pending = (int32_t)dec[102]; root.chain = (int32_t)dec[103];
+    root.due = root_due; root.tslot = (int32_t)dec[105]; root.reward = 0.0; root.depth = 0;
+    int seq[16]; int seq_len = (int)dec[81];
+    if (seq_len < 1 || seq_len > 14) status = 2;
+    for (int i = 0; i < seq_len && i < 16; i++) seq[i] = (int)dec[82 + i];
+    a_set_root_frame((int64_t)((uint64_t)dec[106] | ((uint64_t)dec[107] << 32)));
+    uint32_t dec_id = pf_dec_counter++;
+
+    PSNode *cur = malloc(sizeof(PSNode));
+    memset(cur, 0, sizeof *cur); cur[0].node = root;
+    PSNode *root_arr = cur; // initial beam (root only); never stored in hist, freed once at cleanup
+    uint32_t ncur = 1;
+    PFPlyHist hist[40]; int nhist = 0;
+    PSNode *fm = NULL; // first-move table for ply 0, indexed by root label - 1
+    uint32_t arena_counter = 0;
+
+    while (status == 0) {
+        uint32_t ni = 0, nch = 0;
+        int depth = (int)cur[0].node.depth;
+        for (uint32_t j = 0; j < ncur && status == 0; j++) {
+            AOption opts[2];
+            int no = a_options(&cur[j].node, seq, seq_len, opts);
+            for (int o = 0; o < no; o++) {
+                if (ni >= PF_MAXINST || nch >= PF_MAXCHILD) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=capacity ni=%u nch=%u\n", dec_id, depth, ni, nch);
+                    status = 2; break;
+                }
+                int sr, sx, sy;
+                if (depth == 0) { sr = (int32_t)dec[96]; sx = (int32_t)dec[97]; sy = (int32_t)dec[98]; }
+                else { sr = 0; sx = 3; sy = 19; } // spawn_position(kind, 40)
+                int n = a_movegen(cur[j].node.rows, 40, opts[o].kind, sr, sx, sy, pf_plc_scratch, 64);
+                uint32_t cnt = n > 64 ? 64u : (uint32_t)n;
+                if (nch + cnt > PF_MAXCHILD) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=childcap nch=%u cnt=%u\n", dec_id, depth, nch, cnt);
+                    status = 2; break;
+                }
+                uint8_t rec[196];
+                a_build_record(rec, &cur[j].node, &opts[o], dec_id, (uint32_t)cur[j].label, cnt);
+                uint32_t *i48 = (uint32_t *)pf_inst48.ptr + (size_t)ni * 48;
+                uint32_t *i52 = (uint32_t *)pf_inst52.ptr + (size_t)ni * 52;
+                a_pack_inst48(rec, i48); i48[4] = nch;
+                uint8_t spawn[4] = { (uint8_t)opts[o].kind, (uint8_t)sr, (uint8_t)(int8_t)sx, (uint8_t)(int8_t)sy };
+                a_pack_inst52(rec, spawn, i52); i52[4] = nch;
+                pf_insts[ni].node_idx = (int)j; pf_insts[ni].opt = opts[o];
+                pf_insts[ni].child_base = nch; pf_insts[ni].nchild = cnt;
+                for (uint32_t c = 0; c < cnt; c++) pf_child_inst[nch + c] = ni;
+                nch += cnt; ni++;
+            }
+        }
+        if (status) break;
+        if (ni == 0) break; // no node has an option left: search over
+        memset(pf_uni.ptr, 0, 4096);
+        ((uint32_t *)pf_uni.ptr)[0] = 1;
+        a_ply_uni((uint32_t *)pf_uni.ptr, 0, 0, ni, 0, nch, (uint32_t)depth);
+        memset(pf_status.ptr, 0, (size_t)PF_MAXINST * 4);
+        memset(pf_plcout.ptr, 0, (size_t)(nch ? nch : 1) * 2 * 4);
+        PSNode *next = NULL; uint32_t nnext = 0;
+        PSNode *dead = NULL; uint32_t ndead = 0;
+        if (nch > 0) {
+            double span = 0.0;
+            if (pf_dispatch(G, &span)) {
+                if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=dispatch ni=%u nch=%u\n", dec_id, depth, ni, nch);
+                status = 2; break;
+            }
+            gpu_span += span;
+            uint32_t *stw = (uint32_t *)pf_status.ptr;
+            uint32_t sum = 0;
+            for (uint32_t i = 0; i < ni; i++) {
+                if ((stw[i] & 0xFFu) != 0) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=statusbyte inst=%u word=0x%08x\n", dec_id, depth, i, stw[i]);
+                    status = 2; break;
+                }
+                sum += stw[i] >> 16;
+            }
+            if (status) break;
+            if (sum != nch) {
+                fprintf(stderr, "serve-persistent: child count mismatch: kernel %u != host movegen %u\n", sum, nch);
+                status = 2; break;
+            }
+            nodes_total += nch;
+            uint32_t *outw = (uint32_t *)pf_out.ptr;
+            uint32_t nSel = outw[2];
+            if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d ply ni=%u nch=%u nSel=%u nAlive=%u nReps=%u nEval=%u rounds=%u span=%.3f\n",
+                                            dec_id, depth, ni, nch, nSel, outw[0], outw[1], outw[3], outw[4], span);
+            if (nSel > 96) {
+                if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=nsel nSel=%u\n", dec_id, depth, nSel);
+                status = 2; break;
+            }
+            const uint32_t *sel = outw + PF_OSEL;
+            const uint32_t *arn = outw + PF_OARENA;
+            uint32_t *recw = (uint32_t *)pf_rec.ptr;
+            uint32_t *plcw = (uint32_t *)pf_plcout.ptr;
+            if (depth == 0) { arena_counter = nch; fm = calloc(nch ? nch : 1, sizeof(PSNode)); }
+            next = malloc((size_t)(nSel ? nSel : 1) * sizeof(PSNode));
+            for (uint32_t s = 0; s < nSel; s++) {
+                uint32_t ci = sel[s];
+                if (ci >= nch) {
+                    if (getenv("PF_DEBUG")) fprintf(stderr, "PFDBG dec=%u depth=%d site=selrange s=%u ci=%u nch=%u\n", dec_id, depth, s, ci, nch);
+                    status = 2; break;
+                }
+                PFInst *in = &pf_insts[pf_child_inst[ci]];
+                int32_t label = depth == 0 ? (int32_t)ci + 1 : (int32_t)++arena_counter;
+                int32_t rlabel = depth == 0 ? (int32_t)ci + 1 : cur[in->node_idx].root_label;
+                pf_child_psnode(&next[nnext], &cur[in->node_idx], &in->opt,
+                                recw + (size_t)ci * 16, plcw + (size_t)ci * 2,
+                                arn + (size_t)s * 44, rlabel, label, 0);
+                nnext++;
+            }
+            if (status) { free(next); break; }
+            dead = malloc((size_t)nch * sizeof(PSNode));
+            for (uint32_t ci = 0; ci < nch; ci++) {
+                const uint32_t *rw = recw + (size_t)ci * 16;
+                PFInst *in = &pf_insts[pf_child_inst[ci]];
+                int32_t rlabel = depth == 0 ? (int32_t)ci + 1 : cur[in->node_idx].root_label;
+                if (depth == 0)
+                    pf_child_psnode(&fm[ci], &cur[in->node_idx], &in->opt, rw, plcw + (size_t)ci * 2, NULL, rlabel, rlabel, 0);
+                if (!((rw[13] >> 8) & 1u)) continue;
+                pf_child_psnode(&dead[ndead], &cur[in->node_idx], &in->opt, rw, plcw + (size_t)ci * 2, NULL, rlabel, 0, 1);
+                ndead++;
+            }
+        } else if (depth == 0) {
+            fm = calloc(1, sizeof(PSNode));
+        }
+        hist[nhist].beam = next; hist[nhist].nbeam = nnext;
+        hist[nhist].dead = dead; hist[nhist].ndead = ndead;
+        nhist++;
+        // Ownership: next is now owned by hist and must stay alive until
+        // the output assembly below has read every ply's beam/dead, so the
+        // ply loop never frees it. cur becomes a borrowed pointer to
+        // hist[nhist-1].beam (the previous cur array is likewise owned by
+        // hist, or is root_arr before the first store). Freeing cur here
+        // freed the array hist still held: heap-use-after-free in pf_exout
+        // plus a double free at cleanup (wiring record section 9.2).
+        cur = next; ncur = nnext;
+        if (nnext == 0 || nhist >= 40) break;
+    }
+
+    // ---- final selection (run_decision_s2 semantics): the best leaf
+    // (dead child) over all plies, else the deepest non-empty beam.
+    int32_t best_root = -1, best_depth = 0; double best_val = 0.0; int have_best = 0;
+    int32_t rb_root[4096]; double rb_val[4096]; int rb_len = 0;
+    PSNode **cand = NULL; uint32_t ncand = 0;
+    if (status == 0) {
+        uint32_t total_dead = 0;
+        for (int h = 0; h < nhist; h++) total_dead += hist[h].ndead;
+        if (total_dead > 0) {
+            cand = malloc((size_t)total_dead * sizeof(PSNode *));
+            for (int h = 0; h < nhist; h++)
+                for (uint32_t d = 0; d < hist[h].ndead; d++) cand[ncand++] = &hist[h].dead[d];
+        } else {
+            for (int h = nhist - 1; h >= 0; h--) if (hist[h].nbeam > 0) {
+                cand = malloc((size_t)hist[h].nbeam * sizeof(PSNode *));
+                for (uint32_t b = 0; b < hist[h].nbeam; b++) cand[ncand++] = &hist[h].beam[b];
+                break;
+            }
+        }
+        for (uint32_t i = 0; i < ncand; i++) {
+            PSNode *nd = cand[i];
+            double v = nd->value;
+            if (!have_best || v > best_val) { have_best = 1; best_val = v; best_root = nd->root_label; best_depth = (int32_t)nd->node.depth; }
+            int pos = -1;
+            for (int j = 0; j < rb_len; j++) if (rb_root[j] == nd->root_label) { pos = j; break; }
+            if (pos >= 0) { if (v > rb_val[pos]) rb_val[pos] = v; }
+            else if (rb_len < 4096) { rb_root[rb_len] = nd->root_label; rb_val[rb_len] = v; rb_len++; }
+        }
+        if (!have_best) status = 1;
+    }
+
+    if (status == 2 && getenv("PF_DEBUG"))
+        fprintf(stderr, "PFDBG dec=%u final status=2 nhist=%d\n", dec_id, nhist);
+
+    double wall = (now_s() - t_start) * 1e3;
+    if (wall_ms) *wall_ms = wall;
+    if (gpu_ms) *gpu_ms = gpu_span;
+    if (out) {
+        ow32(out, (uint32_t)status);
+        if (status != 0) {
+            for (int i = 0; i < 6; i++) ow32(out, 0);
+            ow32(out, 0); ow64(out, 0); ow64(out, 0); ow32(out, 0);
+            ow32(out, 0); ow32(out, 0);
+            owf64(out, wall); owf64(out, gpu_span); owf64(out, 0.0); owf64(out, 0.0);
+        } else {
+            PSNode *fn = &fm[best_root - 1];
+            ow32(out, (uint32_t)fn->s_kind); ow32(out, (uint32_t)fn->s_rot);
+            ow32(out, (uint32_t)fn->s_x); ow32(out, (uint32_t)fn->s_y);
+            ow32(out, (uint32_t)fn->s_srs); ow32(out, (uint32_t)fn->s_tspin);
+            ow32(out, (uint32_t)fn->s_used_hold);
+            uint64_t bv; memcpy(&bv, &best_val, 8); ow64(out, bv);
+            ow64(out, nodes_total);
+            ow32(out, (uint32_t)best_depth);
+            int32_t idxs[4096];
+            for (int i = 0; i < rb_len; i++) idxs[i] = i;
+            for (int i = 1; i < rb_len; i++) {
+                int32_t t = idxs[i]; int j = i - 1;
+                while (j >= 0 && rb_val[idxs[j]] < rb_val[t]) { idxs[j + 1] = idxs[j]; j--; }
+                idxs[j + 1] = t;
+            }
+            ow32(out, (uint32_t)rb_len);
+            for (int i = 0; i < rb_len; i++) {
+                PSNode *m = &fm[rb_root[idxs[i]] - 1];
+                ow32(out, (uint32_t)m->s_kind); ow32(out, (uint32_t)m->s_rot);
+                ow32(out, (uint32_t)m->s_x); ow32(out, (uint32_t)m->s_y);
+                ow32(out, (uint32_t)m->s_srs); ow32(out, (uint32_t)m->s_tspin);
+                ow32(out, (uint32_t)m->s_used_hold);
+                uint64_t cv; memcpy(&cv, &rb_val[idxs[i]], 8); ow64(out, cv);
+            }
+            ow32(out, (uint32_t)nhist);
+            for (int h = 0; h < nhist; h++) {
+                uint32_t r[EX_OUT_STRIDE];
+                ow32(out, hist[h].nbeam);
+                for (uint32_t b = 0; b < hist[h].nbeam; b++) { pf_exout(&hist[h].beam[b], r); write_wire_record(out, r, root_due); }
+                ow32(out, hist[h].ndead);
+                for (uint32_t d = 0; d < hist[h].ndead; d++) { pf_exout(&hist[h].dead[d], r); write_wire_record(out, r, root_due); }
+            }
+            owf64(out, wall); owf64(out, gpu_span); owf64(out, 0.0); owf64(out, wall - gpu_span);
+        }
+    }
+    for (int h = 0; h < nhist; h++) { free(hist[h].beam); free(hist[h].dead); }
+    free(root_arr); free(fm); free(cand); // cur borrows root_arr or a hist beam; never freed separately
+    return status;
+}
+
+// ---- serve-persistent: same protocol as cmd_serve, persistent engine.
+static int cmd_serve_persistent(const char *spv, const char *tables_path, uint32_t G, const char *want) {
+    fflush(stdout);
+    int saved = dup(1);
+    if (saved < 0 || dup2(2, 1) < 0) { fprintf(stderr, "serve-persistent: cannot redirect stdout\n"); return 1; }
+    pf_vk_setup(want);
+    pf_buffers_setup(tables_path, spv);
+    fflush(stdout);
+    if (dup2(saved, 1) < 0) { fprintf(stderr, "serve-persistent: cannot restore stdout\n"); return 1; }
+    close(saved);
+    static uint32_t dec[DEC_WORDS];
+    for (;;) {
+        size_t got = fread(dec, 4, DEC_WORDS, stdin);
+        if (got == 0) return 0;  // clean EOF at a record boundary
+        if (got != DEC_WORDS) { fprintf(stderr, "serve-persistent: truncated decision record\n"); return 1; }
+        Out out = {0};
+        double wall, gpu;
+        int st = run_decision_pf(dec, &out, &wall, &gpu, G);
+        uint32_t hdr[2] = { (uint32_t)st, (uint32_t)out.len };
+        fwrite(hdr, 4, 2, stdout);
+        if (out.len) fwrite(out.buf, 1, out.len, stdout);
+        fflush(stdout);
+        free(out.buf);
+    }
+}
+
 int main(int argc, char **argv) {
     profile_resolve();
     if (argc < 2) {
@@ -2510,7 +3104,8 @@ int main(int argc, char **argv) {
                         "  vkrunner_s2 expandcheck <expand.spv> <tables.bin> <cases.bin> [device]\n"
                         "  vkrunner_s2 run <movegen.spv> <expand.spv> <tables.bin> <decisions.bin> <out.bin> [max_decisions] [device]\n"
                         "  vkrunner_s2 bench <movegen.spv> <expand.spv> <tables.bin> <decisions.bin> <reps> [device]\n"
-                        "  vkrunner_s2 serve <movegen.spv> <expand.spv> <tables.bin> [device]\n");
+                        "  vkrunner_s2 serve <movegen.spv> <expand.spv> <tables.bin> [device]\n"
+                        "  vkrunner_s2 serve-persistent <persistent.spv> <tables.bin> [G] [device]\n");
         return 64;
     }
     const char *mode = argv[1];
@@ -2530,6 +3125,12 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "serve")) {
         if (argc > 5) want = argv[5];
         return cmd_serve(argv[2], argv[3], argv[4], want);
+    }
+    if (!strcmp(mode, "serve-persistent")) {
+        uint32_t G = argc > 4 ? (uint32_t)atoi(argv[4]) : 72u;
+        if (argc > 5) want = argv[5];
+        if (G == 0 || G % 12) { fprintf(stderr, "serve-persistent: G must be a multiple of 12\n"); return 1; }
+        return cmd_serve_persistent(argv[2], argv[3], G, want);
     }
     if (!strcmp(mode, "run")) {
         if (argc > 8) want = argv[8];
