@@ -74,6 +74,11 @@ export interface Candidate {
   readonly placement: Placement;
   readonly usedHold: boolean;
   readonly value: number;
+  /** Root step's own attack (search-internal award, pre-cancel). Regret
+   * instrument (EARLY-CANCEL-DESIGN §2.1): the candidate set's Aeff proxy. */
+  readonly attack: number;
+  /** Root step's lines cleared. */
+  readonly linesCleared: number;
 }
 
 export interface SearchResult {
@@ -248,7 +253,13 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
     .map(([index, value]) => {
       const n = firstMoves[index] as Node;
       const step = n.step as Step;
-      return { placement: step.placement, usedHold: step.usedHold, value };
+      return {
+        placement: step.placement,
+        usedHold: step.usedHold,
+        value,
+        attack: step.attack,
+        linesCleared: step.linesCleared,
+      };
     })
     .sort((a, b) => b.value - a.value);
 
