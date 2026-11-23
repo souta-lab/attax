@@ -35,7 +35,7 @@ import { BOT_DEFAULTS } from "./defaults.js";
 import {
   encodeDecisionRecordBytes,
   type ParsedBlock,
-  parseServeBlock,
+  parseServeBlockLight,
   resultForRootStep,
 } from "./gpu-codec.js";
 import type { DeciderOptions, SearchResult } from "./search-types.js";
@@ -599,7 +599,11 @@ export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDe
     }
     const record = encodeDecisionRecordBytes(input);
     const block = await getServer().request(record);
-    const parsed: ParsedBlock = parseServeBlock(block);
+    // Decision path (H1, latency floor audit 2026-11-24): only the head,
+    // the candidates, ply 0 and the trailer are consumed here, so the
+    // light parse materializes nothing deeper. The gate keeps the full
+    // parse (decodeServeBlock in gpu-gate.ts).
+    const parsed: ParsedBlock = parseServeBlockLight(block);
     gpuTimingSamples.push(parsed.wallMs);
     if (parsed.status === 1 || !parsed.best) return null;
     const best = parsed.best;

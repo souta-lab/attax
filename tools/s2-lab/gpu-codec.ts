@@ -220,25 +220,30 @@ function parseStepHead(
   };
 }
 
+interface BlockHead {
+  readonly status: number;
+  readonly head: { placement: Placement; usedHold: boolean; valueBits: bigint };
+  readonly nodes: bigint;
+  readonly depth: number;
+  readonly candidates: ParsedBlock["candidates"][number][];
+  /** Offset of the ply-count word (just past the candidate entries). */
+  readonly off: number;
+}
+
 /**
- * Parse one serve response block (the bytes after the serve header).
- * Throws on truncation or an unknown status; status 1 parses to a null
- * best (the host's zero-filled shape), status 2 throws here because a
- * kernel error must never be mistaken for a result.
+ * The part of a serve block both parse shapes share: status word, best
+ * head (6 i32 + hold + value + nodes + depth) and the candidate entries.
+ * Status 2 throws here because a kernel error must never be mistaken
+ * for a result; status 1 is the host's zero-filled shape (counts 0).
  */
-export function parseServeBlock(block: Uint8Array): ParsedBlock {
-  const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
-  if (block.byteLength < 4) throw new Error("gpu codec: serve block shorter than a status word");
+function parseBlockHead(view: DataView): BlockHead {
+  if (view.byteLength < 4) throw new Error("gpu codec: serve block shorter than a status word");
   const status = view.getUint32(0, true);
   if (status === 2) throw new Error("gpu engine: kernel error (serve status 2)");
   if (status !== 0 && status !== 1) {
     throw new Error(`gpu codec: unknown serve status ${status}`);
   }
-  // Both shapes carry: status, best head (6 i32 + hold + value + nodes +
-  // depth), candidate count, ply count, then the 4-f64 timing trailer.
-  // Status 1 is the zero-filled shape with both counts 0.
   const head = parseStepHead(view, 4);
-  const valueBits = view.getBigUint64(4 + 7 * 4, true);
   const nodes = view.getBigUint64(4 + 9 * 4, true);
   const depth = view.getUint32(4 + 11 * 4, true);
   let off = 4 + 12 * 4;
@@ -249,25 +254,48 @@ export function parseServeBlock(block: Uint8Array): ParsedBlock {
     candidates.push(parseStepHead(view, off));
     off += 9 * 4; // candidate entry: 6 i32 + used_hold u32 + value u64 = 36 bytes
   }
+  return { status, head, nodes, depth, candidates, off };
+}
+
+function parsePly(
+  view: DataView,
+  off: number,
+): { beam: WireNode[]; finished: WireNode[]; off: number } {
+  const nBeam = view.getUint32(off, true);
+  off += 4;
+  const beam: WireNode[] = [];
+  for (let i = 0; i < nBeam; i++) {
+    beam.push(parseWireNode(view, off));
+    off += WIRE_BYTES;
+  }
+  const nFin = view.getUint32(off, true);
+  off += 4;
+  const finished: WireNode[] = [];
+  for (let i = 0; i < nFin; i++) {
+    finished.push(parseWireNode(view, off));
+    off += WIRE_BYTES;
+  }
+  return { beam, finished, off };
+}
+
+/**
+ * Parse one serve response block (the bytes after the serve header),
+ * materializing every ply's nodes. Throws on truncation or an unknown
+ * status; status 1 parses to a null best (the host's zero-filled
+ * shape). This full parse is the gate path's shape (gpu-gate.ts via
+ * decodeServeBlock); the decision path uses parseServeBlockLight.
+ */
+export function parseServeBlock(block: Uint8Array): ParsedBlock {
+  const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+  const { status, head, nodes, depth, candidates, off: headOff } = parseBlockHead(view);
+  let off = headOff;
   const nPlies = view.getUint32(off, true);
   off += 4;
   const plies: ParsedBlock["plies"][number][] = [];
   for (let p = 0; p < nPlies; p++) {
-    const nBeam = view.getUint32(off, true);
-    off += 4;
-    const beam: WireNode[] = [];
-    for (let i = 0; i < nBeam; i++) {
-      beam.push(parseWireNode(view, off));
-      off += WIRE_BYTES;
-    }
-    const nFin = view.getUint32(off, true);
-    off += 4;
-    const finished: WireNode[] = [];
-    for (let i = 0; i < nFin; i++) {
-      finished.push(parseWireNode(view, off));
-      off += WIRE_BYTES;
-    }
-    plies.push({ beam, finished });
+    const ply = parsePly(view, off);
+    off = ply.off;
+    plies.push({ beam: ply.beam, finished: ply.finished });
   }
   if (off + 32 > block.byteLength) {
     throw new Error(
@@ -284,7 +312,82 @@ export function parseServeBlock(block: Uint8Array): ParsedBlock {
   return {
     status,
     best: status === 0 ? head : null,
-    valueBits,
+    valueBits: head.valueBits,
+    nodes,
+    depth,
+    candidates,
+    plies,
+    wallMs,
+    gpuMs,
+  };
+}
+
+/** Advance past one ply by its node counts only, materializing nothing. */
+function skipPly(view: DataView, off: number): number {
+  if (off + 4 > view.byteLength) {
+    throw new Error(
+      `gpu codec: serve block truncated (ply counts run past ${view.byteLength} bytes)`,
+    );
+  }
+  const nBeam = view.getUint32(off, true);
+  off += 4 + nBeam * WIRE_BYTES;
+  if (off + 4 > view.byteLength) {
+    throw new Error(
+      `gpu codec: serve block truncated (ply counts run past ${view.byteLength} bytes)`,
+    );
+  }
+  const nFin = view.getUint32(off, true);
+  off += 4 + nFin * WIRE_BYTES;
+  return off;
+}
+
+/**
+ * Light parse of one serve block for the decision path (gpu-player.ts):
+ * head, candidates, ply 0 and the timing trailer only. Plies 1+ are
+ * validated by their node counts and skipped without materializing a
+ * single node — the decision path never reads them (resultForRootStep
+ * consults ply 0 via firstNodeOf; the acceptRoot post-filter walks the
+ * candidates). The trailer is the block's last 32 bytes, so it is read
+ * directly instead of being reached by walking every ply.
+ *
+ * The returned block's `plies` holds ply 0 ONLY. It is interchangeable
+ * with parseServeBlock's result solely for consumers that read the
+ * head, the candidates, ply 0 and the trailer; anything that walks
+ * deeper plies must keep using the full parse (the gate does).
+ * Truncation and length mismatches throw exactly as in the full parse.
+ */
+export function parseServeBlockLight(block: Uint8Array): ParsedBlock {
+  const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+  const { status, head, nodes, depth, candidates, off: headOff } = parseBlockHead(view);
+  let off = headOff;
+  const nPlies = view.getUint32(off, true);
+  off += 4;
+  const plies: ParsedBlock["plies"][number][] = [];
+  if (nPlies > 0) {
+    const ply0 = parsePly(view, off);
+    off = ply0.off;
+    plies.push({ beam: ply0.beam, finished: ply0.finished });
+    for (let p = 1; p < nPlies; p++) {
+      off = skipPly(view, off);
+    }
+  }
+  const trailerOff = block.byteLength - 32;
+  if (off > trailerOff) {
+    throw new Error(
+      `gpu codec: serve block truncated (plies end at ${off}, trailer starts at ${trailerOff})`,
+    );
+  }
+  if (off < trailerOff) {
+    throw new Error(
+      `gpu codec: serve block length mismatch (plies end at ${off}, trailer starts at ${trailerOff})`,
+    );
+  }
+  const wallMs = view.getFloat64(trailerOff, true);
+  const gpuMs = view.getFloat64(trailerOff + 8, true);
+  return {
+    status,
+    best: status === 0 ? head : null,
+    valueBits: head.valueBits,
     nodes,
     depth,
     candidates,
