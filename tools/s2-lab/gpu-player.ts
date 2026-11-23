@@ -42,6 +42,8 @@ import type { DeciderOptions, SearchResult } from "./search-types.js";
 import { DEFAULT_SOLVENCY_PARAMS, type SolvencyParams } from "./solvency.js";
 import type { SearchInput } from "./state.js";
 import { DEFAULT_STOCK_PARAMS, type StockParams } from "./stock.js";
+import { countMaterialized } from "./tail-parse-harness.js";
+import { closeTailWriter, getTailWriter, type TailJsRecord } from "./tail-trace.js";
 import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -134,6 +136,21 @@ function assertRealDevice(deviceName: string): void {
 interface Waiter {
   resolve: (block: Uint8Array) => void;
   reject: (err: Error) => void;
+  trace?: RequestTrace;
+}
+
+/**
+ * Per-request J-point observations filled in by GpuServer (tail
+ * instrument stage 2, design §3.2): J2 is stamped when the stdin write
+ * completes, J3 when the serve header is first seen in stdout, J4 when
+ * the full block has arrived and been concatenated.
+ */
+export interface RequestTrace {
+  writeDoneAt: number;
+  headerWaitNs: number | null;
+  chunks: number;
+  concatBytes: number;
+  doneAt: number;
 }
 
 /**
@@ -238,6 +255,13 @@ class GpuServer {
 
   private onStdout(chunk: Buffer): void {
     this.stdoutBuf = Buffer.concat([this.stdoutBuf, chunk]);
+    const head = this.waiters[0];
+    if (head?.trace) {
+      head.trace.chunks++;
+      if (head.trace.headerWaitNs === null && this.stdoutBuf.length >= 8) {
+        head.trace.headerWaitNs = (performance.now() - head.trace.writeDoneAt) * 1e6;
+      }
+    }
     for (;;) {
       if (this.stdoutBuf.length < 8) return;
       const status = this.stdoutBuf.readUInt32LE(0);
@@ -249,6 +273,10 @@ class GpuServer {
       if (!waiter) {
         this.fail(new Error("GPU engine sent a response with no pending request"));
         return;
+      }
+      if (waiter.trace) {
+        waiter.trace.concatBytes = 8 + blockBytes;
+        waiter.trace.doneAt = performance.now();
       }
       if (block.length < 4 || block.readUInt32LE(0) !== status) {
         waiter.reject(
@@ -264,7 +292,7 @@ class GpuServer {
   }
 
   /** Send one 432-byte decision record; resolves with the raw result block. */
-  request(record: Uint8Array): Promise<Uint8Array> {
+  request(record: Uint8Array, trace?: RequestTrace): Promise<Uint8Array> {
     const run = async (): Promise<Uint8Array> => {
       if (this.failure) throw this.failure;
       await this.start();
@@ -272,8 +300,9 @@ class GpuServer {
       const proc = this.proc;
       if (!proc) throw new Error("GPU engine process is not running");
       return new Promise<Uint8Array>((resolve, reject) => {
-        this.waiters.push({ resolve, reject });
+        this.waiters.push({ resolve, reject, trace });
         proc.stdin.write(record, (err) => {
+          if (trace) trace.writeDoneAt = performance.now(); // J2
           if (err) reject(new Error(`GPU engine stdin write failed: ${err.message}`));
         });
       });
@@ -597,25 +626,72 @@ export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDe
           "per-step states. Drop the lineStates request for GPU decisions.",
       );
     }
+    // Tail instrument stage 2 (design §3.2): J0 here at the decider
+    // entry; when ATTAX_TAIL_TRACE is unset every trace branch below is
+    // skipped and the path is byte-for-byte the uninstrumented one.
+    const writer = getTailWriter();
+    const j0 = writer ? performance.now() : 0;
+    const seq = writer ? nextTailSeq++ : 0;
+    const tEncode = writer ? performance.now() : 0;
     const record = encodeDecisionRecordBytes(input);
-    const block = await getServer().request(record);
+    const encodeNs = writer ? (performance.now() - tEncode) * 1e6 : 0;
+    const trace: RequestTrace | undefined = writer
+      ? { writeDoneAt: 0, headerWaitNs: null, chunks: 0, concatBytes: 0, doneAt: 0 }
+      : undefined;
+    const block = await getServer().request(record, trace);
     // Decision path (H1, latency floor audit 2026-11-24): only the head,
     // the candidates, ply 0 and the trailer are consumed here, so the
     // light parse materializes nothing deeper. The gate keeps the full
     // parse (decodeServeBlock in gpu-gate.ts).
+    const tParse = writer ? performance.now() : 0;
     const parsed: ParsedBlock = parseServeBlockLight(block);
+    const parseLightNs = writer ? (performance.now() - tParse) * 1e6 : 0;
     gpuTimingSamples.push(parsed.wallMs);
-    if (parsed.status === 1 || !parsed.best) return null;
-    const best = parsed.best;
-    if (!input.acceptRoot || input.acceptRoot(best.placement, best.usedHold)) {
-      return resultForRootStep(parsed, best.placement, best.usedHold, best.valueBits, weights);
-    }
-    for (const cand of parsed.candidates) {
-      if (input.acceptRoot(cand.placement, cand.usedHold)) {
-        return resultForRootStep(parsed, cand.placement, cand.usedHold, cand.valueBits, weights);
+    const tResult = writer ? performance.now() : 0;
+    let result: SearchResult | null = null;
+    if (parsed.status !== 1 && parsed.best) {
+      const best = parsed.best;
+      if (!input.acceptRoot || input.acceptRoot(best.placement, best.usedHold)) {
+        result = resultForRootStep(parsed, best.placement, best.usedHold, best.valueBits, weights);
+      } else {
+        for (const cand of parsed.candidates) {
+          if (input.acceptRoot(cand.placement, cand.usedHold)) {
+            result = resultForRootStep(
+              parsed,
+              cand.placement,
+              cand.usedHold,
+              cand.valueBits,
+              weights,
+            );
+            break;
+          }
+        }
       }
     }
-    return null;
+    if (writer && trace) {
+      // J6: SearchResult is final. The record is written at the decision
+      // boundary, after the result exists, so the write itself is not
+      // inside the measured E2E.
+      const j6 = performance.now();
+      const rec: TailJsRecord = {
+        seq,
+        e2e_ns: (j6 - j0) * 1e6,
+        encode_ns: encodeNs,
+        queue_and_pipe_ns: (trace.doneAt - trace.writeDoneAt) * 1e6,
+        header_wait_ns: trace.headerWaitNs,
+        parse_full_ns: null, // the decision path runs the light parse only
+        parse_light_ns: parseLightNs,
+        result_ns: (j6 - tResult) * 1e6,
+        chunks: trace.chunks,
+        concat_bytes: trace.concatBytes,
+        nodes_materialized: countMaterialized(parsed),
+        nodes_skipped_plies: null, // light parse does not expose nPlies
+        blockBytes: block.byteLength,
+        sclk_ref: writer.sclkRef(),
+      };
+      writer.write(rec);
+    }
+    return result;
   };
 
   return {
@@ -623,9 +699,21 @@ export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDe
       throw new Error("GPU decider is async-only (the engine is a serve process); use decideAsync");
     },
     decideAsync,
-    close: () => closeGpuEngine(),
+    close: () => {
+      closeGpuEngine();
+      closeTailWriter();
+    },
   };
 }
+
+/**
+ * Serve ordinal of the next traced decision. The C host numbers its
+ * serve decisions from 0 in the same order (cmd_serve's tail_set_seq),
+ * and requests are serialized through one shared server, so the two
+ * sequences correspond 1:1 (design §5.3) as long as tracing is enabled
+ * from the process's first decision.
+ */
+let nextTailSeq = 0;
 
 /** Convenience: a config-O-validated GPU decider as the lab's default. */
 export async function createDefaultGpuDecider(): Promise<GpuDecider> {

@@ -60,6 +60,153 @@ static uint8_t *slurp(const char *path, size_t *len) {
 static double now_s(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + ts.tv_nsec * 1e-9; }
 static double now_ms(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; }
 static int cmp_double(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
+
+// ---- tail instrument, stage 2 / C basic form (design:
+// TAIL-INSTRUMENT-DESIGN-2026-11-24 sections 3.1, 4, 5.1-5.2, 10 stage 2)
+// Out-of-band sidecar only: the serve protocol, block bytes and selection
+// semantics are untouched. Enabled by ATTAX_TAIL_TRACE=<path> (the C
+// sidecar is "<path>.c.bin"); ATTAX_TAIL_MODE=summary|full is recorded
+// but the C basic form emits the SUMMARY field set in both modes (the
+// FULL-only readback submit/wait split is a stage-2 residual, see the
+// stage-2 record). OFF (env unset) costs one flag check per decision.
+// Record layout (fixed 128 B, little-endian; parser:
+// tools/s2-lab/tail-trace.ts):
+//   0  u64 seq            8  u64 C0 abs ns (MONOTONIC_RAW, derivation only)
+//   16 u64 x8 intervals ns: submit(C1-C0), span_wall(C2-C0), S6a, S6b,
+//      S6c, S7, S8, S9C   (UINT64_MAX = missing, never 0-substituted)
+//   80 u64 gpu span ns (existing query-pool value, converted to ns)
+//   88 u32 x6: arena_next, leaf count, output nodes, blockBytes,
+//      fwrite count, drop cumulative
+//   112 u32 flags: bits 0-5 = missing S6a/S6b/S6c/S7/S8/S9C,
+//      bits 8-15 = status, bit 16 = form (0 basic / 1 persistent)
+//   116 u32 sclk_ref (index into the run's sclk sample table; the basic
+//      form samples once at init, so this is 0; the sample itself is in
+//      the header record)
+//   120 u64 reserved (0)
+// The first record in the file is a header: seq = UINT64_MAX, bytes 0-7
+// "TAILHDR1", f64 sclk MHz at 80, u64 timestamp cost ns at 88,
+// u32 mode (0 summary / 1 full) at 96, u32 layout version (1) at 100.
+#define TAIL_MISS UINT64_MAX
+#define TAIL_F_MISS_S6A (1u << 0)
+#define TAIL_F_MISS_S6B (1u << 1)
+#define TAIL_F_MISS_S6C (1u << 2)
+#define TAIL_F_MISS_S7  (1u << 3)
+#define TAIL_F_MISS_S8  (1u << 4)
+#define TAIL_F_MISS_S9C (1u << 5)
+static FILE *g_tail_fp = NULL;
+static int g_tail_init_done = 0;
+static int g_tail_mode_full = 0;
+static uint64_t g_tail_seq_auto = 0;
+static int64_t g_tail_seq_forced = -1;
+static int g_tail_expect_s9c = 0;
+static uint64_t g_tail_drop = 0;
+static uint8_t g_tail_ring[8192][128];
+static int g_tail_ring_n = 0;
+static uint64_t tail_now_ns(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC_RAW, &ts); return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec; }
+static double tail_sample_sclk_mhz(void) {
+    FILE *f = fopen("/proc/cpuinfo", "r"); if (!f) return 0.0;
+    char line[256]; double mhz = 0.0;
+    while (fgets(line, sizeof line, f)) { if (sscanf(line, "cpu MHz : %lf", &mhz) == 1) break; }
+    fclose(f); return mhz;
+}
+static void tail_flush_ring(void) {
+    if (!g_tail_fp || g_tail_ring_n == 0) return;
+    if (fwrite(g_tail_ring, 128, (size_t)g_tail_ring_n, g_tail_fp) != (size_t)g_tail_ring_n)
+        g_tail_drop += (uint64_t)g_tail_ring_n;
+    fflush(g_tail_fp);
+    g_tail_ring_n = 0;
+}
+static void tail_flush_all(void) { tail_flush_ring(); }
+static void tail_init(void) {
+    g_tail_init_done = 1;
+    const char *path = getenv("ATTAX_TAIL_TRACE");
+    if (!path || !*path) return;
+    const char *mode = getenv("ATTAX_TAIL_MODE");
+    g_tail_mode_full = (mode && !strcmp(mode, "full")) ? 1 : 0;
+    char full[4096];
+    snprintf(full, sizeof full, "%s.c.bin", path);
+    g_tail_fp = fopen(full, "ab");
+    if (!g_tail_fp) { fprintf(stderr, "tail trace: cannot open %s\n", full); return; }
+    // timestamp read cost (design section 6: record it in the run header)
+    uint64_t t0 = tail_now_ns();
+    for (int i = 0; i < 200000; i++) (void)tail_now_ns();
+    uint64_t cost = (tail_now_ns() - t0) / 200000;
+    uint8_t hdr[128]; memset(hdr, 0, sizeof hdr);
+    memcpy(hdr, "TAILHDR1", 8);
+    uint64_t seq = UINT64_MAX; memcpy(hdr + 8, &seq, 8);
+    double sclk = tail_sample_sclk_mhz(); memcpy(hdr + 80, &sclk, 8);
+    memcpy(hdr + 88, &cost, 8);
+    uint32_t m = (uint32_t)g_tail_mode_full; memcpy(hdr + 96, &m, 4);
+    uint32_t ver = 1; memcpy(hdr + 100, &ver, 4);
+    if (fwrite(hdr, 128, 1, g_tail_fp) != 1) g_tail_drop += 1;
+    fflush(g_tail_fp);
+    atexit(tail_flush_all);
+}
+typedef struct {
+    int active;
+    uint64_t seq, c0, c1, c2, r0a, r1a, r0b, r1b, r0c, r1c, c4, c5;
+    uint64_t gpu_ns;
+    uint32_t arena_next, leaves_next, out_nodes, block_bytes, flags;
+} TailPending;
+static TailPending g_tail_pend;
+static void tail_begin_decision(void) {
+    if (!g_tail_init_done) tail_init();
+    memset(&g_tail_pend, 0, sizeof g_tail_pend);
+    if (!g_tail_fp) return;
+    g_tail_pend.active = 1;
+    g_tail_pend.seq = (g_tail_seq_forced >= 0) ? (uint64_t)g_tail_seq_forced : g_tail_seq_auto++;
+    g_tail_seq_forced = -1;
+    g_tail_pend.c0 = tail_now_ns();
+    g_tail_pend.flags = TAIL_F_MISS_S6A | TAIL_F_MISS_S6B | TAIL_F_MISS_S6C |
+                        TAIL_F_MISS_S7 | TAIL_F_MISS_S8 | TAIL_F_MISS_S9C;
+}
+static void tail_set_seq(uint64_t seq) { g_tail_seq_forced = (int64_t)seq; }
+static void tail_expect_s9c(void) { g_tail_expect_s9c = 1; }
+static void tail_put_u64(uint8_t *rec, int off, uint64_t v) { memcpy(rec + off, &v, 8); }
+static void tail_put_u32(uint8_t *rec, int off, uint32_t v) { memcpy(rec + off, &v, 4); }
+static void tail_emit(uint32_t status, uint64_t s9c_ns, uint32_t fwrite_count) {
+    TailPending *p = &g_tail_pend;
+    if (!p->active) return;
+    uint8_t rec[128]; memset(rec, 0, sizeof rec);
+    tail_put_u64(rec, 0, p->seq);
+    tail_put_u64(rec, 8, p->c0);
+    tail_put_u64(rec, 16, p->c1 ? p->c1 - p->c0 : TAIL_MISS);          // submit span
+    tail_put_u64(rec, 24, p->c2 ? p->c2 - p->c0 : TAIL_MISS);          // existing wall span (C2 = prereadback point)
+    tail_put_u64(rec, 32, (p->flags & TAIL_F_MISS_S6A) ? TAIL_MISS : p->r1a - p->r0a);
+    tail_put_u64(rec, 40, (p->flags & TAIL_F_MISS_S6B) ? TAIL_MISS : p->r1b - p->r0b);
+    tail_put_u64(rec, 48, (p->flags & TAIL_F_MISS_S6C) ? TAIL_MISS : p->r1c - p->r0c);
+    tail_put_u64(rec, 56, (p->flags & TAIL_F_MISS_S7) ? TAIL_MISS : p->c4 - (p->r1c ? p->r1c : p->c2));
+    tail_put_u64(rec, 64, (p->flags & TAIL_F_MISS_S8) ? TAIL_MISS : p->c5 - p->c4);
+    tail_put_u64(rec, 72, s9c_ns);
+    if (s9c_ns != TAIL_MISS) p->flags &= ~TAIL_F_MISS_S9C;
+    tail_put_u64(rec, 80, p->gpu_ns);
+    tail_put_u32(rec, 88, p->arena_next);
+    tail_put_u32(rec, 92, p->leaves_next);
+    tail_put_u32(rec, 96, p->out_nodes);
+    tail_put_u32(rec, 100, p->block_bytes);
+    tail_put_u32(rec, 104, fwrite_count);
+    tail_put_u32(rec, 108, (uint32_t)g_tail_drop);
+    tail_put_u32(rec, 112, p->flags | ((status & 0xFFu) << 8));
+    tail_put_u32(rec, 116, 0);  // sclk_ref: single sample in the header
+    if (g_tail_ring_n == 8192) { g_tail_drop += 8192; g_tail_ring_n = 0; }  // never block the serve path
+    memcpy(g_tail_ring[g_tail_ring_n++], rec, 128);
+    if (g_tail_ring_n >= 256) tail_flush_ring();
+    p->active = 0;
+}
+// Called by cmd_serve after the response fwrite+fflush: S9C = C6 - C5.
+static void tail_complete_s9c(uint32_t fwrite_count, uint32_t status) {
+    if (!g_tail_pend.active) { g_tail_expect_s9c = 0; return; }
+    uint64_t c6 = tail_now_ns();
+    tail_emit(status, g_tail_pend.c5 ? c6 - g_tail_pend.c5 : TAIL_MISS, fwrite_count);
+    g_tail_expect_s9c = 0;
+}
+// End of run_decision_s2: when the caller is not cmd_serve there is no
+// S9C; emit at once with S9C missing (flagged, not zero).
+static void tail_finish_decision(uint32_t status) {
+    if (!g_tail_pend.active) return;
+    if (g_tail_expect_s9c) return;  // cmd_serve completes the record
+    tail_emit(status, TAIL_MISS, 0);
+}
 static uint32_t rd32(const uint8_t **p) { uint32_t v; memcpy(&v, *p, 4); *p += 4; return v; }
 
 // ---- layout constants (mirror s2_common.glsl) ----
@@ -1301,6 +1448,7 @@ static void s4_spin_wait(void) {
 // to `out` unless out==NULL (bench mode: status mirror only).
 // Returns status (0 ok, 1 no result, 2 kernel error).
 static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, double *gpu_ms) {
+    tail_begin_decision();  // C0 (no-op when ATTAX_TAIL_TRACE is unset)
     double t_start = now_s();
     int32_t root_due = (int32_t)dec[104];
 
@@ -1353,9 +1501,14 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         vkFreeCommandBuffers(dev, pool, 1, &cmd);
         g_submit_ms += now_ms() - t0;
     }
+    if (g_tail_pend.active) g_tail_pend.c1 = tail_now_ns();  // C1: submit returned
     uint64_t ts[2] = {0, 0};
     CK(vkGetQueryPoolResults(dev, tpool, 0, 2, sizeof ts, ts, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     double gpu_span = (double)(ts[1] - ts[0]) * ts_period_ns * 1e-6;
+    if (g_tail_pend.active) {  // C2: the existing prereadback wall point
+        g_tail_pend.c2 = tail_now_ns();
+        g_tail_pend.gpu_ns = (uint64_t)(gpu_span * 1e6);
+    }
     g_serial_base += MAXPLY;
 
     uint32_t *st = g_state_mirror.ptr;
@@ -1373,11 +1526,15 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
         uint32_t arena_next = st[ST_ARENA_NEXT];
         uint32_t leaves_next = st[ST_LEAVES_NEXT];
         uint32_t *recs = malloc((size_t)(arena_next ? arena_next : 1) * EX_OUT_STRIDE * 4);
+        if (g_tail_pend.active) { g_tail_pend.arena_next = arena_next; g_tail_pend.leaves_next = leaves_next; g_tail_pend.r0a = tail_now_ns(); }
         readback(&g_arena, recs, (size_t)arena_next * EX_OUT_STRIDE * 4, &g_stage_out, MAX_CHILD * EX_OUT_STRIDE * 4);
+        if (g_tail_pend.active) { g_tail_pend.r1a = tail_now_ns(); g_tail_pend.flags &= ~TAIL_F_MISS_S6A; g_tail_pend.r0b = g_tail_pend.r1a; }
         uint32_t *leaf_idx = malloc((size_t)(leaves_next ? leaves_next : 1) * 4);
         readback(&g_leaf_idx, leaf_idx, (size_t)leaves_next * 4, &g_stage_keys, MAX_CHILD * 4 * 4);
+        if (g_tail_pend.active) { g_tail_pend.r1b = tail_now_ns(); g_tail_pend.flags &= ~TAIL_F_MISS_S6B; g_tail_pend.r0c = g_tail_pend.r1b; }
         uint32_t beam_idx_ram[(MAXPLY + 1) * WIDTH];
         readback(&g_beam_idx, beam_idx_ram, sizeof beam_idx_ram, &g_stage_keys, MAX_CHILD * 4 * 4);
+        if (g_tail_pend.active) { g_tail_pend.r1c = tail_now_ns(); g_tail_pend.flags &= ~TAIL_F_MISS_S6C; }
 
         int ply_count = MAXPLY;
         for (int p = 1; p <= MAXPLY; p++) if (st[ST_BEAM_COUNT + p] == 0) { ply_count = p; break; }
@@ -1440,6 +1597,10 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
             if (best_idx < 0) status = 1;
         }
 
+        if (g_tail_pend.active) {  // C4: final selection complete (S7)
+            g_tail_pend.c4 = tail_now_ns();
+            if (status == 0) g_tail_pend.flags &= ~TAIL_F_MISS_S7;
+        }
         ow32(out, (uint32_t)status);
         if (status != 0) {
             for (int i = 0; i < 6; i++) ow32(out, 0);
@@ -1493,8 +1654,18 @@ static int run_decision_s2(const uint32_t *dec, Out *out, double *wall_ms, doubl
             }
             owf64(out, wall); owf64(out, gpu_span); owf64(out, 0.0); owf64(out, wall - gpu_span);
         }
+        if (g_tail_pend.active) {  // C5: block assembly complete (S8)
+            g_tail_pend.c5 = tail_now_ns();
+            g_tail_pend.flags &= ~TAIL_F_MISS_S8;
+            g_tail_pend.block_bytes = (uint32_t)out->len;
+            uint32_t emitted = 0;
+            if (status == 0) for (int p = 0; p < ply_count; p++)
+                emitted += st[ST_BEAM_COUNT + p + 1] + st[ST_LEAF_COUNT + p];
+            g_tail_pend.out_nodes = emitted;
+        }
         free(recs); free(leaf_idx); free(fms);
     }
+    tail_finish_decision((uint32_t)status);
     return status;
 }
 
@@ -2487,17 +2658,21 @@ static int cmd_serve(const char *mg_spv, const char *ex_spv, const char *tables_
     if (dup2(saved, 1) < 0) { fprintf(stderr, "serve: cannot restore stdout\n"); return 1; }
     close(saved);
     static uint32_t dec[DEC_WORDS];
+    uint64_t tail_seq = 0;
     for (;;) {
         size_t got = fread(dec, 4, DEC_WORDS, stdin);
-        if (got == 0) return 0;  // clean EOF at a record boundary
+        if (got == 0) { tail_flush_all(); return 0; }  // clean EOF at a record boundary
         if (got != DEC_WORDS) { fprintf(stderr, "serve: truncated decision record\n"); return 1; }
         Out out = {0};
         double wall, gpu;
+        tail_set_seq(tail_seq++);  // serve ordinal = the JS side's seq (design 5.3)
+        tail_expect_s9c();
         int st = run_decision_s2(dec, &out, &wall, &gpu);
         uint32_t hdr[2] = { (uint32_t)st, (uint32_t)out.len };
         fwrite(hdr, 4, 2, stdout);
         if (out.len) fwrite(out.buf, 1, out.len, stdout);
         fflush(stdout);
+        tail_complete_s9c(out.len ? 2u : 1u, (uint32_t)st);  // C6: S9C closed here
         free(out.buf);
     }
 }
