@@ -4,13 +4,13 @@
 
 **A versus AI for the falling-block game — the strongest in guideline versus, measured head-to-head.**
 
-[![Play live](https://img.shields.io/badge/play-live%20arena-2ea44f)](https://s0u7a.f5.si/attax/)
+[![Play live](https://img.shields.io/badge/play-live%20arena-2ea44f)](https://s0u7a.net/attax/)
 [![vs Cold Clear 2](https://img.shields.io/badge/vs%20Cold%20Clear%202-81%E2%80%9319%20(81.0%25)-blue)](#result-cold-clear-2)
 [![vs Hoiko](https://img.shields.io/badge/vs%20Hoiko-195%E2%80%935%20(97.5%25)-blue)](#-result-hoiko)
 ![TypeScript](https://img.shields.io/badge/TypeScript-bun%20%2B%20vite-3178c6)
 ![Rust](https://img.shields.io/badge/Rust-WASM-dea584)
 
-**[▶ Play / watch live: s0u7a.f5.si/attax](https://s0u7a.f5.si/attax/)**
+**[▶ Play / watch live: s0u7a.net/attax](https://s0u7a.net/attax/)**
 
 </div>
 
