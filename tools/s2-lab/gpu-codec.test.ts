@@ -5,7 +5,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { boardFeatures } from "./features.js";
-import { decodeServeBlock, encodeDecisionRecord, parseServeBlock } from "./gpu-codec.js";
+import {
+  decodeServeBlock,
+  encodeDecisionRecord,
+  parseServeBlock,
+  parseServeBlockLight,
+  resultForRootStep,
+  type WireNode,
+} from "./gpu-codec.js";
 import { createGpuAttaxDecider, gpuEngineInfo } from "./gpu-player.js";
 import type { SearchInput } from "./state.js";
 import { DEFAULT_WEIGHTS } from "./weights.js";
@@ -219,6 +226,192 @@ describe("gpu codec: serve block decoder", () => {
     new DataView(err.buffer).setUint32(0, 2, true);
     expect(() => parseServeBlock(err)).toThrow("kernel error");
     expect(() => parseServeBlock(serveBlock().subarray(0, 100))).toThrow();
+  });
+});
+
+// --- light parse (H1): three plies, only ply 0 may be materialized --------
+
+function serveBlockMultiPly(): Uint8Array {
+  const parts: number[] = [];
+  const u32 = (v: number) =>
+    parts.push(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff);
+  const f64 = (v: number) => {
+    const b = new Uint8Array(8);
+    new DataView(b.buffer).setFloat64(0, v, true);
+    parts.push(...b);
+  };
+  const head = (kind: number, rot: number, x: number, y: number, hold: number, value: number) => {
+    u32(kind);
+    u32(rot);
+    u32(x);
+    u32(y);
+    u32(0);
+    u32(0);
+    u32(hold);
+    f64(value);
+  };
+  u32(0); // status
+  head(2, 1, 4, 18, 0, 12.5); // best head (T rot1 x4 y18)
+  const nodes = new Uint8Array(8);
+  new DataView(nodes.buffer).setBigUint64(0, 12345n, true);
+  parts.push(...nodes);
+  u32(3); // depth
+  u32(2); // candidates
+  head(2, 1, 4, 18, 0, 12.5);
+  head(0, 0, 0, 19, 1, 3.25);
+  u32(3); // plies
+  // ply 0: beam holds the best's depth-1 node, finished holds candidate 2's.
+  const nodeA = wireNode({
+    depth: 1,
+    boardRow0: 0b111,
+    step: {
+      kind: 2,
+      rotation: 1,
+      x: 4,
+      y: 18,
+      srs: 0,
+      tspin: 0,
+      usedHold: 0,
+      lines: 2,
+      attack: 3,
+      reward: 40.5,
+    },
+  });
+  const nodeB = wireNode({
+    depth: 1,
+    boardRow0: 0b101,
+    step: {
+      kind: 0,
+      rotation: 0,
+      x: 0,
+      y: 19,
+      srs: 0,
+      tspin: 0,
+      usedHold: 1,
+      lines: 0,
+      attack: 0,
+      reward: 1.5,
+    },
+  });
+  u32(1); // ply 0 beam count
+  parts.push(...nodeA);
+  u32(1); // ply 0 finished count
+  parts.push(...nodeB);
+  // ply 1: junk nodes the light parse must skip by count alone.
+  u32(2);
+  parts.push(
+    ...wireNode({ depth: 2, boardRow0: 0x2aa }),
+    ...wireNode({ depth: 2, boardRow0: 0x155 }),
+  );
+  u32(0);
+  // ply 2: one finished junk node.
+  u32(0);
+  u32(1);
+  parts.push(...wireNode({ depth: 3, boardRow0: 0x3ff }));
+  f64(4.25);
+  f64(3.5);
+  f64(0);
+  f64(0.75); // trailer
+  return new Uint8Array(parts);
+}
+
+function nodeProjection(n: WireNode) {
+  return {
+    board: Array.from(n.board),
+    garbage: Array.from(n.garbage),
+    hold: n.hold,
+    next: n.next,
+    b2bChain: n.b2bChain,
+    combo: n.combo,
+    pending: n.pending,
+    lift: n.lift,
+    tslot: n.tslot,
+    rewardBits: n.rewardBits,
+    valueBits: n.valueBits,
+    dead: n.dead,
+    root: n.root,
+    depth: n.depth,
+    step: n.step,
+    boardLen: n.boardLen,
+    dueThisLock: n.dueThisLock,
+  };
+}
+
+describe("gpu codec: light serve block parse (H1)", () => {
+  test("matches the full parse on every decision-path field, ply 0 only", () => {
+    const block = serveBlockMultiPly();
+    const full = parseServeBlock(block);
+    const light = parseServeBlockLight(block);
+    expect(full.plies.length).toBe(3);
+    expect(light.plies.length).toBe(1);
+    expect(light.status).toBe(full.status);
+    expect(light.best).toEqual(full.best);
+    expect(light.valueBits).toBe(full.valueBits);
+    expect(light.nodes).toBe(full.nodes);
+    expect(light.depth).toBe(full.depth);
+    expect(light.candidates).toEqual(full.candidates);
+    expect(light.wallMs).toBe(full.wallMs);
+    expect(light.gpuMs).toBe(full.gpuMs);
+    expect(light.plies[0].beam.map(nodeProjection)).toEqual(full.plies[0].beam.map(nodeProjection));
+    expect(light.plies[0].finished.map(nodeProjection)).toEqual(
+      full.plies[0].finished.map(nodeProjection),
+    );
+  });
+
+  test("selection consistency: resultForRootStep agrees for best and substituted candidate", () => {
+    const block = serveBlockMultiPly();
+    const full = parseServeBlock(block);
+    const light = parseServeBlockLight(block);
+    if (!full.best || !light.best) throw new Error("expected a best head");
+    const viaLightBest = resultForRootStep(
+      light,
+      light.best.placement,
+      light.best.usedHold,
+      light.best.valueBits,
+      DEFAULT_WEIGHTS,
+    );
+    expect(viaLightBest).toEqual(
+      resultForRootStep(
+        full,
+        full.best.placement,
+        full.best.usedHold,
+        full.best.valueBits,
+        DEFAULT_WEIGHTS,
+      ),
+    );
+    expect(viaLightBest).toEqual(decodeServeBlock(block, DEFAULT_WEIGHTS));
+    // The acceptRoot substitution path: candidate 2's depth-1 node sits in
+    // ply 0's finished list, which the light parse must also materialize.
+    const cand = full.candidates[1];
+    const viaLightCand = resultForRootStep(
+      light,
+      cand.placement,
+      cand.usedHold,
+      cand.valueBits,
+      DEFAULT_WEIGHTS,
+    );
+    expect(viaLightCand).toEqual(
+      resultForRootStep(full, cand.placement, cand.usedHold, cand.valueBits, DEFAULT_WEIGHTS),
+    );
+    expect(viaLightCand.best.reward).toBe(1.5);
+  });
+
+  test("status 1 / status 2 / truncation behave like the full parse", () => {
+    const empty = new Uint8Array(92);
+    new DataView(empty.buffer).setUint32(0, 1, true);
+    const lightEmpty = parseServeBlockLight(empty);
+    expect(lightEmpty.status).toBe(1);
+    expect(lightEmpty.best).toBeNull();
+    expect(lightEmpty.plies.length).toBe(0);
+    const err = new Uint8Array(92);
+    new DataView(err.buffer).setUint32(0, 2, true);
+    expect(() => parseServeBlockLight(err)).toThrow("kernel error");
+    const multi = serveBlockMultiPly();
+    // Cut inside ply 2's node payload: the counts still walk past the
+    // trailer position, so the light parse must throw, not read garbage.
+    expect(() => parseServeBlockLight(multi.subarray(0, multi.length - 100))).toThrow();
+    // Cut inside ply 0 itself.
+    expect(() => parseServeBlockLight(multi.subarray(0, 200))).toThrow();
   });
 });
 
