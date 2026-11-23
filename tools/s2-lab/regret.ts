@@ -349,3 +349,203 @@ export function summariseSupplyRegret(rows: readonly SupplyRegretRow[]): {
     opponentPending: { knownTurns, withPending, withoutPending },
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Timing regret — I-1 (ALIGN-DESIGN-2026-11-24 §3.2).                  */
+/*                                                                     */
+/* The sender-side twin of the yield instrument: does attax leave      */
+/* send timing on the table? Two components, per attax turn:           */
+/*                                                                     */
+/*   window-in  (opponent pending > 0): maxCandidateOutgoing −         */
+/*     chosenOutgoing — send that could have landed inside the         */
+/*     opponent's pending window but did not.                          */
+/*   window-out (opponent pending = 0): the chosen outgoing itself,    */
+/*     counted only when a zero-outgoing alternative existed whose     */
+/*     value loss was small — the send could have been deferred.       */
+/*                                                                     */
+/* Spec gap, recorded honestly: §3.2 says "value loss at or below the   */
+/* registered threshold" but no numeric threshold is registered        */
+/* anywhere in the design. This instrument therefore records the       */
+/* value loss itself on every row (`bestZeroOutgoingValueLoss`,        */
+/* `maxOutgoingValueLoss`) and the summary takes the threshold as an   */
+/* explicit argument, so the §3.2 judgement (total timing regret vs    */
+/* window-out outgoing: >= 25% -> On-1, < 10% -> close, else secretary)*/
+/* can be evaluated at any threshold deterministically from the rows.  */
+/* Nothing is estimated: rows with unknown opponent pending carry      */
+/* null and are excluded from both components.                         */
+/*                                                                     */
+/* Recording scope (§3.2): every attax turn; the judgement band is     */
+/* locks 0–39, and rows outside it are still recorded (the summary     */
+/* reports the band separately). Own pending is NOT a condition.       */
+/* `opponentPendingBefore` is driver-supplied (the search cannot know  */
+/* it — ALIGN-G0-CHECK-2026-11-24: observable at the driver layer      */
+/* only). Pure like the rest of this module.                           */
+/* ------------------------------------------------------------------ */
+
+export const TIMING_BAND_LO = 0;
+export const TIMING_BAND_HI = 40; // exclusive: locks 0–39 is the judgement band
+
+/** Minimal structural view of a candidate for the timing instrument. */
+export interface TimingCandidateLike {
+  readonly attack: number;
+  /** Search value of the best line starting with this candidate. */
+  readonly value: number;
+}
+
+/** Minimal structural view of a decided turn's search result. */
+export interface TimingSearchLike {
+  /** Value of the chosen line (SearchResult.value). */
+  readonly value: number;
+  readonly best: { readonly attack: number };
+  /** Candidates in value order, best first (as search.ts returns them). */
+  readonly candidates: readonly TimingCandidateLike[];
+}
+
+export interface TimingRegretRow {
+  readonly lockIndex: number;
+  readonly pendingBefore: number;
+  /** Opponent's pending at turn start when the driver knows it, else null. */
+  readonly opponentPendingBefore: number | null;
+  readonly chosenOutgoing: number;
+  readonly maxCandidateOutgoing: number;
+  /** Value rank (0 = best) of the highest-outgoing candidate. */
+  readonly maxOutgoingValueRank: number;
+  /** best value − value of the highest-outgoing candidate (>= 0). */
+  readonly maxOutgoingValueLoss: number;
+  /** A candidate with outgoing = 0 exists in the evaluated set. */
+  readonly hasZeroOutgoingCandidate: boolean;
+  /** Smallest value loss among zero-outgoing candidates, else null. */
+  readonly bestZeroOutgoingValueLoss: number | null;
+  /** Window-in component (0 unless opponentPendingBefore > 0). */
+  readonly timingRegretIn: number;
+  /** Window-out send at stake (0 unless opponentPendingBefore = 0 and
+   * the chosen move sent something). Threshold filtering happens in the
+   * summary, via bestZeroOutgoingValueLoss. */
+  readonly windowOutStake: number;
+  readonly candidateCount: number;
+}
+
+/**
+ * Build the timing-regret row for one decided turn, or null when the
+ * search produced no candidates. Recorded for every lockIndex >= 0;
+ * band membership is a summary concern, not a recording condition.
+ */
+export function timingRegretRow(
+  result: TimingSearchLike,
+  lockIndex: number,
+  pendingBefore: number,
+  opponentPendingBefore: number | null = null,
+): TimingRegretRow | null {
+  if (result.candidates.length === 0) return null;
+  const chosenOutgoing = outgoingOf(result.best.attack, pendingBefore);
+  let maxOut = result.candidates[0] as TimingCandidateLike;
+  let maxOutRank = 0;
+  let bestZeroLoss: number | null = null;
+  result.candidates.forEach((c, i) => {
+    const out = outgoingOf(c.attack, pendingBefore);
+    if (out > outgoingOf(maxOut.attack, pendingBefore)) {
+      maxOut = c;
+      maxOutRank = i;
+    }
+    if (out === 0) {
+      const loss = result.value - c.value;
+      if (bestZeroLoss === null || loss < bestZeroLoss) bestZeroLoss = loss;
+    }
+  });
+  const maxCandidateOutgoing = outgoingOf(maxOut.attack, pendingBefore);
+  const inWindow = opponentPendingBefore !== null && opponentPendingBefore > 0;
+  const outWindow = opponentPendingBefore === 0;
+  return {
+    lockIndex,
+    pendingBefore,
+    opponentPendingBefore,
+    chosenOutgoing,
+    maxCandidateOutgoing,
+    maxOutgoingValueRank: maxOutRank,
+    maxOutgoingValueLoss: result.value - maxOut.value,
+    hasZeroOutgoingCandidate: bestZeroLoss !== null,
+    bestZeroOutgoingValueLoss: bestZeroLoss,
+    timingRegretIn: inWindow ? maxCandidateOutgoing - chosenOutgoing : 0,
+    windowOutStake: outWindow && chosenOutgoing > 0 ? chosenOutgoing : 0,
+    candidateCount: result.candidates.length,
+  };
+}
+
+function timingSubBandKey(lockIndex: number): string {
+  return lockIndex < 10 ? "0-9" : lockIndex < 20 ? "10-19" : lockIndex < 30 ? "20-29" : "30-39";
+}
+
+export interface TimingBandEntry {
+  turns: number;
+  timingRegretIn: number;
+  timingRegretOut: number;
+  windowOutOutgoing: number;
+}
+
+/**
+ * §3.2 judgement summary over rows in the judgement band (locks 0–39).
+ * `valueLossThreshold` is applied to the window-out component only:
+ * a window-out turn counts its stake when a zero-outgoing alternative
+ * exists with bestZeroOutgoingValueLoss <= threshold. Pass Infinity
+ * for the unfiltered upper bound. The share's denominator is the
+ * measured window-out outgoing of the same rows (the design's
+ * ≈1564-line figure is the same quantity on the loss population,
+ * locks 0–39; the summary reports the measured one).
+ */
+export function summariseTimingRegret(
+  rows: readonly TimingRegretRow[],
+  valueLossThreshold: number,
+): {
+  turns: number;
+  knownOpponentTurns: number;
+  timingRegretIn: number;
+  timingRegretOut: number;
+  timingRegretTotal: number;
+  windowOutOutgoing: number;
+  /** timingRegretTotal / windowOutOutgoing (null when denominator is 0). */
+  shareOfWindowOut: number | null;
+  /** §3.2 fixed bands: "on1" (>= 25%), "close" (< 10%), "secretary" (between). */
+  verdictBand: "on1" | "close" | "secretary" | null;
+  bySubBand: Record<string, TimingBandEntry>;
+} {
+  const band = rows.filter((r) => r.lockIndex >= TIMING_BAND_LO && r.lockIndex < TIMING_BAND_HI);
+  const bySubBand: Record<string, TimingBandEntry> = {};
+  let timingRegretIn = 0;
+  let timingRegretOut = 0;
+  let windowOutOutgoing = 0;
+  let knownOpponentTurns = 0;
+  for (const r of band) {
+    const e = (bySubBand[timingSubBandKey(r.lockIndex)] ??= {
+      turns: 0,
+      timingRegretIn: 0,
+      timingRegretOut: 0,
+      windowOutOutgoing: 0,
+    });
+    e.turns += 1;
+    if (r.opponentPendingBefore !== null) knownOpponentTurns += 1;
+    const out = r.windowOutStake > 0 && r.bestZeroOutgoingValueLoss !== null && r.bestZeroOutgoingValueLoss <= valueLossThreshold
+      ? r.windowOutStake
+      : 0;
+    timingRegretIn += r.timingRegretIn;
+    timingRegretOut += out;
+    e.timingRegretIn += r.timingRegretIn;
+    e.timingRegretOut += out;
+    if (r.opponentPendingBefore === 0) {
+      windowOutOutgoing += r.chosenOutgoing;
+      e.windowOutOutgoing += r.chosenOutgoing;
+    }
+  }
+  const timingRegretTotal = timingRegretIn + timingRegretOut;
+  const shareOfWindowOut = windowOutOutgoing > 0 ? timingRegretTotal / windowOutOutgoing : null;
+  return {
+    turns: band.length,
+    knownOpponentTurns,
+    timingRegretIn,
+    timingRegretOut,
+    timingRegretTotal,
+    windowOutOutgoing,
+    shareOfWindowOut,
+    verdictBand: shareOfWindowOut === null ? null : shareOfWindowOut >= 0.25 ? "on1" : shareOfWindowOut < 0.1 ? "close" : "secretary",
+    bySubBand,
+  };
+}
