@@ -79,6 +79,11 @@ export interface Candidate {
   readonly attack: number;
   /** Root step's lines cleared. */
   readonly linesCleared: number;
+  /** Root step's S2 spin classification (the placement's tspin after the
+   * expand-time S2 reclassification). Supply-regret instrument
+   * (SUPPLY-DECOMPOSE-2026-11-24 §7): composition breakdown needs the
+   * candidate set's spin mix, not just the chosen move's. */
+  readonly spin: TspinKind;
 }
 
 export interface SearchResult {
@@ -259,6 +264,7 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
         value,
         attack: step.attack,
         linesCleared: step.linesCleared,
+        spin: step.placement.tspin,
       };
     })
     .sort((a, b) => b.value - a.value);
