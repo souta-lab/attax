@@ -177,6 +177,16 @@ export interface SupplyRegretRow {
   readonly missedSpinPremium: boolean;
   readonly candidateCount: number;
   readonly sendingCandidateCount: number;
+  /** Candidates that are spin clears (mini/normal), any attack value.
+   * HS1 stage-0 addition: D3 (setup absence) needs to know whether a spin
+   * clear existed in the candidate set at all, which the argmax spin
+   * labels alone cannot express. */
+  readonly spinCandidateCount: number;
+  readonly anySpinCandidate: boolean;
+  /** Aeff-basis spin miss: the highest-Aeff candidate was a spin clear,
+   * the chosen move was not, and aeffRegret > 0. (missedSpinPremium is
+   * the outgoing-argmax analogue.) */
+  readonly missedSpinPremiumAeff: boolean;
 }
 
 /** Outgoing (post-cancel sent amount) of an attack against pending. */
@@ -215,10 +225,12 @@ export function supplyRegretRow(
   let maxAeff = result.candidates[0] as SupplyCandidateLike;
   let maxOut = result.candidates[0] as SupplyCandidateLike;
   let sendingCandidateCount = 0;
+  let spinCandidateCount = 0;
   for (const c of result.candidates) {
     if (c.attack > maxAeff.attack) maxAeff = c;
     if (outgoingOf(c.attack, pendingBefore) > outgoingOf(maxOut.attack, pendingBefore)) maxOut = c;
     if (outgoingOf(c.attack, pendingBefore) > 0) sendingCandidateCount += 1;
+    if (isSpinLabel(supplySpinLabel(c.spin))) spinCandidateCount += 1;
   }
   const chosenAeff = result.best.attack;
   const chosenOutgoing = outgoingOf(chosenAeff, pendingBefore);
@@ -251,6 +263,10 @@ export function supplyRegretRow(
     missedSpinPremium: supplyRegret > 0 && isSpinLabel(maxOutgoingSpin) && !isSpinLabel(chosenSpin),
     candidateCount: result.candidates.length,
     sendingCandidateCount,
+    spinCandidateCount,
+    anySpinCandidate: spinCandidateCount > 0,
+    missedSpinPremiumAeff:
+      aeffRegret > 0 && isSpinLabel(supplySpinLabel(maxAeff.spin)) && !isSpinLabel(chosenSpin),
   };
 }
 
@@ -348,4 +364,165 @@ export function summariseSupplyRegret(rows: readonly SupplyRegretRow[]): {
     byMaxOutgoingSpin,
     opponentPending: { knownTurns, withPending, withoutPending },
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* HS1 stage-0 decomposition (HS1-DESIGN-2026-11-24 §3.1–§3.2).        */
+/*                                                                     */
+/* Splits the supply regret of locks 10–39 (all turns) into:           */
+/*   D1 frequency regret — chosen Aeff = 0 but max candidate Aeff > 0  */
+/*      ("a clear existed and was not played"); the D1 quantity is     */
+/*      the sum of those candidates' max Aeff.                         */
+/*   D2 yield regret — chosen Aeff > 0: sum of aeffRegret, with the    */
+/*      spin-miss part (missedSpinPremiumAeff) separated, plus the     */
+/*      opportunity-turn (pendingBefore > 0) subset so the overlap     */
+/*      with the processing-side instrument stays cuttable.            */
+/*   D3 setup absence — turns whose candidate max Aeff = 0, or whose   */
+/*      candidate set contained no spin clear at all (share of all     */
+/*      turns). What D1+D2 cannot explain falls here.                  */
+/*                                                                     */
+/* The §3.2 judgement is on the Aeff basis (denominator: the 10–39     */
+/* production gap, +580 rows over 102 loss games in SUPPLY-DECOMPOSE   */
+/* §3); outgoing-basis totals are reported alongside as a cross-check  */
+/* (denominator there: the sending gap, +532).                         */
+/* Pure aggregation over SupplyRegretRow[] — no I/O, no search.        */
+/* ------------------------------------------------------------------ */
+
+export interface Hs1Bucket {
+  turns: number;
+  /** Sum of maxCandidateAeff over the bucket's turns. */
+  sumMaxAeff: number;
+  /** Sum of aeffRegret over the bucket's turns. */
+  sumAeffRegret: number;
+  /** Sum of supplyRegret (outgoing basis) over the bucket's turns. */
+  sumSupplyRegret: number;
+}
+
+function emptyBucket(): Hs1Bucket {
+  return { turns: 0, sumMaxAeff: 0, sumAeffRegret: 0, sumSupplyRegret: 0 };
+}
+function addBucket(b: Hs1Bucket, r: SupplyRegretRow): void {
+  b.turns += 1;
+  b.sumMaxAeff += r.maxCandidateAeff;
+  b.sumAeffRegret += r.aeffRegret;
+  b.sumSupplyRegret += r.supplyRegret;
+}
+function addBucketMap(map: Record<string, Hs1Bucket>, key: string, r: SupplyRegretRow): void {
+  addBucket((map[key] ??= emptyBucket()), r);
+}
+
+export interface Hs1Decomposition {
+  turns: number;
+  d1: Hs1Bucket & {
+    bySubBand: Record<string, Hs1Bucket>;
+    /** Keyed by the missed candidate's lines (maxAeffLines). */
+    byMaxLines: Record<string, Hs1Bucket>;
+  };
+  d2: Hs1Bucket & {
+    spinMissTurns: number;
+    spinMissAeffRegret: number;
+    spinMissSupplyRegret: number;
+    /** Subset of D2 on opportunity turns (pendingBefore > 0): the part
+     * that overlaps the processing-side regret instrument. */
+    opportunity: Hs1Bucket;
+  };
+  d3: {
+    /** Candidate max Aeff = 0: no clear existed at all. */
+    noCandidateTurns: number;
+    /** No spin clear anywhere in the candidate set. */
+    noSpinCandidateTurns: number;
+    /** Union per §3.1: max Aeff = 0 OR no spin candidate. */
+    absentTurns: number;
+    absentShare: number;
+    noSpinShare: number;
+  };
+  /** D1+D2 restricted to turns where a spin clear existed in the
+   * candidate set (the §3.2 exploration-side condition). */
+  spinPresentRegret: Hs1Bucket;
+  totalAeffRegret: number;
+  totalSupplyRegret: number;
+}
+
+export function summariseHs1Decomposition(rows: readonly SupplyRegretRow[]): Hs1Decomposition {
+  const d1BySubBand: Record<string, Hs1Bucket> = {};
+  const d1ByMaxLines: Record<string, Hs1Bucket> = {};
+  const d1 = { ...emptyBucket(), bySubBand: d1BySubBand, byMaxLines: d1ByMaxLines };
+  const d2Opp = emptyBucket();
+  const d2 = {
+    ...emptyBucket(),
+    spinMissTurns: 0,
+    spinMissAeffRegret: 0,
+    spinMissSupplyRegret: 0,
+    opportunity: d2Opp,
+  };
+  let noCandidateTurns = 0;
+  let noSpinCandidateTurns = 0;
+  let absentTurns = 0;
+  const spinPresentRegret = emptyBucket();
+  for (const r of rows) {
+    if (r.chosenAeff === 0 && r.maxCandidateAeff > 0) {
+      addBucket(d1, r);
+      addBucketMap(d1BySubBand, subBandKey(r.lockIndex), r);
+      addBucketMap(d1ByMaxLines, String(r.maxAeffLines), r);
+    }
+    if (r.chosenAeff > 0) {
+      addBucket(d2, r);
+      if (r.missedSpinPremiumAeff) {
+        d2.spinMissTurns += 1;
+        d2.spinMissAeffRegret += r.aeffRegret;
+        d2.spinMissSupplyRegret += r.supplyRegret;
+      }
+      if (r.opportunity) addBucket(d2Opp, r);
+    }
+    const noCand = r.maxCandidateAeff === 0;
+    const noSpin = !r.anySpinCandidate;
+    if (noCand) noCandidateTurns += 1;
+    if (noSpin) noSpinCandidateTurns += 1;
+    if (noCand || noSpin) absentTurns += 1;
+    if (r.anySpinCandidate && (r.chosenAeff === 0 ? r.maxCandidateAeff > 0 : r.chosenAeff > 0)) {
+      // Spin-present explained pool (§3.2 exploration row): for D1 turns
+      // the explained amount is the missed candidate's max Aeff, for D2
+      // turns it is the aeffRegret; both are accumulated into
+      // sumAeffRegret so the pool is one comparable number.
+      spinPresentRegret.turns += 1;
+      spinPresentRegret.sumMaxAeff += r.maxCandidateAeff;
+      spinPresentRegret.sumAeffRegret += r.chosenAeff === 0 ? r.maxCandidateAeff : r.aeffRegret;
+      spinPresentRegret.sumSupplyRegret += r.supplyRegret;
+    }
+  }
+  const n = rows.length;
+  return {
+    turns: n,
+    d1,
+    d2,
+    d3: {
+      noCandidateTurns,
+      noSpinCandidateTurns,
+      absentTurns,
+      absentShare: n ? absentTurns / n : 0,
+      noSpinShare: n ? noSpinCandidateTurns / n : 0,
+    },
+    spinPresentRegret,
+    totalAeffRegret: rows.reduce((s, r) => s + r.aeffRegret, 0),
+    totalSupplyRegret: rows.reduce((s, r) => s + r.supplyRegret, 0),
+  };
+}
+
+/** §3.2 pre-registered judgement (Aeff basis). `productionGap` is the
+ * 10–39 band production gap in rows (SUPPLY §3: 580). Returns the single
+ * pre-selected mechanism key, or "setup" / "undecidable". The caller
+ * supplies rows from ONE replay population; mixing populations is the
+ * caller's error, not checked here. */
+export function judgeHs1(
+  d: Hs1Decomposition,
+  productionGap: number,
+): "HS1-A" | "HS1-A-spin" | "HS1-C" | "HS1-B" | "undecidable" {
+  const half = productionGap / 2;
+  if (d.d1.sumMaxAeff > half) return "HS1-A";
+  if (d.d1.sumMaxAeff + d.d2.sumAeffRegret > half) {
+    return d.d2.spinMissAeffRegret >= d.d2.sumAeffRegret / 2 ? "HS1-A-spin" : "undecidable";
+  }
+  if (d.spinPresentRegret.sumAeffRegret > half) return "HS1-C";
+  if (d.d3.noSpinShare > 0.5) return "HS1-B";
+  return "undecidable";
 }
