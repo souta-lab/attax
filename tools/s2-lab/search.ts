@@ -28,7 +28,7 @@ import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { awardLock, s2GarbageMultiplier } from "../../src/core/rules.js";
 import { classifyS2Spin } from "../../src/core/s2-spin.js";
 import type { TspinKind } from "../../src/core/tspin.js";
-import { isLoadedBand, loadedPotential } from "./loaded-potential.js";
+import { isLoadedBand, isLoadedMidBand, loadedPotential } from "./loaded-potential.js";
 
 export interface SearchInput {
   readonly board: BitBoard;
@@ -457,6 +457,25 @@ function expand(
   if (w.loadedPotential !== 0 && node.depth === 0 && isLoadedBand(rootLockIndex)) {
     loadedCredit =
       w.loadedPotential *
+      loadedPotential({
+        board,
+        b2b,
+        tSlot: features.tSlot,
+        sequence,
+        next: option.next,
+        hold: option.hold,
+        canHold: true,
+      }).total;
+  }
+  // SB-3 (R2-STAGE2-DESIGN §3.3): the same loaded-potential credit under
+  // the separated key `loadedPotentialMid`, priced at the root only and
+  // only for root locks >= 40. The bands are disjoint (mechanism B is
+  // 0–19, SB-3 is >= 40, 20–39 is priced by neither), so the two credits
+  // can never stack on the same root. Skipped entirely at the default
+  // weight 0, so the default profile is bit-identical.
+  if (w.loadedPotentialMid !== 0 && node.depth === 0 && isLoadedMidBand(rootLockIndex)) {
+    loadedCredit +=
+      w.loadedPotentialMid *
       loadedPotential({
         board,
         b2b,

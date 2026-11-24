@@ -58,6 +58,17 @@ export function isLoadedBand(lockIndex: number | undefined): boolean {
   return lockIndex !== undefined && lockIndex >= 0 && lockIndex < LOADED_BAND_HI;
 }
 
+/** SB-3 (R2-STAGE2-DESIGN-2026-11-24 §3.3) prices root locks >= 40:
+ * the same loaded-potential features as mechanism B, extended to the
+ * mid-game onwards under the separated key `loadedPotentialMid`.
+ * Locks 20–39 are priced by neither mechanism. */
+export const LOADED_MID_BAND_LO = 40;
+
+/** True when the root lock index is inside the SB-3 band. */
+export function isLoadedMidBand(lockIndex: number | undefined): boolean {
+  return lockIndex !== undefined && lockIndex >= LOADED_MID_BAND_LO;
+}
+
 function isPremiumClear(board: BitBoard, placement: Placement): boolean {
   const spin = classifyS2Spin(
     placement,

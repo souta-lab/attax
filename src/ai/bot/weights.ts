@@ -28,6 +28,13 @@ export interface Weights {
    * the next two placements), priced only for root locks 0–19. Read only by
    * tools/s2-lab/search.ts; 0 = off and the search is then identical. */
   readonly loadedPotential: number;
+  /** SB-3 (R2-STAGE2-DESIGN-2026-11-24 §3.3): S2-lab root credit per unit
+   * of the child position's loaded potential — the SAME three features as
+   * mechanism B, priced only for root locks >= 40 (mid-game onwards).
+   * Key is separated from mechanism B's `loadedPotential` (locks 0–19);
+   * locks 20–39 are priced by neither. Read only by tools/s2-lab/search.ts;
+   * 0 = off and the search is then identical. */
+  readonly loadedPotentialMid: number;
   /** Extra shaping per clear type, on top of the attack it produced. */
   readonly clear: Readonly<Record<ClearKind, number>>;
   /** Penalty for ending a back-to-back chain with a plain clear. */
@@ -55,6 +62,7 @@ export const DEFAULT_WEIGHTS: Weights = {
   attack: 90,
   conversion: 0,
   loadedPotential: 0,
+  loadedPotentialMid: 0,
   clear: {
     single: -60,
     double: -40,
