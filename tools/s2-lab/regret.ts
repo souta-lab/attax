@@ -526,3 +526,172 @@ export function judgeHs1(
   if (d.d3.noSpinShare > 0.5) return "HS1-B";
   return "undecidable";
 }
+
+// ---------------------------------------------------------------------------
+// R2 stage-2 premium instrument (R2-STAGE2-DESIGN-2026-11-24 §4).
+//
+// Question it separates, for NON-opportunity turns (pendingBefore = 0) in
+// the mid bands (100-159 / 160-199 / 200+): was the premium clear
+// (a) present among the evaluated candidates but not chosen (selection ->
+// SB-1, or SB-2 when the regret concentrates in lines 1/2), or
+// (b) absent from the candidate set altogether (board construction ->
+// SB-3)?
+//
+// Basis: referee Aeff (cancelled + outgoingAfterCancel), the same basis as
+// the stage-1 premium residual and the attax-regret-rerun driver (#6885).
+// premium(aeff, lines) = max(0, aeff - LINE_BASE[lines]) with the
+// original-source line base [0,0,1,2,4,5] (rules.ts awardLock tetrio-s2
+// non-spin table; garbage.ts LINE_BASE agrees for lines 0-4).
+//
+// Recording rule: every attax turn (all locks, any pending). Banding and
+// the pendingBefore = 0 slice are aggregation concerns, so the driver can
+// call this unconditionally. Pure: no I/O, no weights, no search.
+
+export const LINE_BASE_S2: readonly number[] = [0, 0, 1, 2, 4, 5];
+
+export function premiumOf(aeff: number, lines: number): number {
+  const base = LINE_BASE_S2[Math.min(Math.max(lines, 0), 5)] ?? 0;
+  return Math.max(0, aeff - base);
+}
+
+export interface PremiumCandidateLike {
+  readonly aeff: number;
+  readonly lines: number;
+  readonly spin?: string;
+}
+
+export interface PremiumRegretRow {
+  readonly lockIndex: number;
+  readonly pendingBefore: number;
+  readonly chosenAeff: number;
+  readonly chosenLines: number;
+  readonly chosenSpin: string;
+  readonly chosenPremium: number;
+  readonly maxPremium: number;
+  readonly maxPremiumLines: number;
+  readonly maxPremiumSpin: string;
+  /** maxPremium - chosenPremium (>= 0). */
+  readonly premiumRegret: number;
+  readonly anyPremiumCandidate: boolean;
+  readonly premiumCandidateCount: number;
+  readonly candidateCount: number;
+  readonly evaluatedCandidates: number;
+  readonly skippedCandidates: number;
+}
+
+export function premiumRegretRow(
+  chosen: PremiumCandidateLike,
+  candidates: readonly PremiumCandidateLike[],
+  lockIndex: number,
+  pendingBefore: number,
+  evaluatedCandidates = candidates.length,
+  skippedCandidates = 0,
+): PremiumRegretRow {
+  const chosenPremium = premiumOf(chosen.aeff, chosen.lines);
+  let maxPremium = chosenPremium;
+  let maxPremiumLines = chosen.lines;
+  let maxPremiumSpin = chosen.spin ?? "none";
+  let premiumCandidateCount = chosenPremium > 0 ? 1 : 0;
+  for (const c of candidates) {
+    const p = premiumOf(c.aeff, c.lines);
+    if (p > 0) premiumCandidateCount += 1;
+    if (p > maxPremium) {
+      maxPremium = p;
+      maxPremiumLines = c.lines;
+      maxPremiumSpin = c.spin ?? "none";
+    }
+  }
+  return {
+    lockIndex,
+    pendingBefore,
+    chosenAeff: chosen.aeff,
+    chosenLines: chosen.lines,
+    chosenSpin: chosen.spin ?? "none",
+    chosenPremium,
+    maxPremium,
+    maxPremiumLines,
+    maxPremiumSpin,
+    premiumRegret: maxPremium - chosenPremium,
+    anyPremiumCandidate: maxPremium > 0,
+    premiumCandidateCount,
+    candidateCount: candidates.length + 1,
+    evaluatedCandidates,
+    skippedCandidates,
+  };
+}
+
+export interface PremiumBandDecomposition {
+  turns: number;
+  /** D1: chosen premium = 0 (or no clear) but a premium candidate existed. */
+  d1Turns: number;
+  d1SumMaxPremium: number;
+  /** D2: chosen was a clear (lines > 0); sum of premiumRegret over those. */
+  d2Turns: number;
+  d2SumRegret: number;
+  /** D1+D2 regret total (D1 contributes its maxPremium). */
+  explained: number;
+  /** Share of D1+D2 attributed to max-premium candidates with lines 1/2. */
+  lines12Share: number | null;
+  regretByMaxLines: Record<string, number>;
+  /** D3: share of turns with no premium candidate at all. */
+  d3AbsentTurns: number;
+  d3AbsentShare: number;
+  spinMissTurns: number;
+}
+
+export function summarisePremiumBand(rows: readonly PremiumRegretRow[]): PremiumBandDecomposition {
+  let d1Turns = 0, d1Sum = 0, d2Turns = 0, d2Sum = 0, absent = 0, spinMiss = 0;
+  const byLines: Record<string, number> = {};
+  const isSpin = (s: string) => s === "mini" || s === "normal";
+  for (const r of rows) {
+    if (!r.anyPremiumCandidate) absent += 1;
+    if (r.chosenPremium === 0 && r.maxPremium > 0) {
+      d1Turns += 1;
+      d1Sum += r.maxPremium;
+      byLines[String(r.maxPremiumLines)] = (byLines[String(r.maxPremiumLines)] ?? 0) + r.maxPremium;
+      if (isSpin(r.maxPremiumSpin) && !isSpin(r.chosenSpin)) spinMiss += 1;
+    } else if (r.chosenLines > 0) {
+      d2Turns += 1;
+      d2Sum += r.premiumRegret;
+      if (r.premiumRegret > 0) {
+        byLines[String(r.maxPremiumLines)] = (byLines[String(r.maxPremiumLines)] ?? 0) + r.premiumRegret;
+        if (isSpin(r.maxPremiumSpin) && !isSpin(r.chosenSpin)) spinMiss += 1;
+      }
+    }
+  }
+  const explained = d1Sum + d2Sum;
+  const l12 = (byLines["1"] ?? 0) + (byLines["2"] ?? 0);
+  return {
+    turns: rows.length,
+    d1Turns, d1SumMaxPremium: d1Sum,
+    d2Turns, d2SumRegret: d2Sum,
+    explained,
+    lines12Share: explained > 0 ? l12 / explained : null,
+    regretByMaxLines: byLines,
+    d3AbsentTurns: absent,
+    d3AbsentShare: rows.length ? absent / rows.length : 0,
+    spinMissTurns: spinMiss,
+  };
+}
+
+/**
+ * Preregistered stage-0 verdict (R2-STAGE2-DESIGN §4.2), per band then
+ * combined: selection side requires explained >= half the denominator in
+ * at least 2 of 3 mid bands; lines12Share >= 2/3 (same bands' pooled
+ * share) selects SB-2 over SB-1; board side requires D3 absent share
+ * over half in at least 2 of 3 bands when the selection side fails.
+ */
+export function judgePremiumStage0(
+  bands: readonly { denominator: number; decomp: PremiumBandDecomposition }[],
+): "SB-1" | "SB-2" | "SB-3" | "undecidable" {
+  const selBands = bands.filter((b) => b.denominator > 0 && b.decomp.explained >= b.denominator / 2).length;
+  if (selBands >= 2) {
+    const totExpl = bands.reduce((n, b) => n + b.decomp.explained, 0);
+    const tot12 = bands.reduce(
+      (n, b) => n + (b.decomp.lines12Share ?? 0) * b.decomp.explained, 0);
+    return totExpl > 0 && tot12 / totExpl >= 2 / 3 ? "SB-2" : "SB-1";
+  }
+  const d3Bands = bands.filter((b) => b.decomp.d3AbsentShare > 0.5).length;
+  if (d3Bands >= 2) return "SB-3";
+  return "undecidable";
+}
