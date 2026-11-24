@@ -15,7 +15,7 @@
  * and `lineStates` is never produced.
  */
 
-import type { PieceKind } from "../../src/core/pieces.js";
+import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import type { TspinKind } from "../../src/core/tspin.js";
 import type { Placement } from "./board.js";
 import { BOARD_FEATURES, boardFeatures } from "./features.js";
@@ -362,6 +362,85 @@ export function resultForRootStep(
     line: [best],
     value: f64FromBits(valueBits),
     breakdown,
+    candidates: parsed.candidates.map((c) => ({
+      placement: c.placement,
+      usedHold: c.usedHold,
+      value: f64FromBits(c.valueBits),
+    })),
+    nodes: Number(parsed.nodes),
+    depth: parsed.depth,
+  };
+}
+
+/**
+ * Build the lab's SearchResult from a COMPACT serve block — the shape
+ * the persistent-form host (persistent/pfserve.c) writes: head,
+ * candidates and the timing trailer only, with nPlies = 0 (the full-tree
+ * WireNode dump is omitted by design). Selection, candidates, value,
+ * nodes and depth come from the block itself, exactly as in
+ * resultForRootStep.
+ *
+ * What the compact block does not carry, and how this builder treats it:
+ * - `linesCleared` is a board fact, not a search quantity: it is
+ *   recomputed exactly from the input board plus the placement's cells.
+ *   Placing a piece and counting the rows it completes is semantics-free
+ *   — every rules profile agrees on which rows a lock completes.
+ * - `attack` and `reward` are scalars of the basic form's wire records
+ *   (the step's award as the expand kernel stages it, and the
+ *   accumulated-reward difference). The persistent kernel carries no
+ *   reward at all, pfserve transmits neither field, and the wire stage
+ *   of the basic form's attack scalar is not pinned by any original —
+ *   so both are reported as NaN ("not carried") rather than
+ *   reconstructed into plausible-looking numbers. Serialized to JSON,
+ *   NaN reads as null, which is how the absence shows up in match
+ *   debug logs (predictedAttack next to the referee's own stages).
+ * - `breakdown` needs the post-lock board's features; reconstructing
+ *   that board host-side is the prod_adapter's corpus-verified work,
+ *   not something to re-derive here. It is returned empty.
+ *
+ * Consumers that need those fields must use the basic form. The
+ * persistent form's verification contract is selection agreement
+ * (latency floor audit 2026-11-24 §6: 180/180 on the chosen move).
+ */
+export function resultForCompactBlock(
+  parsed: ParsedBlock,
+  input: SearchInput,
+  placement: Placement,
+  usedHold: boolean,
+  valueBits: bigint,
+): SearchResult {
+  if (parsed.plies.length > 0) {
+    throw new Error(
+      "gpu codec: resultForCompactBlock received a full block (plies present); " +
+        "use resultForRootStep for the basic form's blocks",
+    );
+  }
+  const rows = Uint16Array.from(input.board);
+  for (const cell of cellsFor(placement.kind, placement.rotation)) {
+    const row = placement.y + cell.y;
+    const col = placement.x + cell.x;
+    if (row < 0 || row >= 40 || col < 0 || col >= 10) {
+      throw new Error(
+        `gpu codec: root step cell (${col}, ${row}) is outside the 10x40 board — ` +
+          "the block's placement does not belong to this input",
+      );
+    }
+    rows[row] |= 1 << col;
+  }
+  let linesCleared = 0;
+  for (let r = 0; r < 40; r++) if (rows[r] === 0x3ff) linesCleared++;
+  const best: Step = {
+    placement,
+    usedHold,
+    linesCleared,
+    attack: Number.NaN,
+    reward: Number.NaN,
+  };
+  return {
+    best,
+    line: [best],
+    value: f64FromBits(valueBits),
+    breakdown: {},
     candidates: parsed.candidates.map((c) => ({
       placement: c.placement,
       usedHold: c.usedHold,

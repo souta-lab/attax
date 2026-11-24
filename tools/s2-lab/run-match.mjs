@@ -4,9 +4,12 @@ import { parseArgs } from "node:util";
 import { createChampionDriver } from "./champion-driver.mjs";
 import {
   createDefaultGpuDecider,
+  createDefaultPersistentGpuDecider,
   createGpuAttaxDecider,
+  createPersistentGpuAttaxDecider,
   gpuEngineInfo,
   gpuEngineTimingSummary,
+  gpuPersistentEngineInfo,
 } from "./gpu-player.js";
 import {
   applyTransition,
@@ -71,14 +74,32 @@ if (carryEnv === "1")
       "which the GPU engine's wire format does not carry (GPU front-end pending)",
   );
 const planCarryover = false;
+// GPU engine form selection (latency floor audit 2026-11-24, P1):
+// "basic" (vkrunner_s26 serve) is the default and remains the form the
+// canonical numbers and gates run on; "persistent" (pfserve, the r15
+// serve engine) is opt-in per run and is named in the match record's
+// attaxEngine.form. The persistent form's verification contract is
+// selection agreement with the basic form — records from the two forms
+// are not interchangeable evidence.
+const engineForm = process.env.ATTAX_LAB_ENGINE ?? "basic";
+if (engineForm !== "basic" && engineForm !== "persistent") {
+  throw new Error(`expected "basic" or "persistent" in ATTAX_LAB_ENGINE, got "${engineForm}"`);
+}
+const persistent = engineForm === "persistent";
 // GPU engine startup probe: verifies the pinned assets and the device
 // before the first game. There is no fallback — a machine without a usable
 // Vulkan device stops here (Souta's ruling, 2026-11-19).
-const engineInfo = await gpuEngineInfo();
+const engineInfo = persistent ? await gpuPersistentEngineInfo() : await gpuEngineInfo();
 const opponent = values["opponent-profile"]
-  ? wrapGpuDecider(await createGpuAttaxDecider(values["opponent-profile"]))
+  ? wrapGpuDecider(
+      persistent
+        ? await createPersistentGpuAttaxDecider(values["opponent-profile"])
+        : await createGpuAttaxDecider(values["opponent-profile"]),
+    )
   : null;
-const attax = wrapGpuDecider(await createDefaultGpuDecider());
+const attax = wrapGpuDecider(
+  persistent ? await createDefaultPersistentGpuDecider() : await createDefaultGpuDecider(),
+);
 const pps = ppsForCc2Parameters(parameters);
 const digest = createHash("sha256").update(canonicalize(profile)).digest("hex");
 const wasmPath =
@@ -310,6 +331,7 @@ async function play(gameIndex) {
       planCarryover,
       attaxEngine: {
         id: "gpu",
+        form: engineInfo.form,
         device: engineInfo.device,
         tablesSha256: engineInfo.tablesSha256,
       },

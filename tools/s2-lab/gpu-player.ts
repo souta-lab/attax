@@ -23,6 +23,20 @@
  *   unfiltered best is accepted the result is identical; otherwise the
  *   best accepted candidate wins. This is NOT bit-identical to
  *   in-search filtering in general (the beam is shared across roots).
+ *
+ * The persistent form (latency floor audit 2026-11-24, candidate P1) is
+ * wired alongside the basic form: createPersistentGpuAttaxDecider
+ * drives persistent/pfserve (the r15 serve engine, the TBP adapter's
+ * default backend) with the SAME config-O resolution and refusal —
+ * config O is the s2 profile, so the host's ATTAX_GPU_PROFILE is pinned
+ * to "s2" by the driver. pfserve answers with a compact block (head +
+ * candidates + trailer, no ply dump), so its results are built by
+ * resultForCompactBlock: selection-faithful, with the fields the
+ * compact block does not carry (attack / reward / breakdown) absent by
+ * construction rather than approximated. Which form a lab run uses is
+ * an explicit choice of the caller (run-match: ATTAX_LAB_ENGINE); the
+ * basic form remains the default, and match records name the form via
+ * GpuEngineInfo.form.
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -36,6 +50,7 @@ import {
   encodeDecisionRecordBytes,
   type ParsedBlock,
   parseServeBlock,
+  resultForCompactBlock,
   resultForRootStep,
 } from "./gpu-codec.js";
 import type { DeciderOptions, SearchResult } from "./search-types.js";
@@ -47,6 +62,7 @@ import { DEFAULT_WEIGHTS, type Weights } from "./weights.js";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../..");
 const GPU_DIR = path.join(REPO_ROOT, "gpu");
+const PERSISTENT_DIR = path.join(REPO_ROOT, "persistent");
 
 /** sha256 of the pinned PC-lineage evaluation tables (gpu/README.md). */
 export const PINNED_TABLES_SHA256 =
@@ -61,9 +77,20 @@ const SERVE_ENV = {
   S26_FILL: "on",
 } as const;
 
+/**
+ * The persistent host's profile switch. Config O IS the s2 profile, so
+ * the lab pins it: an ambient ATTAX_GPU_PROFILE must not leak the
+ * guideline ruleset into a config-O driver.
+ */
+const PERSISTENT_ENV = {
+  ATTAX_GPU_PROFILE: "s2",
+} as const;
+
 export interface GpuEngineInfo {
   /** Physical device name reported by the host ("selected: <name>"). */
   readonly device: string;
+  /** Execution form that produced this info: "basic" | "persistent". */
+  readonly form: string;
   readonly runnerPath: string;
   readonly tablesPath: string;
   readonly tablesSha256: string;
@@ -72,8 +99,14 @@ export interface GpuEngineInfo {
 function runnerPath(): string {
   return process.env.ATTAX_GPU_RUNNER ?? path.join(GPU_DIR, "vkrunner_s26");
 }
+function pfservePath(): string {
+  return process.env.ATTAX_PFSERVE ?? path.join(PERSISTENT_DIR, "pfserve");
+}
 function tablesPath(): string {
   return process.env.ATTAX_GPU_TABLES ?? path.join(GPU_DIR, "tables.bin");
+}
+function persistentShaderPath(): string {
+  return path.join(GPU_DIR, "shaders", "pfl_r15_serve.spv");
 }
 function movegenPath(): string {
   // BP B1 movegen (stage 1C). The host's movegen push contract is
@@ -89,16 +122,8 @@ function buildHint(): string {
   return `build it with: bash gpu/build.sh (needs gcc + libvulkan; see gpu/README.md)`;
 }
 
-function verifyStaticAssets(): { runner: string; tables: string } {
-  const runner = runnerPath();
-  if (!existsSync(runner)) {
-    throw new Error(`GPU engine binary not found at ${runner} — ${buildHint()}`);
-  }
-  for (const spv of [movegenPath(), expandPath()]) {
-    if (!existsSync(spv)) {
-      throw new Error(`GPU engine shader missing at ${spv} — the gpu/ tree is incomplete`);
-    }
-  }
+/** The pinned-tables verification both execution forms share. */
+function verifyTables(): string {
   const tables = tablesPath();
   if (!existsSync(tables)) {
     throw new Error(
@@ -115,7 +140,32 @@ function verifyStaticAssets(): { runner: string; tables: string } {
         `restore the pinned file (gpu/README.md).`,
     );
   }
-  return { runner, tables };
+  return tables;
+}
+
+function verifyStaticAssets(): { runner: string; tables: string } {
+  const runner = runnerPath();
+  if (!existsSync(runner)) {
+    throw new Error(`GPU engine binary not found at ${runner} — ${buildHint()}`);
+  }
+  for (const spv of [movegenPath(), expandPath()]) {
+    if (!existsSync(spv)) {
+      throw new Error(`GPU engine shader missing at ${spv} — the gpu/ tree is incomplete`);
+    }
+  }
+  return { runner, tables: verifyTables() };
+}
+
+function verifyPersistentAssets(): { runner: string; tables: string } {
+  const runner = pfservePath();
+  if (!existsSync(runner)) {
+    throw new Error(`persistent GPU engine binary not found at ${runner} — ${buildHint()}`);
+  }
+  const spv = persistentShaderPath();
+  if (!existsSync(spv)) {
+    throw new Error(`persistent GPU engine shader missing at ${spv} — the gpu/ tree is incomplete`);
+  }
+  return { runner, tables: verifyTables() };
 }
 
 /** Software rasterizers are not a GPU: the product targets real devices only. */
@@ -136,11 +186,52 @@ interface Waiter {
   reject: (err: Error) => void;
 }
 
+/** How one serve host is spawned: binary, argv, pinned env, identity. */
+interface ServeSpec {
+  readonly form: string;
+  readonly runner: string;
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+  readonly tables: string;
+  /**
+   * Extra stderr evidence that must appear before start() resolves.
+   * The persistent host prints its profile banner before device
+   * selection; requiring it proves the pinned s2 profile took effect
+   * rather than an ambient ATTAX_GPU_PROFILE leaking through.
+   */
+  readonly expectStderr?: RegExp;
+}
+
+function basicServeSpec(runner: string, tables: string): ServeSpec {
+  // Host usage: serve <movegen.spv> <expand.spv> <tables.bin> [device]
+  const args = ["serve", movegenPath(), expandPath(), tables];
+  const device = process.env.ATTAX_GPU_DEVICE;
+  if (device) args.push(device);
+  return { form: "basic", runner, args, env: SERVE_ENV, tables };
+}
+
+function persistentServeSpec(runner: string, tables: string): ServeSpec {
+  // Host usage: pfserve serve <pfl_r15_serve.spv> <tables.bin> [G] [device]
+  // G stays at the host's default 96 — config O's fixed beam width.
+  const args = ["serve", persistentShaderPath(), tables];
+  const device = process.env.ATTAX_GPU_DEVICE;
+  if (device) args.push(device);
+  return {
+    form: "persistent",
+    runner,
+    args,
+    env: PERSISTENT_ENV,
+    tables,
+    expectStderr: /profile: s2 \(persistent r15\)/,
+  };
+}
+
 /**
- * One long-lived `vkrunner_s26 serve` process. Requests are serialized
- * (the protocol is a strict request/response stream); a process death
- * rejects every pending and future request loudly — there is no silent
- * restart and no fallback.
+ * One long-lived serve process (either execution form; the serve
+ * protocol is identical). Requests are serialized (the protocol is a
+ * strict request/response stream); a process death rejects every
+ * pending and future request loudly — there is no silent restart and
+ * no fallback.
  */
 class GpuServer {
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -152,10 +243,7 @@ class GpuServer {
   private failure: Error | null = null;
   private tail: Promise<void> = Promise.resolve();
 
-  constructor(
-    private readonly runner: string,
-    private readonly tables: string,
-  ) {}
+  constructor(private readonly spec: ServeSpec) {}
 
   async start(): Promise<GpuEngineInfo> {
     if (this.starting) return this.starting;
@@ -165,13 +253,9 @@ class GpuServer {
 
   private doStart(): Promise<GpuEngineInfo> {
     return new Promise<GpuEngineInfo>((resolve, reject) => {
-      // Host usage: serve <movegen.spv> <expand.spv> <tables.bin> [device]
-      const args = ["serve", movegenPath(), expandPath(), this.tables];
-      const device = process.env.ATTAX_GPU_DEVICE;
-      if (device) args.push(device);
-      const proc = spawn(this.runner, args, {
+      const proc = spawn(this.spec.runner, [...this.spec.args], {
         stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env, ...SERVE_ENV },
+        env: { ...process.env, ...this.spec.env },
       });
       this.proc = proc;
       let settled = false;
@@ -189,7 +273,8 @@ class GpuServer {
         this.stderrTail = (this.stderrTail + text).slice(-4096);
         if (!settled) {
           const m = /selected:\s*(.+)/.exec(this.stderrTail);
-          if (m) {
+          const extraOk = !this.spec.expectStderr || this.spec.expectStderr.test(this.stderrTail);
+          if (m && extraOk) {
             settled = true;
             clearTimeout(timer);
             // vk_setup appends " (timestampPeriod ...)" — the device
@@ -204,8 +289,9 @@ class GpuServer {
             }
             resolve({
               device: this.device,
-              runnerPath: this.runner,
-              tablesPath: this.tables,
+              form: this.spec.form,
+              runnerPath: this.spec.runner,
+              tablesPath: this.spec.tables,
               tablesSha256: PINNED_TABLES_SHA256,
             });
           }
@@ -311,9 +397,18 @@ let sharedServer: GpuServer | null = null;
 function getServer(): GpuServer {
   if (!sharedServer) {
     const { runner, tables } = verifyStaticAssets();
-    sharedServer = new GpuServer(runner, tables);
+    sharedServer = new GpuServer(basicServeSpec(runner, tables));
   }
   return sharedServer;
+}
+
+let sharedPersistentServer: GpuServer | null = null;
+function getPersistentServer(): GpuServer {
+  if (!sharedPersistentServer) {
+    const { runner, tables } = verifyPersistentAssets();
+    sharedPersistentServer = new GpuServer(persistentServeSpec(runner, tables));
+  }
+  return sharedPersistentServer;
 }
 
 /**
@@ -330,6 +425,16 @@ export async function gpuEngineInfo(): Promise<GpuEngineInfo> {
 export function closeGpuEngine(): void {
   sharedServer?.close();
   sharedServer = null;
+}
+
+/** The persistent form's startup probe (pfserve; see gpuEngineInfo). */
+export async function gpuPersistentEngineInfo(): Promise<GpuEngineInfo> {
+  return getPersistentServer().start();
+}
+
+export function closePersistentGpuEngine(): void {
+  sharedPersistentServer?.close();
+  sharedPersistentServer = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,13 +609,15 @@ export interface GpuDecider {
 }
 
 /**
- * The GPU decider factory, mirroring createAttaxDecider's option and
- * env resolution (ATTAX_S2_PROFILE / ATTAX_S2_STOCK_POTENTIAL /
- * ATTAX_S2_SOLVENCY / ATTAX_S2_SOLVENCY_MODE / ATTAX_S2_DIVERSE /
- * ATTAX_S2_GARBAGE_SCENARIOS) — and refusing every resolution that is
- * not exactly config O, because the GPU engine implements nothing else.
+ * The config-O resolution both GPU factories share, mirroring
+ * createAttaxDecider's option and env resolution (ATTAX_S2_PROFILE /
+ * ATTAX_S2_STOCK_POTENTIAL / ATTAX_S2_SOLVENCY / ATTAX_S2_SOLVENCY_MODE /
+ * ATTAX_S2_DIVERSE / ATTAX_S2_GARBAGE_SCENARIOS) — and refusing every
+ * resolution that is not exactly config O, because neither GPU engine
+ * form implements anything else. The refusal text is shared verbatim:
+ * a configuration the basic form refuses is refused here too, in full.
  */
-export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDecider> {
+async function resolveConfigO(profilePath?: string): Promise<{ weights: Weights }> {
   const profile = await loadProfile(profilePath);
   const weights = profile.weights;
   const mechanisms = profile.mechanisms;
@@ -586,6 +693,15 @@ export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDe
         `approximate it.`,
     );
   }
+  return { weights };
+}
+
+/**
+ * The GPU decider factory (basic form: vkrunner_s26 serve), refusing
+ * every lab configuration that does not resolve to config O.
+ */
+export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDecider> {
+  const { weights } = await resolveConfigO(profilePath);
 
   const decideAsync = async (
     input: SearchInput,
@@ -626,4 +742,69 @@ export async function createGpuAttaxDecider(profilePath?: string): Promise<GpuDe
 /** Convenience: a config-O-validated GPU decider as the lab's default. */
 export async function createDefaultGpuDecider(): Promise<GpuDecider> {
   return createGpuAttaxDecider();
+}
+
+/**
+ * The persistent-form decider factory (latency floor audit 2026-11-24,
+ * candidate P1): drives persistent/pfserve — the r15 serve engine the
+ * TBP adapter already defaults to — under the SAME config-O resolution
+ * and refusal as the basic form (resolveConfigO). The persistent host
+ * implements config O as its s2 profile; the driver pins
+ * ATTAX_GPU_PROFILE=s2 (PERSISTENT_ENV) and requires the host's profile
+ * banner before the first decision resolves.
+ *
+ * Results are built from pfserve's compact block by
+ * resultForCompactBlock: the selection, candidates, value, nodes and
+ * depth are the engine's own; attack / reward / breakdown are absent
+ * (NaN / empty) because the compact block does not carry them — see
+ * gpu-codec.ts. The verification contract is selection agreement with
+ * the basic form, not full-record identity.
+ */
+export async function createPersistentGpuAttaxDecider(profilePath?: string): Promise<GpuDecider> {
+  // Validation only: the compact result builder needs no weights (the
+  // block carries no feature breakdown to weight).
+  await resolveConfigO(profilePath);
+
+  const decideAsync = async (
+    input: SearchInput,
+    options: DeciderOptions,
+  ): Promise<SearchResult | null> => {
+    if (options.lineStates) {
+      throw new Error(
+        "persistent GPU decider cannot produce lineStates: the compact serve " +
+          "block carries no per-step states. Drop the lineStates request for " +
+          "GPU decisions.",
+      );
+    }
+    const record = encodeDecisionRecordBytes(input);
+    const block = await getPersistentServer().request(record);
+    const parsed: ParsedBlock = parseServeBlock(block);
+    gpuTimingSamples.push(parsed.wallMs);
+    if (parsed.status === 1 || !parsed.best) return null;
+    const best = parsed.best;
+    if (!input.acceptRoot || input.acceptRoot(best.placement, best.usedHold)) {
+      return resultForCompactBlock(parsed, input, best.placement, best.usedHold, best.valueBits);
+    }
+    for (const cand of parsed.candidates) {
+      if (input.acceptRoot(cand.placement, cand.usedHold)) {
+        return resultForCompactBlock(parsed, input, cand.placement, cand.usedHold, cand.valueBits);
+      }
+    }
+    return null;
+  };
+
+  return {
+    decide: () => {
+      throw new Error(
+        "persistent GPU decider is async-only (the engine is a serve process); use decideAsync",
+      );
+    },
+    decideAsync,
+    close: () => closePersistentGpuEngine(),
+  };
+}
+
+/** Convenience: a config-O-validated persistent-form decider. */
+export async function createDefaultPersistentGpuDecider(): Promise<GpuDecider> {
+  return createPersistentGpuAttaxDecider();
 }
