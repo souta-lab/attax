@@ -126,20 +126,28 @@ export function createAttaxDecider(profilePath: string | undefined) {
   return {
     weights,
     profileId,
-    decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
+    decide(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"], lockIndex?: number) {
       return search(
-        { ...projectAttax(decision), ...(acceptRoot ? { acceptRoot } : {}) },
+        {
+          ...projectAttax(decision),
+          ...(acceptRoot ? { acceptRoot } : {}),
+          ...(lockIndex !== undefined ? { lockIndex } : {}),
+        },
         { weights, width: BOT_DEFAULTS.width },
       );
     },
   };
 }
 
-export function decideAttax(decision: PublicDecision, acceptRoot?: SearchInput["acceptRoot"]) {
+export function decideAttax(
+  decision: PublicDecision,
+  acceptRoot?: SearchInput["acceptRoot"],
+  lockIndex?: number,
+) {
   loadS2Weights();
   return createAttaxDecider(
     loaded?.source === "DEFAULT_WEIGHTS" ? undefined : loaded?.source,
-  ).decide(decision, acceptRoot);
+  ).decide(decision, acceptRoot, lockIndex);
 }
 
 /** Cell matching derives all origin/rotation offsets from the referee's geometry. */

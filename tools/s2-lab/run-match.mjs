@@ -169,6 +169,8 @@ async function play(gameIndex) {
               if (!accepted && kinds[side] === "attax") rejectedRoots++;
               return accepted;
             },
+            // Root lock index (mechanism B band gating, locks 0–19).
+            bot.stats.turns,
           );
           if (searched === null)
             throw new Error("attax has no witnessed move before referee top-out");

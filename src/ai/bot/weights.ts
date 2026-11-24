@@ -22,6 +22,12 @@ export interface Weights {
   readonly attack: number;
   /** S2 root reward per attack line left after cancelling known incoming garbage. */
   readonly conversion: number;
+  /** Mechanism B (EARLY-CANCEL-DESIGN-2026-11-24 §2.3): S2-lab root credit
+   * per unit of the child position's "loaded potential" (B2B still active,
+   * a T-spin slot remains, or a premium clear is legally available within
+   * the next two placements), priced only for root locks 0–19. Read only by
+   * tools/s2-lab/search.ts; 0 = off and the search is then identical. */
+  readonly loadedPotential: number;
   /** Extra shaping per clear type, on top of the attack it produced. */
   readonly clear: Readonly<Record<ClearKind, number>>;
   /** Penalty for ending a back-to-back chain with a plain clear. */
@@ -48,6 +54,7 @@ export const DEFAULT_WEIGHTS: Weights = {
   },
   attack: 90,
   conversion: 0,
+  loadedPotential: 0,
   clear: {
     single: -60,
     double: -40,

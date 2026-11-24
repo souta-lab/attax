@@ -28,6 +28,7 @@ import { cellsFor, type PieceKind } from "../../src/core/pieces.js";
 import { awardLock, s2GarbageMultiplier } from "../../src/core/rules.js";
 import { classifyS2Spin } from "../../src/core/s2-spin.js";
 import type { TspinKind } from "../../src/core/tspin.js";
+import { isLoadedBand, loadedPotential } from "./loaded-potential.js";
 
 export interface SearchInput {
   readonly board: BitBoard;
@@ -41,6 +42,10 @@ export interface SearchInput {
   /** Upcoming pieces after the active one (the visible preview). */
   readonly preview: readonly PieceKind[];
   readonly b2b: number;
+  /** Root lock index within the game (0-based), when the driver knows it.
+   * Only used by mechanism B (loaded potential, locks 0–19); undefined
+   * leaves the mechanism unpriced even at a non-zero weight. */
+  readonly lockIndex?: number;
   /** Engine combo counter: -1 = no chain, 0 = first clear of a chain, ... */
   readonly combo: number;
   /** Incoming garbage rows not yet on the board. */
@@ -186,6 +191,8 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
                   0,
                   options.exposure ?? 0,
                   input.frame ?? 0,
+                  future,
+                  input.lockIndex,
                 );
                 nodes += 1;
                 if (child !== null) best = Math.max(best, child.value);
@@ -218,6 +225,8 @@ export function search(input: SearchInput, options: SearchOptions): SearchResult
             firstMoves.length,
             options.exposure ?? 0,
             input.frame ?? 0,
+            sequence,
+            input.lockIndex,
           );
           nodes += 1;
           if (child === null) continue;
@@ -322,6 +331,8 @@ function expand(
   rootIndex: number,
   exposure: number,
   rootFrame: number,
+  sequence: readonly PieceKind[],
+  rootLockIndex: number | undefined,
 ): Node | null {
   // Use staged S2 lock awards and All-Mini+; exact d is never reduced to a flag.
   const spin = classifyS2Spin(
@@ -435,8 +446,29 @@ function expand(
   // generates them at every depth): they can only ever be terminal leaves.
   const deathLimit = Math.min(node.board.length, 21);
   const dead = features.maxHeight >= deathLimit;
+  // Mechanism B (EARLY-CANCEL-DESIGN §2.3): preservation credit for the
+  // child position's loaded potential, priced at the root only and only
+  // in the opening band (root locks 0–19) — the same root-only pricing
+  // shape as `conversion`. A root move that breaks B2B with a plain clear
+  // or collapses the T-spin setup simply earns less of this credit, which
+  // is the opportunity cost the design asks for. Skipped entirely at the
+  // default weight 0, so the default profile is bit-identical.
+  let loadedCredit = 0;
+  if (w.loadedPotential !== 0 && node.depth === 0 && isLoadedBand(rootLockIndex)) {
+    loadedCredit =
+      w.loadedPotential *
+      loadedPotential({
+        board,
+        b2b,
+        tSlot: features.tSlot,
+        sequence,
+        next: option.next,
+        hold: option.hold,
+        canHold: true,
+      }).total;
+  }
   const scale = w.discount ** node.depth;
-  const accumulated = node.reward + scale * (reward - exposure * features.danger);
+  const accumulated = node.reward + scale * (reward + loadedCredit - exposure * features.danger);
   const value = accumulated + scale * w.discount * dot(features, w);
 
   return {
