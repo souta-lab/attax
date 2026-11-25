@@ -26,7 +26,7 @@
  * queue in ~20 quiet turns; that pattern killed this adapter before 2026-11-15.)
  *
  * Env: ATTAX_TBP_LOG (optional JSONL decision log path),
- *      ATTAX_TBP_ROWS (visible board rows in the snapshot: 20 default, or 40),
+ *      ATTAX_TBP_ROWS (visible board rows in the snapshot: 40 default since W7, or 20),
  *      ATTAX_TBP_PROFILE ("s2" selects the S2 rules profile; default "guideline").
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
@@ -43,12 +43,13 @@ import type { SearchInput } from "../tools/s2-lab/state.js";
 
 const LOG = process.env.ATTAX_TBP_LOG;
 
-// Visible board rows in the bot's snapshot. 20 (default) is the published
-// guideline view: cells above TBP row 19 are not represented. 40 exposes the
-// full TBP board, for S2 hosts whose referee spawns pieces above row 20; the
-// spawn origin then follows the S2 spawn (see buildSearchInput()), not the 20-row
-// top edge.
-const FIELD_ROWS = process.env.ATTAX_TBP_ROWS === "40" ? 40 : 20;
+// Visible board rows in the bot's snapshot. 40 (the W7 default, landed
+// 2026-11-25) exposes the full TBP board: with 20 the engine played blind
+// whenever its stack grew past row 19. ATTAX_TBP_ROWS=20 restores the old
+// published guideline view (cells above TBP row 19 not represented). In
+// 40-row mode the spawn origin follows the S2 spawn (see
+// buildSearchInput()), not the 20-row top edge.
+const FIELD_ROWS = process.env.ATTAX_TBP_ROWS === "20" ? 20 : 40;
 const S2_PROFILE = process.env.ATTAX_TBP_PROFILE === "s2";
 
 type Kind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";

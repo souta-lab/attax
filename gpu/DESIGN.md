@@ -100,7 +100,7 @@ Formats (all pre-existing, gate-verified, magic-headed):
 
 ## 4. Tables generation caveat (correctness-critical)
 
-The gate passes only with PC-lineage tables (sha256 `07b87df1…`).
+The gate passes only with the pinned tables file (W7 lineage since 2026-11-25, sha256 `783225ab…`; previously PC-lineage `07b87df1…`).
 Regenerating tables with a different toolchain shifted 25 powi values by
 1 ULP and failed the gate (value-bits mismatches in the tens of
 thousands). Root cause, per the harness source: the powi terms must
