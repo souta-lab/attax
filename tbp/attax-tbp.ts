@@ -18,7 +18,8 @@
  * Host contract: the adapter tracks the piece queue from `start` and `new_piece`
  * messages only. A host must keep the queue non-empty whenever it sends `suggest`:
  * send `new_piece` as pieces are consumed (the usual TBP cadence), or resync with a
- * fresh `start`. Attax decides on the current piece plus up to five preview pieces, so
+ * fresh `start`. Attax decides on the current piece plus up to PREVIEW preview pieces
+ * (five by default; see ATTAX_TBP_PREVIEW below), so
  * longer queues are welcome but never required. If the queue does run dry, the adapter
  * answers `suggest` with an empty suggestion and stays alive — it never throws and
  * never exits on a host message; normal operation resumes on the next `start` or
@@ -27,7 +28,12 @@
  *
  * Env: ATTAX_TBP_LOG (optional JSONL decision log path),
  *      ATTAX_TBP_ROWS (visible board rows in the snapshot: 20 default, or 40),
- *      ATTAX_TBP_PROFILE ("s2" selects the S2 rules profile; default "guideline").
+ *      ATTAX_TBP_PROFILE ("s2" selects the S2 rules profile; default "guideline"),
+ *      ATTAX_TBP_PREVIEW (preview pieces fed to the search: default
+ *      BOT_DEFAULTS.preview = 5, i.e. a 6-piece horizon; an integer 0..13
+ *      overrides it, up to the decision record's 13 preview slots = a
+ *      14-piece horizon. Only pieces the host actually sent are used —
+ *      a shorter host queue simply yields a shorter horizon).
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -50,6 +56,24 @@ const LOG = process.env.ATTAX_TBP_LOG;
 // top edge.
 const FIELD_ROWS = process.env.ATTAX_TBP_ROWS === "40" ? 40 : 20;
 const S2_PROFILE = process.env.ATTAX_TBP_PROFILE === "s2";
+
+// Search horizon, in preview pieces after the current one. The shipped
+// default (BOT_DEFAULTS.preview = 5) gives a 6-piece horizon; Hoiko's
+// horizon is 14 pieces (attax-hoiko-night conclusion, lanechat #8403 /
+// #8485). The decision record already carries 13 preview slots
+// (gpu-codec.ts: seq_len = 1 + preview, preview > 13 is rejected), so
+// ATTAX_TBP_PREVIEW can raise the horizon to 14 pieces with no wire or
+// engine change. Unset, non-integer, or out-of-range values keep the
+// shipped default, so an unset env is bit-identical to before.
+const MAX_PREVIEW = 13;
+function resolvePreview(): number {
+  const raw = process.env.ATTAX_TBP_PREVIEW;
+  if (raw === undefined) return BOT_DEFAULTS.preview;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < 0 || n > MAX_PREVIEW) return BOT_DEFAULTS.preview;
+  return n;
+}
+const PREVIEW = resolvePreview();
 
 type Kind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 type Spin = "none" | "mini" | "full";
@@ -410,7 +434,7 @@ function buildSearchInput(): SearchInput | null {
     },
     hold,
     canHold: true,
-    preview: queue.slice(1, 1 + BOT_DEFAULTS.preview),
+    preview: queue.slice(1, 1 + PREVIEW),
     b2b,
     b2bChain: b2b ? 1 : 0,
     combo: combo - 1, // Attax: -1 = no chain, 0 = first clear
