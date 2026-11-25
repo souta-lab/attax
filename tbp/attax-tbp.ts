@@ -34,6 +34,12 @@
  *      overrides it, up to the decision record's 13 preview slots = a
  *      14-piece horizon. Only pieces the host actually sent are used —
  *      a shorter host queue simply yields a shorter horizon).
+ *      ATTAX_TBP_BAG_FILL ("1" pads a short host queue up to PREVIEW with
+ *      a deterministic 7-bag continuation — the current bag's remaining
+ *      pieces in canonical order, then whole bags; see bag-tracker.ts.
+ *      Modelled from `start`/`new_piece` traffic only, the same public
+ *      information Hoiko's NextState replica uses. Default off: the
+ *      preview is then exactly the host-sent pieces, bit-identical).
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -46,6 +52,7 @@ import { BOT_DEFAULTS } from "../tools/s2-lab/defaults.js";
 import { encodeDecisionRecordBytes, parseServeBlock } from "../tools/s2-lab/gpu-codec.js";
 import { PINNED_TABLES_SHA256 } from "../tools/s2-lab/gpu-player.js";
 import type { SearchInput } from "../tools/s2-lab/state.js";
+import { BagTracker } from "./bag-tracker.js";
 
 const LOG = process.env.ATTAX_TBP_LOG;
 
@@ -75,6 +82,14 @@ function resolvePreview(): number {
   return n;
 }
 const PREVIEW = resolvePreview();
+
+// Deterministic 7-bag continuation (see bag-tracker.ts). Only "1" enables
+// it; anything else leaves the tracker untouched and the preview exactly
+// the host-sent pieces.
+const BAG_FILL = process.env.ATTAX_TBP_BAG_FILL === "1";
+const bagTracker = new BagTracker();
+let started = false;
+let stopSeen = false;
 
 type Kind = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 type Spin = "none" | "mini" | "full";
@@ -381,13 +396,20 @@ function setBoard(board: (string | null)[][]) {
   );
 }
 
+/** Queue head consumption, mirrored into the bag tracker when enabled. */
+function shiftQueue(): Kind | undefined {
+  const head = queue.shift();
+  if (head !== undefined && BAG_FILL) bagTracker.noteConsumed();
+  return head;
+}
+
 function applyPlay(mv: TbpMove) {
   const kind = mv.location.type;
-  const current = queue.shift();
+  const current = shiftQueue();
   if (kind !== current) {
     const prevHold = hold;
     hold = current ?? null;
-    if (prevHold === null) queue.shift();
+    if (prevHold === null) shiftQueue();
   }
   const offs = CC_CELLS[kind].map((c) => rotateCell(mv.location.orientation, c));
   for (const [dx, dy] of offs) {
@@ -425,6 +447,15 @@ function buildSearchInput(): SearchInput | null {
   // 40-row mode: the S2 spawn puts the piece's lowest cell at TBP row 21,
   // which is grid row FIELD_ROWS - 22, so the origin sits maxY above it.
   const posY = FIELD_ROWS > 20 ? FIELD_ROWS - 22 - maxY : -minY;
+  // With BAG_FILL, pad a short host queue up to PREVIEW from the 7-bag
+  // model so the search horizon reaches 1 + PREVIEW pieces (seq_len 14
+  // at PREVIEW = 13). Off, or when the host already sent enough pieces,
+  // the preview is exactly the host-sent slice.
+  let preview = queue.slice(1, 1 + PREVIEW);
+  if (BAG_FILL && preview.length < PREVIEW) {
+    const extended = [...queue, ...bagTracker.continuation(PREVIEW + 1 - queue.length)];
+    preview = extended.slice(1, 1 + PREVIEW);
+  }
   return {
     board,
     active: {
@@ -435,7 +466,7 @@ function buildSearchInput(): SearchInput | null {
     },
     hold,
     canHold: true,
-    preview: queue.slice(1, 1 + PREVIEW),
+    preview,
     b2b,
     b2bChain: b2b ? 1 : 0,
     combo: combo - 1, // Attax: -1 = no chain, 0 = first clear
@@ -546,17 +577,35 @@ for await (const line of console) {
         hold = (msg.hold as Kind | null) ?? null;
         combo = (msg.combo as number) ?? 0;
         b2b = !!msg.back_to_back;
+        if (BAG_FILL) {
+          // A start preceded by stop is the referee's garbage resync and
+          // must keep the bag phase; a fresh-looking start with no stop
+          // before it begins a new match (hoiko-tbp.ts pattern).
+          const freshStart =
+            (msg.board as (string | null)[][]).every((row) =>
+              (row ?? []).every((c) => c === null || c === undefined),
+            ) &&
+            hold === null &&
+            combo === 0 &&
+            !b2b;
+          if (!started || (freshStart && !stopSeen)) bagTracker.startFresh(queue);
+          else bagTracker.startResync(queue);
+          started = true;
+          stopSeen = false;
+        }
         break;
       case "play":
         applyPlay(msg.move as TbpMove);
         break;
       case "new_piece":
         queue.push(msg.piece as Kind);
+        if (BAG_FILL) bagTracker.noteNewPiece(msg.piece as Kind);
         break;
       case "suggest":
         await suggest();
         break;
       case "stop":
+        if (BAG_FILL) stopSeen = true;
         break;
       case "quit":
         gpuServer.close();
