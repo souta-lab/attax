@@ -93,28 +93,24 @@ float value = acc + (sScale * tabf(168)) * (dot + b2bState + phiEx + setupNear);
 
 ## SPV rebuild status
 
-**Not rebuilt on this VM.** `gpu/shaders/pfl_r15_serve.spv` and
-`gpu/shaders/MANIFEST.sha256` are unchanged from W7, so the vendored SPV
-does **not** yet contain the mechanism. Reason: no shader compiler is
-available in this environment (`glslangValidator` / `glslc` absent from
-PATH and from the VM image; the apt package `glslang-tools` was not
-locatable in the configured repositories). The `.comp` source and its
-generator are the deliverable here; the rebuild must happen where the
-persistent shaders are normally compiled (PC), following
-`persistent/README.md`:
+**Rebuilt on this VM** (follow-up commit after the first push: the apt
+install of `glslang-tools` completed late, and a glslang 16.6.0
+validator was then found in the VM's local tooling at
+`~/.local/glslang/bin/glslangValidator`). Recipe, proven before use:
+recompiling the **W7** `.comp` with
+`glslangValidator -V --target-env vulkan1.2 -DPROD_MODE=1` (16.6.0)
+reproduces the shipped W7 SPV **byte-for-byte** (sha256 `b24bfd3f…`),
+so the toolchain and flags match the original build; `-DPROD_MODE=0`
+and `=1` give identical output for this kernel. The apt glslang 15.1.0
+does NOT reproduce the shipped bytes and was not used.
 
-```sh
-cd persistent
-python3 gen_r15_serve.py   # already run; .comp is committed
-glslangValidator -V --target-env vulkan1.2 -DPROD_MODE=1 \
-  -o ../gpu/shaders/pfl_r15_serve.spv pfl_r15_serve.comp
-# then refresh gpu/shaders/MANIFEST.sha256 for pfl_r15_serve.spv and
-# re-run the GPU equivalence gate before any bench or promotion.
-```
-
-Until that rebuild + gate, this branch must not be benched: the lab
-driver would run the W7 SPV with W8 tables (slot 172 ignored by the old
-kernel — harmless but not W8).
+- New `gpu/shaders/pfl_r15_serve.spv` sha256:
+  `9ade4f5d46d8fc6c84d9441395daa2721ba1a503da0af583f3235919ec30eef7`
+  (398,668 bytes; W7 was 394,744).
+- `gpu/shaders/MANIFEST.sha256` updated for this one file;
+  `sha256sum -c MANIFEST.sha256` passes for the whole manifest.
+- The GPU equivalence gate itself is still **not run** — it needs a
+  real Vulkan device (PC), as recorded for W7. No bench until it passes.
 
 ## Desk estimates ([見積], no measurement)
 
@@ -147,5 +143,9 @@ kernel — harmless but not W8).
 - `bun run lint` — pass (biome, 138 files).
 - `bun run build` — pass; `dist/` restored afterwards
   (`git checkout -- dist && git clean -fdq dist`).
-- GPU equivalence gate / SPV rebuild — NOT run (see SPV status above);
-  both need the PC/Vulkan window, as recorded for W7.
+- SPV rebuild — done on this VM with the byte-proven glslang 16.6.0
+  recipe (see SPV status above); manifest check passes.
+- GPU equivalence gate — NOT run; it needs the PC/Vulkan window, as
+  recorded for W7. (`bash gpu/build.sh` on this VM passes its shader
+  manifest verification, then stops at the host compile: no Vulkan
+  headers in the VM image — a PC-side step, unchanged from W7.)
