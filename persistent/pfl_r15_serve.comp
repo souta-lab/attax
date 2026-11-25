@@ -532,6 +532,29 @@ int best_tslot32(uint c[10], int len) {
     }
     return best;
 }
+// W8 setup value: 1 when a T-slot shape is exactly ONE added cell away
+// from a complete best_tslot32 slot, else 0 (see gen_r15_serve.py step 6b).
+int near_tslot32(uint c[10], int len) {
+    for (int x = 1; x < 9; x++) {
+        int hx = height_of32(c[x]);
+        if (hx > len - 3) continue;
+        int defects = 0;
+        if (((c[x - 1] >> uint(hx)) & 1u) == 0u) defects += 1;
+        if (((c[x + 1] >> uint(hx)) & 1u) == 0u) defects += 1;
+        int f = hx + 1;
+        if (((c[x - 1] >> uint(f)) & 1u) != 0u || ((c[x] >> uint(f)) & 1u) != 0u || ((c[x + 1] >> uint(f)) & 1u) != 0u) continue;
+        bool lr = ((c[x - 1] >> uint(hx + 2)) & 1u) != 0u;
+        bool rr = ((c[x + 1] >> uint(hx + 2)) & 1u) != 0u;
+        if (lr && rr) continue;
+        if (!lr && !rr) defects += 1;
+        else {
+            int open_side = lr ? x + 1 : x - 1;
+            if (height_of32(c[open_side]) > hx + 2) continue;
+        }
+        if (defects == 1) return 1;
+    }
+    return 0;
+}
 int hole_cover_col_m(uint64_t c, int m) {
     if (m == 0) return 0;
     int t0 = 0, t1 = 0, t2 = 0, t3 = 0;
@@ -2506,13 +2529,14 @@ void stageS1b(uint ply, uint nPlies) {
 
         float phiEx = (!isGL && tabf(177) != 0.0) ? stock_phi(dchain, combo, pending, feat_maxh, tslot, wellDepth, sMult) : 0.0;
         float b2bState = (!isGL && tabf(171) != 0.0 && dchain >= 1) ? tabf(171) : 0.0;
+        float setupNear = (tabf(172) != 0.0 && tslot == 0) ? float(near_tslot32(c32, len)) * tabf(172) : 0.0;
         float dot = float(feat_maxh) * tabf(145) + float(danger) * tabf(146)
             + float(holes) * tabf(147) + float(holeCover) * tabf(148)
             + float(holeRows) * tabf(149) + float(bump) * tabf(150)
             + float(bumpSq) * tabf(151) + float(rt) * tabf(152)
             + float(wellDepth) * tabf(153) + float(extraWells) * tabf(154)
             + float(tslot) * tabf(155);
-        float value = acc + (sScale * tabf(168)) * (dot + b2bState + phiEx);
+        float value = acc + (sScale * tabf(168)) * (dot + b2bState + phiEx + setupNear);
         uint vbits = (value == 0.0) ? 0u : floatBitsToUint(value);
         uint vord32 = (vbits >> 31) != 0u ? ~vbits : (vbits | 0x80000000u);
         uint childDepth = uint(sDepth + 1);

@@ -120,7 +120,7 @@ python3 gen_r7cons.py                # -> pfl_r7c1.comp       (sha256 adc2d9a669
 python3 gen_r11.py                   # -> pfl_r11.comp        (sha256 c1d44823b17f…)
 python3 gen_r13_sub1ms.py            # -> pfl_r13_sub1ms.comp (sha256 090f1044bf19…)
 python3 gen_r14_sub800.py            # -> pfl_r14_sub800.comp (sha256 c221180bf44c…)
-python3 gen_r15_serve.py             # -> pfl_r15_serve.comp  (sha256 591295e636d0…)
+python3 gen_r15_serve.py             # -> pfl_r15_serve.comp  (sha256 99a7f98da0ae…; W8 near-T-slot step 6b, 2026-11-25)
 ```
 
 注意: `gen_r13_sub1ms.py` の入力は監査済み r11 の内容（sha256
@@ -182,8 +182,8 @@ cmp /tmp/sel_r13_prod.bin /tmp/sel_r14_w32.bin && echo "WAVE32 == WAVE64 BIT-IDE
 ## sha256
 
 ```
-591295e636d0f26efeb016d9ceccba3b98f9898fef9aabd206665782ba4e7fea  pfl_r15_serve.comp
-ae48b932cab486769823e424b354b048cd16af98c105912e6ca2dab81d2550db  gen_r15_serve.py
+99a7f98da0ae5a61db58b69982afde29dc7c14ece1803ca2c20a95428f1f5327  pfl_r15_serve.comp
+679a42450e8a49af36504b865e33b0621e0251aa7eb923fb3fb868a49f73f6f4  gen_r15_serve.py
 8dba539faf12327cf591f45dfaae754ca510b437eabb852f5cdce66dbdded7da  pfserve.c
 c221180bf44ca2d6745431200ce2c60db29d5207ca13cf1e7fdc149c829074db  pfl_r14_sub800.comp
 eeedc77d86ac4a2df30e21d5c7d29b901a8b4d7dcceefb02eca31564e8110a4b  gen_r14_sub800.py

@@ -765,6 +765,68 @@ void stageS1b(uint ply, uint nPlies) {
     # 7. Update prodSelectTop96: childBase = 0u (coff is already 0..nch-1)
     s = replace_once(s, "  uint childBase = plyCB(ply);", "  uint childBase = 0u;", "sel_cb0")
 
+    # 6b. W8 setup value (2026-11-25, lane attax-w8-impl): near-T-slot credit.
+    # Insert the near_tslot32 detector right after best_tslot32. It counts
+    # defects against the complete-slot conditions of best_tslot32: one
+    # missing lower corner cell, or the missing overhang (neither roof cell
+    # at hx+2), is exactly one added cell away from a complete slot.
+    # Anything an added cell cannot fix (filled flat-row cell, both roofs
+    # present, blocked open side) disqualifies the candidate. A complete
+    # slot has 0 defects and is not near (already paid by tabf(155)).
+    old_tslot_end = """        if (lines > best) best = lines;
+    }
+    return best;
+}
+int hole_cover_col_m(uint64_t c, int m) {"""
+    new_tslot_end = """        if (lines > best) best = lines;
+    }
+    return best;
+}
+// W8 setup value: 1 when a T-slot shape is exactly ONE added cell away
+// from a complete best_tslot32 slot, else 0 (see gen_r15_serve.py step 6b).
+int near_tslot32(uint c[10], int len) {
+    for (int x = 1; x < 9; x++) {
+        int hx = height_of32(c[x]);
+        if (hx > len - 3) continue;
+        int defects = 0;
+        if (((c[x - 1] >> uint(hx)) & 1u) == 0u) defects += 1;
+        if (((c[x + 1] >> uint(hx)) & 1u) == 0u) defects += 1;
+        int f = hx + 1;
+        if (((c[x - 1] >> uint(f)) & 1u) != 0u || ((c[x] >> uint(f)) & 1u) != 0u || ((c[x + 1] >> uint(f)) & 1u) != 0u) continue;
+        bool lr = ((c[x - 1] >> uint(hx + 2)) & 1u) != 0u;
+        bool rr = ((c[x + 1] >> uint(hx + 2)) & 1u) != 0u;
+        if (lr && rr) continue;
+        if (!lr && !rr) defects += 1;
+        else {
+            int open_side = lr ? x + 1 : x - 1;
+            if (height_of32(c[open_side]) > hx + 2) continue;
+        }
+        if (defects == 1) return 1;
+    }
+    return 0;
+}
+int hole_cover_col_m(uint64_t c, int m) {"""
+    s = replace_once(s, old_tslot_end, new_tslot_end, "w8_near_tslot_fn")
+
+    # Wire the credit into the leaf value, gated by the spare tables slot
+    # tabf(172): at 0.0 the scan is skipped (ternary) and the added term is
+    # exactly 0.0, so the W7 lineage stays bit-identical with the flag off.
+    # Both profiles pay it, like the tslot term in dot (tabf(155)); the
+    # caller-side tslot == 0 gate keeps it disjoint from the complete slot.
+    s = replace_once(
+        s,
+        "        float b2bState = (!isGL && tabf(171) != 0.0 && dchain >= 1) ? tabf(171) : 0.0;",
+        "        float b2bState = (!isGL && tabf(171) != 0.0 && dchain >= 1) ? tabf(171) : 0.0;\n"
+        "        float setupNear = (tabf(172) != 0.0 && tslot == 0) ? float(near_tslot32(c32, len)) * tabf(172) : 0.0;",
+        "w8_setup_term",
+    )
+    s = replace_once(
+        s,
+        "        float value = acc + (sScale * tabf(168)) * (dot + b2bState + phiEx);",
+        "        float value = acc + (sScale * tabf(168)) * (dot + b2bState + phiEx + setupNear);",
+        "w8_setup_value",
+    )
+
     # 8. Replace matStage, stageS1, and main() with live search loop + final serve block writer
     old_tail = s[s.index("// ---- S4a: materialization"):]
     new_tail = """// ---- S4: Fused Materialization + Next-Ply PSTATE Instance Builder (ALL 96 WGs in parallel! Zero gbar(B0a)!) ----

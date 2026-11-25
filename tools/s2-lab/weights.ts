@@ -55,6 +55,13 @@ export interface Weights {
   readonly miniSingleDelta?: number;
   readonly miniDoubleDelta?: number;
   readonly miniTripleDelta?: number;
+  /**
+   * W8: terminal credit for a near-T-slot (one added cell from a complete
+   * T-slot; see features.ts nearTSlot). In the GPU kernel this is tables
+   * slot 172, NOT a board weight: 0 or absent = off, and the kernel skips
+   * the scan entirely so off is bit-identical to the W7 lineage.
+   */
+  readonly nearTSlot?: number;
 }
 
 export const DEFAULT_WEIGHTS: Weights = {
@@ -94,4 +101,5 @@ export const DEFAULT_WEIGHTS: Weights = {
   tSlotChain3: 0,
   holdT: 0,
   holdI: 0,
+  nearTSlot: 0,
 };

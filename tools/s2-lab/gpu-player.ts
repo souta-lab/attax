@@ -65,9 +65,9 @@ const REPO_ROOT = path.resolve(HERE, "../..");
 const GPU_DIR = path.join(REPO_ROOT, "gpu");
 const PERSISTENT_DIR = path.join(REPO_ROOT, "persistent");
 
-/** sha256 of the pinned evaluation tables (W7 lineage, landed 2026-11-25; gpu/README.md). */
+/** sha256 of the pinned evaluation tables (W8 lineage on feat/w8-setup-value, 2026-11-25; gpu/README.md). */
 export const PINNED_TABLES_SHA256 =
-  "783225aba27efffb524d812fedc79655a44353e91525981d07e9b24d69dcc39e";
+  "3c8fa328f0ffc892547f587b97e4043c4c33fba56636878c8bbfc13277cfacb3";
 
 /** The fixed environment the step-26 host configuration is gated under. */
 const SERVE_ENV = {

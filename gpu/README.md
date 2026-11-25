@@ -137,10 +137,16 @@ cmp_results.py res.bin <results-s2.bin>      # must print IDENTICAL
 ```
 
 The evaluation tables **are** vendored here: `gpu/tables.bin`, the pinned
-W7 file, sha256
+W8 file, sha256
+`3c8fa328f0ffc892547f587b97e4043c4c33fba56636878c8bbfc13277cfacb3`
+(1,448 bytes; the W8 variant on feat/w8-setup-value, 2026-11-25 — see
+W8-SETUP-VALUE-2026-11-25.md. It derives from the W7 file, sha256
 `783225aba27efffb524d812fedc79655a44353e91525981d07e9b24d69dcc39e`
 (1,448 bytes; the W7 configuration landed 2026-11-25 on feat/w7-landing —
-see W7-LANDING-2026-11-25.md. It derives from the previous pinned
+see W7-LANDING-2026-11-25.md), by exactly one index delta: the previously
+unused slot 172 goes 0.0 -> 75.0, the gate weight of the W8 near-T-slot
+setup credit (0.0 restores the W7 file byte-for-byte in that slot and
+disables the mechanism). The W7 file derives from the previous pinned
 PC-lineage file, sha256
 `07b87df1819985e8c49ee09b826d7906b089711296722c3a6924578e0f95f5e9`
 (1,448 bytes; copied from the PC gate-data set 2026-11-19 with the hash
