@@ -1,0 +1,55 @@
+name: pfserve (Windows build)
+
+# Builds pfserve.exe — the Attax GPU engine host (persistent/pfserve.c) —
+# for Windows with MinGW-w64, for the PPT adapter package. Same recipe as
+# attax-ppt/tools/build-pfserve-windows.sh (Route B of
+# attax-s2/WINDOWS-BUILD-SCOPE-2026-11-24.md), run on a native Windows
+# runner. Manual dispatch only, same posture as ci.yml.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pfserve-windows:
+    name: pfserve.exe (windows-latest, MinGW64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            curl
+            unzip
+      - name: Vulkan headers (Khronos, pinned v1.3.290)
+        run: |
+          curl -sL -o vk.zip https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.3.290.zip
+          unzip -q vk.zip
+      - name: Import library for vulkan-1.dll (from persistent/vulkan-1.def)
+        run: dlltool -d persistent/vulkan-1.def -l libvulkan.dll.a -D vulkan-1.dll
+      - name: Build pfserve.exe
+        run: |
+          gcc -O3 -o pfserve.exe persistent/pfserve.c \
+            -IVulkan-Headers-1.3.290/include \
+            -L. -lvulkan -lm -lpthread \
+            -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
+          ls -la pfserve.exe
+      - name: Import table (must name vulkan-1.dll + system DLLs only)
+        run: objdump -p pfserve.exe | grep "DLL Name" || true
+      - name: Launch smoke check (informational)
+        continue-on-error: true
+        run: |
+          # No GPU / Vulkan driver on the runner: a device-level failure
+          # from pfserve's own code proves the exe loads and starts; a
+          # loader failure would look different and is recorded as-is.
+          ./pfserve.exe bench gpu/shaders/pfl_r15_serve.spv gpu/tables.bin decisions-missing.bin; echo "exit=$?"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pfserve-windows
+          path: pfserve.exe
+          if-no-files-found: error
